@@ -56,6 +56,11 @@ export default {
   skCarousel: (accountId, imageUrls, caption, { category = '', products = [] } = {}) =>
     http.post('/sk/carousel', { account_id: Number(accountId), image_urls: imageUrls, caption, category, products }).then(data),
 
+  // Business-SK — render the Still Set designed slides for a set of products WITHOUT posting.
+  // Returns { images:[cdn urls], plan:[{tmpl,n}], count } — exactly what a real post will look like.
+  skRenderPreview: (products, { category = '', arc = 'auto', theme = '' } = {}) =>
+    http.post('/sk/render-preview', { products, category, arc, theme }).then(data),
+
   // Business-SK — public storefront (GitHub Pages): one Amazon-tagged page with all products.
   skStorefrontUrl: () => http.get('/sk/storefront/url').then(data),
   skPublishStorefront: () => http.post('/sk/storefront/publish').then(data),

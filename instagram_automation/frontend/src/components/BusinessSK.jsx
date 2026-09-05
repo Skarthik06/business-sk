@@ -398,11 +398,29 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry }) {
   const [idx, setIdx] = useState(0);
   const [showCap, setShowCap] = useState(false);
   const [showList, setShowList] = useState(false);
+  const [design, setDesign] = useState(null);        // rendered Still Set slide URLs (once previewed)
+  const [designing, setDesigning] = useState(false);
+  const [designErr, setDesignErr] = useState('');
+  const slides = design && design.length ? design : null;   // "design mode" once slides are rendered
+  const total = slides ? slides.length : pins.length;
   const cur = pins[idx] || {};
   const caption = (g.caption || '').trim() || buildCaption(g.label, pins);   // one caption for the carousel
   const hashtags = g.hashtags || [];
-  const go = (d) => setIdx((i) => (i + d + pins.length) % pins.length);
+  const go = (d) => setIdx((i) => (i + d + total) % total);
   const done = st.phase === 'done';
+
+  // Render the actual Still Set designed slides for THIS post's products (layout adapts to the
+  // number of products) — the same renderer the real post uses, so preview == final post.
+  const renderDesign = async () => {
+    setDesigning(true); setDesignErr('');
+    try {
+      const res = await api.skRenderPreview(pins, { category: g.category });
+      setDesign(res.images || []);
+      setIdx(0);
+    } catch (e) {
+      setDesignErr(e?.response?.data?.detail || e?.response?.data?.error?.message || e?.message || 'render failed');
+    } finally { setDesigning(false); }
+  };
 
   return (
     <div className={cx('ig-card', done && 'is-done', st.phase === 'failed' && 'is-fail')}>
@@ -419,25 +437,39 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry }) {
         {posting && <span className="prog-pill"><Spinner size={11} /> posting…</span>}
       </div>
 
-      {/* media (swipeable) */}
+      {/* media (swipeable) — shows the DESIGNED Still Set slides once previewed, else raw products */}
       <div className="ig-media">
-        {cur.image_url ? <img src={hiRes(cur.image_url)} alt="" loading="lazy" /> : <div className="ig-ph" />}
-        {pins.length > 1 && <>
+        {slides
+          ? <img src={slides[idx]} alt="" loading="lazy" />
+          : (cur.image_url ? <img src={hiRes(cur.image_url)} alt="" loading="lazy" /> : <div className="ig-ph" />)}
+        {total > 1 && <>
           <button className="ig-nav l" onClick={() => go(-1)} aria-label="prev">‹</button>
           <button className="ig-nav r" onClick={() => go(1)} aria-label="next">›</button>
-          <span className="ig-idx">{idx + 1}/{pins.length}</span>
-          <div className="ig-dots">{pins.map((_, i) => <span key={i} className={cx('d', i === idx && 'on')} />)}</div>
+          <span className="ig-idx">{idx + 1}/{total}</span>
+          <div className="ig-dots">{Array.from({ length: total }).map((_, i) => <span key={i} className={cx('d', i === idx && 'on')} />)}</div>
         </>}
-        {cur.tier && <span className={cx('tier-badge', 'tier-' + cur.tier)}>{cur.tier} · {cur.content_score}</span>}
+        {slides && <span className="ig-idx" style={{ left: 8, right: 'auto', background: 'var(--accent)', color: '#111', fontWeight: 700 }}>DESIGNED</span>}
+        {!slides && cur.tier && <span className={cx('tier-badge', 'tier-' + cur.tier)}>{cur.tier} · {cur.content_score}</span>}
       </div>
 
-      {/* current product line */}
-      <div className="ig-info">
+      {/* preview the actual template design (adapts to product count) — preview == what posts */}
+      <div className="ig-designbar" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', flexWrap: 'wrap' }}>
+        {!slides
+          ? <button className="btn btn-sm" onClick={renderDesign} disabled={designing || !pins.length}>
+              {designing ? <><Spinner size={12} /> Rendering template…</> : <><Icon name="pin" size={13} /> Preview post design</>}
+            </button>
+          : <button className="btn btn-sm btn-ghost" onClick={() => { setDesign(null); setIdx(0); }}>Show products</button>}
+        {slides && <span className="text-xs" style={{ color: 'var(--faint)' }}>Preview = exactly what posts · {total} slides</span>}
+        {designErr && <span className="text-xs" style={{ color: '#f85149' }}>{designErr}</span>}
+      </div>
+
+      {/* current product line (raw view only — designed slides already show the details) */}
+      {!slides && <div className="ig-info">
         <b>{cur.price}</b>
         {cur.orig_price && <span style={{ textDecoration: 'line-through', color: 'var(--faint)', fontSize: 12 }}>{cur.orig_price}</span>}
         {cur.discount_pct != null && <span style={{ color: '#3fb950', fontSize: 12 }}>-{cur.discount_pct}%</span>}
         <span className="ig-title">{(cur.product_title || cur.title || '').slice(0, 60)}</span>
-      </div>
+      </div>}
 
       {/* ONE universal caption for the whole carousel (exactly what gets posted) */}
       <div className="ig-cap">
