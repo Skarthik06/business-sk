@@ -75,6 +75,8 @@
   footer{margin-top:26px;text-align:center;color:var(--muted);font-size:12px}
   .login-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;
     justify-content:center;z-index:100;padding:20px}
+  /* the class sets display:flex, which would override the UA [hidden] rule — so hide explicitly */
+  .login-overlay[hidden]{display:none}
   .login-box{background:var(--panel);border:1px solid var(--line);border-radius:16px;
     box-shadow:var(--shadow);padding:28px;width:100%;max-width:360px}
   .login-box .logo{margin-bottom:6px}
