@@ -25,12 +25,26 @@ class RefreshReq(BaseModel):
     refresh_token: str
 
 
+class GoogleReq(BaseModel):
+    credential: str
+
+
 @router.post("/login")
 def admin_login(body: LoginReq):
     tokens = auth.login(body.username, body.password)
     if not tokens:
         raise HTTPException(401, "Invalid administrator credentials")
     store.audit("ADMIN_LOGIN", "admin", "admin")
+    return {"success": True, **tokens, "admin": {"id": "admin", "name": "Administrator"}}
+
+
+@router.post("/google")
+def admin_login_google(body: GoogleReq):
+    """Primary login: verify a Google ID token and admit only allow-listed accounts."""
+    tokens = auth.login_google(body.credential)
+    if not tokens:
+        raise HTTPException(401, "This Google account is not authorized")
+    store.audit("ADMIN_LOGIN_GOOGLE", "admin", "admin")
     return {"success": True, **tokens, "admin": {"id": "admin", "name": "Administrator"}}
 
 

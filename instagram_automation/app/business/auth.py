@@ -13,6 +13,8 @@ import json
 import os
 import secrets
 import time
+import urllib.parse
+import urllib.request
 from typing import Any, Dict, Optional
 
 from app import settings
@@ -72,6 +74,35 @@ def login(username: str, password: str) -> Optional[Dict[str, str]]:
         return {"access_token": _make("access", _ACCESS_TTL),
                 "refresh_token": _make("refresh", _REFRESH_TTL)}
     return None
+
+
+def login_google(credential: Optional[str]) -> Optional[Dict[str, str]]:
+    """Verify a Google ID token (the credential from the 'Sign in with Google' button)
+    and issue our session ONLY if the account is allow-listed. Verification is done by
+    Google's tokeninfo endpoint (validates signature + expiry), then we enforce audience,
+    issuer, verified email, and the GOOGLE_ALLOWED_EMAILS allowlist. Stdlib only."""
+    if not credential:
+        return None
+    try:
+        url = "https://oauth2.googleapis.com/tokeninfo?" + urllib.parse.urlencode(
+            {"id_token": credential})
+        with urllib.request.urlopen(url, timeout=10) as resp:   # noqa: S310 (fixed https host)
+            claims = json.loads(resp.read())
+    except Exception:  # noqa: BLE001 — any failure = reject
+        return None
+    # audience must be OUR client id (prevents tokens minted for other apps)
+    if settings.GOOGLE_CLIENT_ID and claims.get("aud") != settings.GOOGLE_CLIENT_ID:
+        return None
+    if claims.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+        return None
+    if str(claims.get("email_verified")).lower() != "true":
+        return None
+    email = (claims.get("email") or "").strip().lower()
+    allowed = [e.strip().lower() for e in (settings.GOOGLE_ALLOWED_EMAILS or "").split(",") if e.strip()]
+    if not allowed or email not in allowed:      # fail-closed: no allowlist => nobody in
+        return None
+    return {"access_token": _make("access", _ACCESS_TTL),
+            "refresh_token": _make("refresh", _REFRESH_TTL)}
 
 
 def refresh(refresh_token: str) -> Optional[Dict[str, str]]:

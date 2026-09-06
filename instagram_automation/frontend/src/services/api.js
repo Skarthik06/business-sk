@@ -29,6 +29,7 @@ http.interceptors.response.use(
 export default {
   // single-admin auth
   adminLogin: (username, password) => http.post('/v1/admin/login', { username, password }).then(data),
+  adminGoogle: (credential) => http.post('/v1/admin/google', { credential }).then(data),
   adminMe: () => http.get('/v1/admin/me').then(data),
   adminLogout: () => http.post('/v1/admin/logout').then(data).catch(() => {}),
   adminAudit: (limit = 100) => http.get('/v1/admin/audit', { params: { limit } }).then(data),

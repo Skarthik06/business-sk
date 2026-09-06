@@ -92,6 +92,9 @@ services:
     environment:
       VITE_API_TARGET: http://backend:8000              # /api + /cdn → IG backend
       VITE_SK_API_TARGET: http://affiliate_backend:8100 # /sk-api → affiliate (Business-SK) API
+      # Google OAuth Client ID is PUBLIC (safe in the browser). Restriction is enforced
+      # server-side via GOOGLE_ALLOWED_EMAILS. Add your prod domain to the OAuth client later.
+      VITE_GOOGLE_CLIENT_ID: 506193542177-72noi6toj3d0vt5pp1h7tgtjtats8smi.apps.googleusercontent.com
       CHOKIDAR_USEPOLLING: "1"
     volumes:
       - ./instagram_automation/frontend:/app

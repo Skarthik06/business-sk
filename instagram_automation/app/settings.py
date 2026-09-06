@@ -87,3 +87,9 @@ ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin").strip()
 # Token-signing secret. If unset, derived deterministically from the password so
 # tokens stay valid across restarts without persisting a file.
 ADMIN_SECRET = os.getenv("ADMIN_SECRET", "").strip()
+
+# ---- Google sign-in (primary login) --------------------------------------
+# The Google OAuth *Client ID* is public (safe in the browser). Only accounts
+# whose verified email is in GOOGLE_ALLOWED_EMAILS may sign in.
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+GOOGLE_ALLOWED_EMAILS = os.getenv("GOOGLE_ALLOWED_EMAILS", "").strip()

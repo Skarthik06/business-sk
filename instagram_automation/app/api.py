@@ -73,7 +73,7 @@ _V1_CODES = {400: "BAD_REQUEST", 401: "AUTH_REQUIRED", 404: "NOT_FOUND",
 # ---- Single-admin gate: every /api/* route requires a valid admin token,
 # except health + the public login/refresh endpoints. (/cdn images stay open so
 # the browser can load rendered slides.)  ADMIN-ONLY architecture.
-_OPEN_PATHS = {"/api/health", "/api/v1/admin/login", "/api/v1/admin/refresh"}
+_OPEN_PATHS = {"/api/health", "/api/v1/admin/login", "/api/v1/admin/google", "/api/v1/admin/refresh"}
 
 
 @app.middleware("http")
