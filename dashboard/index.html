@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Business-SK · Live Monitor</title>
+<style>
+  :root{
+    --bg:#f6f7f9; --panel:#ffffff; --ink:#0f1115; --muted:#5b6472; --line:#e6e8ec;
+    --brand:#6d5efc; --brand2:#00b3a4; --ok:#12a150; --warn:#c98a00; --bad:#e5484d;
+    --chip:#eef0f4; --shadow:0 1px 3px rgba(15,17,21,.06),0 8px 24px rgba(15,17,21,.05);
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0c0e12; --panel:#14171d; --ink:#eef1f6; --muted:#9aa4b2; --line:#232833;
+      --brand:#8c7dff; --brand2:#2dd4bf; --ok:#3ecf8e; --warn:#e2b23c; --bad:#ff6b6f;
+      --chip:#1c212b; --shadow:0 1px 3px rgba(0,0,0,.4),0 10px 30px rgba(0,0,0,.35);
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  a{color:var(--brand)}
+  .wrap{max-width:1120px;margin:0 auto;padding:20px 18px 60px}
+  header{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:18px}
+  .logo{font-weight:800;font-size:20px;letter-spacing:-.02em;display:flex;align-items:center;gap:9px}
+  .logo .mark{width:26px;height:26px;border-radius:8px;
+    background:linear-gradient(135deg,var(--brand),var(--brand2));display:inline-block}
+  .live{display:inline-flex;align-items:center;gap:7px;font-weight:600;font-size:12.5px;
+    padding:5px 10px;border-radius:999px;background:var(--chip);color:var(--muted)}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+  .dot.on{background:var(--ok);box-shadow:0 0 0 0 rgba(62,207,142,.6);animation:p 1.8s infinite}
+  .dot.off{background:var(--bad)}
+  @keyframes p{0%{box-shadow:0 0 0 0 rgba(62,207,142,.5)}70%{box-shadow:0 0 0 7px rgba(62,207,142,0)}100%{box-shadow:0 0 0 0 rgba(62,207,142,0)}}
+  .spacer{flex:1}
+  .btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:9px;
+    padding:7px 12px;font-weight:600;cursor:pointer;font-size:13px}
+  .btn:hover{border-color:var(--brand)}
+  .meta{font-size:12px;color:var(--muted)}
+  .grid{display:grid;gap:14px}
+  .kpis{grid-template-columns:repeat(6,1fr)}
+  @media(max-width:860px){.kpis{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:520px){.kpis{grid-template-columns:repeat(2,1fr)}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    box-shadow:var(--shadow);padding:16px}
+  .kpi .n{font-size:26px;font-weight:800;letter-spacing:-.02em}
+  .kpi .l{font-size:12px;color:var(--muted);margin-top:2px;font-weight:600;
+    text-transform:uppercase;letter-spacing:.04em}
+  .cols{grid-template-columns:1.15fr .85fr}
+  @media(max-width:860px){.cols{grid-template-columns:1fr}}
+  h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);
+    margin:0 0 12px;font-weight:700}
+  .row{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}
+  .row:first-of-type{border-top:none}
+  .badge{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;white-space:nowrap}
+  .b-ok{background:rgba(62,207,142,.15);color:var(--ok)}
+  .b-bad{background:rgba(229,72,77,.15);color:var(--bad)}
+  .b-mut{background:var(--chip);color:var(--muted)}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;color:var(--muted)}
+  .truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+  .flex1{flex:1;min-width:0}
+  table{width:100%;border-collapse:collapse}
+  th,td{text-align:left;padding:8px 6px;border-top:1px solid var(--line);font-size:12.5px}
+  th{color:var(--muted);font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:.04em;border-top:none}
+  td.num{text-align:right;font-variant-numeric:tabular-nums}
+  .healthgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px}
+  .healthgrid .k{color:var(--muted)}
+  .healthgrid .v{font-weight:700;text-align:right}
+  .settings{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+  .settings input{border:1px solid var(--line);background:var(--bg);color:var(--ink);
+    border-radius:8px;padding:6px 9px;font-size:12.5px}
+  .settings input.url{flex:1;min-width:220px}
+  .err{color:var(--bad);font-weight:600}
+  .empty{color:var(--muted);padding:14px 0;text-align:center}
+  footer{margin-top:26px;text-align:center;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo"><span class="mark"></span> Business-SK <span class="meta" style="font-weight:600">Live Monitor</span></div>
+    <span class="live"><span id="dot" class="dot"></span><span id="livetxt">connecting…</span></span>
+    <div class="spacer"></div>
+    <span class="meta" id="updated">—</span>
+    <button class="btn" id="refresh">↻ Refresh</button>
+  </header>
+
+  <div id="banner"></div>
+
+  <div class="grid kpis" id="kpis"></div>
+
+  <div class="grid cols" style="margin-top:14px">
+    <div class="card">
+      <h2>Recent activity — comment → DM</h2>
+      <div id="events"><div class="empty">Loading…</div></div>
+    </div>
+    <div class="card">
+      <h2>Webhook health</h2>
+      <div id="health" class="healthgrid"></div>
+      <div class="settings">
+        <input class="url" id="apibase" placeholder="API base URL"/>
+        <input id="acct" style="width:70px" placeholder="acct"/>
+        <button class="btn" id="save">Save</button>
+      </div>
+      <div class="meta" style="margin-top:6px">Auto-refreshes every 20s. Data is live from your phone server.</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:14px">
+    <h2>Automations — per-post rules</h2>
+    <div style="overflow-x:auto"><table id="rules"><thead><tr>
+      <th>Rule</th><th>Post</th><th class="num">Runs</th><th class="num">Success</th><th class="num">Failed</th><th>Status</th>
+    </tr></thead><tbody></tbody></table></div>
+  </div>
+
+  <div class="grid cols" style="margin-top:14px">
+    <div class="card">
+      <h2>Leads</h2>
+      <div id="leads"><div class="empty">Loading…</div></div>
+    </div>
+    <div class="card">
+      <h2>Conversations</h2>
+      <div id="convos"><div class="empty">Loading…</div></div>
+    </div>
+  </div>
+
+  <footer>Business-SK · reads the live engagement API · hosted on GitHub Pages (free, 24/7)</footer>
+</div>
+
+<script>
+const LS='sk_monitor_cfg';
+const DEFAULTS={base:'https://late-squatting-confess.ngrok-free.dev', acct:'8'};
+let cfg=Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem(LS)||'{}'));
+
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function ago(ts){ if(!ts) return '—'; const d=new Date(ts); const s=(Date.now()-d.getTime())/1000;
+  if(s<60) return Math.max(0,Math.round(s))+'s ago'; if(s<3600) return Math.round(s/60)+'m ago';
+  if(s<86400) return Math.round(s/3600)+'h ago'; return Math.round(s/86400)+'d ago'; }
+async function get(path){
+  const r=await fetch(cfg.base.replace(/\/$/,'')+path,{headers:{'ngrok-skip-browser-warning':'1'}});
+  if(!r.ok) throw new Error('HTTP '+r.status+' on '+path);
+  return r.json();
+}
+
+function setLive(ok,txt){ const d=$('dot'); d.className='dot '+(ok?'on':'off'); $('livetxt').textContent=txt; }
+
+function kpi(n,l){ return `<div class="card kpi"><div class="n">${n}</div><div class="l">${l}</div></div>`; }
+
+function renderSummary(s){
+  $('kpis').innerHTML =
+    kpi(s.dms_sent??0,'DMs sent') + kpi(s.replies_sent??0,'Replies') +
+    kpi(s.leads??s.conversations??0,'Leads') + kpi(s.conversations??0,'Conversations') +
+    kpi(s.comments??0,'Comments') + kpi(s.active_rules??0,'Active rules');
+}
+function renderHealth(h){
+  const yes='<span class="badge b-ok">yes</span>', no='<span class="badge b-bad">no</span>';
+  const fields=(h.subscribed_fields||[]).join(', ')||'—';
+  $('health').innerHTML = [
+    ['Token valid', h.token_valid?yes:no],
+    ['Live sending', h.live_sending?yes:no],
+    ['Verify token', h.webhook_verify_configured?yes:no],
+    ['Signature check', h.signature_check_configured?yes:'<span class="badge b-mut">off</span>'],
+    ['Subscribed', '<span class="mono">'+esc(fields)+'</span>'],
+    ['Last event', ago(h.last_event_at)],
+  ].map(([k,v])=>`<div class="k">${k}</div><div class="v">${v}</div>`).join('');
+}
+function renderEvents(d){
+  const evs=(d.events||d||[]);
+  if(!evs.length){ $('events').innerHTML='<div class="empty">No events yet.</div>'; return; }
+  $('events').innerHTML = evs.slice(0,12).map(e=>{
+    const ok=e.status==='SUCCESS';
+    const b=ok?'<span class="badge b-ok">sent</span>':(e.status==='FAILED'?'<span class="badge b-bad">failed</span>':`<span class="badge b-mut">${esc(e.status)}</span>`);
+    return `<div class="row">
+      <div class="flex1"><div class="truncate">${esc(e.event_type||'').replace('_',' ').toLowerCase()}</div>
+      <div class="mono truncate">post ${esc(e.post_id||'—')}</div></div>
+      <div class="meta">${ago(e.received_at)}</div>${b}</div>`;
+  }).join('');
+}
+function renderRules(d){
+  const rows=(d.rules||[]).slice().sort((a,b)=>(b.executions||0)-(a.executions||0));
+  const tb=$('rules').querySelector('tbody');
+  if(!rows.length){ tb.innerHTML='<tr><td colspan="6" class="empty">No rules.</td></tr>'; return; }
+  tb.innerHTML=rows.map(r=>{
+    const st=r.enabled?'<span class="badge b-ok">on</span>':'<span class="badge b-mut">off</span>';
+    return `<tr><td>${esc(r.name||('rule '+r.id))}</td><td class="mono">${esc(r.post_id||'—')}</td>
+    <td class="num">${r.executions||0}</td><td class="num">${r.success||0}</td>
+    <td class="num">${r.failed||0}</td><td>${st}</td></tr>`;
+  }).join('');
+}
+function renderLeads(d){
+  const ls=(d.leads||d||[]);
+  if(!ls.length){ $('leads').innerHTML='<div class="empty">No leads yet.</div>'; return; }
+  $('leads').innerHTML=ls.slice(0,10).map(l=>`<div class="row">
+    <div class="flex1"><div class="truncate">${esc(l.username||l.name||('lead #'+(l.id||'')))}</div>
+    <div class="meta truncate">${esc(l.label||l.status||'')}</div></div>
+    <div class="meta">${ago(l.created_at||l.updated_at)}</div></div>`).join('');
+}
+function renderConvos(d){
+  const cs=(d.conversations||d||[]);
+  if(!cs.length){ $('convos').innerHTML='<div class="empty">No conversations yet.</div>'; return; }
+  $('convos').innerHTML=cs.slice(0,10).map(c=>`<div class="row">
+    <div class="flex1"><div class="truncate">${esc(c.username||c.participant||('conv #'+(c.id||'')))}</div>
+    <div class="meta truncate">${esc((c.last_message||c.preview||'').slice(0,60))}</div></div>
+    <div class="meta">${ago(c.last_message_at||c.updated_at)}</div></div>`).join('');
+}
+
+async function load(){
+  const a='?account_id='+encodeURIComponent(cfg.acct);
+  $('banner').innerHTML='';
+  try{
+    const [sum,health]=await Promise.all([get('/api/engagement/summary'+a), get('/api/engagement/webhook-status'+a)]);
+    setLive(true,'live'); renderSummary(sum); renderHealth(health);
+  }catch(e){
+    setLive(false,'offline');
+    $('banner').innerHTML=`<div class="card" style="border-color:var(--bad);margin-bottom:14px">
+      <span class="err">Can't reach the API.</span> ${esc(e.message)}.
+      Check the phone/ngrok is up, or fix the API base below.</div>`;
+  }
+  // secondary panels — independent, so one failure doesn't blank the rest
+  get('/api/engagement/events'+a+'&limit=12').then(renderEvents).catch(()=>{});
+  get('/api/engagement/automations/stats'+a).then(renderRules).catch(()=>{});
+  get('/api/engagement/leads'+a).then(renderLeads).catch(()=>{});
+  get('/api/engagement/conversations'+a).then(renderConvos).catch(()=>{});
+  $('updated').textContent='Updated '+new Date().toLocaleTimeString();
+}
+
+$('refresh').onclick=load;
+$('save').onclick=()=>{ cfg.base=$('apibase').value.trim()||DEFAULTS.base; cfg.acct=$('acct').value.trim()||'8';
+  localStorage.setItem(LS,JSON.stringify(cfg)); load(); };
+$('apibase').value=cfg.base; $('acct').value=cfg.acct;
+load();
+setInterval(load,20000);
+</script>
+</body>
+</html>
