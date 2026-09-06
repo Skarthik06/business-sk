@@ -23,7 +23,7 @@ from __future__ import annotations
 import os
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 
@@ -55,8 +55,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(engagement_router)
-app.include_router(webhook_router)
+# --- Auth gate for the engagement/monitoring API -------------------------------
+# The engagement endpoints expose leads/conversations/DM text AND have write actions
+# (send DM, edit automations). On the public phone URL they MUST require a secret key.
+# FAIL-CLOSED: if DASHBOARD_KEY isn't set, every engagement request is rejected. The
+# Meta webhook is NOT gated here (it's authenticated by Meta's signature instead), so
+# comment->DM keeps working regardless. The dashboard sends the key as X-Dashboard-Key.
+_DASH_KEY = os.getenv("DASHBOARD_KEY", "").strip()
+
+
+def require_key(x_dashboard_key: str = Header(default=""),
+                authorization: str = Header(default="")) -> None:
+    supplied = (x_dashboard_key or authorization.replace("Bearer ", "")).strip()
+    if not _DASH_KEY or supplied != _DASH_KEY:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
+app.include_router(engagement_router, dependencies=[Depends(require_key)])
+app.include_router(webhook_router)  # Meta-signed; not key-gated
 
 
 @app.get("/healthz")

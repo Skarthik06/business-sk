@@ -73,9 +73,26 @@
   .err{color:var(--bad);font-weight:600}
   .empty{color:var(--muted);padding:14px 0;text-align:center}
   footer{margin-top:26px;text-align:center;color:var(--muted);font-size:12px}
+  .login-overlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;
+    justify-content:center;z-index:100;padding:20px}
+  .login-box{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+    box-shadow:var(--shadow);padding:28px;width:100%;max-width:360px}
+  .login-box .logo{margin-bottom:6px}
+  .login-box input{width:100%;border:1px solid var(--line);background:var(--bg);color:var(--ink);
+    border-radius:10px;padding:11px 13px;font-size:14px;margin:12px 0 6px}
+  .login-box input:focus{outline:none;border-color:var(--brand)}
 </style>
 </head>
 <body>
+<div id="login" class="login-overlay" hidden>
+  <div class="login-box">
+    <div class="logo"><span class="mark"></span> Business-SK</div>
+    <p class="meta" style="margin:0">Enter your dashboard key to continue.</p>
+    <input type="password" id="loginkey" placeholder="Dashboard key" autocomplete="current-password"/>
+    <div id="loginerr" class="err" style="min-height:18px;font-size:12.5px"></div>
+    <button class="btn" id="loginbtn" style="width:100%;background:var(--brand);color:#fff;border-color:var(--brand)">Unlock</button>
+  </div>
+</div>
 <div class="wrap">
   <header>
     <div class="logo"><span class="mark"></span> Business-SK <span class="meta" style="font-weight:600">Live Monitor</span></div>
@@ -83,6 +100,7 @@
     <div class="spacer"></div>
     <span class="meta" id="updated">—</span>
     <button class="btn" id="refresh">↻ Refresh</button>
+    <button class="btn" id="logout">🔒 Lock</button>
   </header>
 
   <div id="banner"></div>
@@ -129,8 +147,9 @@
 
 <script>
 const LS='sk_monitor_cfg';
-const DEFAULTS={base:'https://late-squatting-confess.ngrok-free.dev', acct:'8'};
+const DEFAULTS={base:'https://late-squatting-confess.ngrok-free.dev', acct:'8', key:''};
 let cfg=Object.assign({}, DEFAULTS, JSON.parse(localStorage.getItem(LS)||'{}'));
+function saveCfg(){ localStorage.setItem(LS,JSON.stringify(cfg)); }
 
 const $=id=>document.getElementById(id);
 const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -138,10 +157,14 @@ function ago(ts){ if(!ts) return '—'; const d=new Date(ts); const s=(Date.now(
   if(s<60) return Math.max(0,Math.round(s))+'s ago'; if(s<3600) return Math.round(s/60)+'m ago';
   if(s<86400) return Math.round(s/3600)+'h ago'; return Math.round(s/86400)+'d ago'; }
 async function get(path){
-  const r=await fetch(cfg.base.replace(/\/$/,'')+path,{headers:{'ngrok-skip-browser-warning':'1'}});
+  const r=await fetch(cfg.base.replace(/\/$/,'')+path,
+    {headers:{'ngrok-skip-browser-warning':'1','X-Dashboard-Key':cfg.key||''}});
+  if(r.status===401){ showLogin('Wrong or missing key.'); throw new Error('unauthorized'); }
   if(!r.ok) throw new Error('HTTP '+r.status+' on '+path);
   return r.json();
 }
+function showLogin(msg){ $('login').hidden=false; if(msg) $('loginerr').textContent=msg; $('loginkey').focus(); }
+function hideLogin(){ $('login').hidden=true; $('loginerr').textContent=''; }
 
 function setLive(ok,txt){ const d=$('dot'); d.className='dot '+(ok?'on':'off'); $('livetxt').textContent=txt; }
 
@@ -226,11 +249,14 @@ async function load(){
 }
 
 $('refresh').onclick=load;
+$('logout').onclick=()=>{ cfg.key=''; saveCfg(); showLogin('Locked.'); };
 $('save').onclick=()=>{ cfg.base=$('apibase').value.trim()||DEFAULTS.base; cfg.acct=$('acct').value.trim()||'8';
-  localStorage.setItem(LS,JSON.stringify(cfg)); load(); };
+  saveCfg(); load(); };
+$('loginbtn').onclick=async()=>{ cfg.key=$('loginkey').value.trim(); saveCfg(); hideLogin(); await load(); };
+$('loginkey').addEventListener('keydown',e=>{ if(e.key==='Enter') $('loginbtn').click(); });
 $('apibase').value=cfg.base; $('acct').value=cfg.acct;
-load();
-setInterval(load,20000);
+if(cfg.key){ load(); } else { showLogin(); }
+setInterval(()=>{ if(cfg.key && $('login').hidden) load(); },20000);
 </script>
 </body>
 </html>
