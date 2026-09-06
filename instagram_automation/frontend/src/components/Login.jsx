@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import api, { TOKEN_KEY, REFRESH_KEY } from '../services/api';
 import { Icon, Spinner } from './ui';
+import Aurora from './reactbits/Aurora';
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || '';
 
@@ -53,6 +54,10 @@ export default function Login({ onAuthed }) {
   };
 
   return (
+    <>
+    <div style={{ position: 'fixed', inset: 0, zIndex: 0, opacity: 0.6, pointerEvents: 'none' }}>
+      <Aurora colorStops={['#f0a860', '#e8783a', '#7c5cff']} amplitude={1.0} blend={0.65} speed={0.7} />
+    </div>
     <div className="min-h-screen grid place-items-center px-5" style={{ position: 'relative', zIndex: 2 }}>
       <div className="w-full" style={{ maxWidth: 400 }}>
         <div className="flex items-center gap-2.5 mb-8 justify-center">
@@ -114,5 +119,6 @@ export default function Login({ onAuthed }) {
         </div>
       </div>
     </div>
+    </>
   );
 }
