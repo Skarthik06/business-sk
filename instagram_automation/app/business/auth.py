@@ -10,6 +10,7 @@ import base64
 import hashlib
 import hmac
 import json
+import os
 import secrets
 import time
 from typing import Any, Dict, Optional
@@ -20,11 +21,18 @@ _ACCESS_TTL = 12 * 3600          # 12 hours
 _REFRESH_TTL = 30 * 24 * 3600    # 30 days
 _REVOKED: set[str] = set()
 
+# A fresh random nonce generated ONCE per process start. It is mixed into the token
+# signing secret, so every previously-issued token becomes invalid the moment the server
+# (re)starts — i.e. the login page is always required after a server run. Set
+# ADMIN_PERSIST_SESSIONS=1 to opt out (keep sessions across restarts).
+_BOOT_NONCE = "" if os.getenv("ADMIN_PERSIST_SESSIONS", "0") in ("1", "true", "True") \
+    else secrets.token_hex(16)
+
 
 def _secret() -> bytes:
     s = settings.ADMIN_SECRET or hashlib.sha256(
         (settings.ADMIN_PASSWORD + "|instagram_business_admin").encode()).hexdigest()
-    return s.encode()
+    return (s + "|" + _BOOT_NONCE).encode()
 
 
 def _sign(payload: Dict[str, Any]) -> str:
