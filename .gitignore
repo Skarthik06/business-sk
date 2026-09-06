@@ -18,6 +18,9 @@
 **/*.pem
 **/secrets.json
 **/*credentials*.json
+**/*CREDENTIALS*
+**/*.local.txt
+CREDENTIALS.local.txt
 
 # ── Python ──────────────────────────────────────────────────────────────────
 **/venv/

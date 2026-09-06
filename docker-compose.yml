@@ -63,7 +63,9 @@ services:
     command: ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000",
               "--reload", "--reload-dir", "/app/app"]
     environment:
-      DATABASE_URL: postgresql://instagram:instagram@db:5432/instagram_business
+      # Shared DB: Supabase (set SUPABASE_DB_URL in the git-ignored root .env). Falls back to
+      # the local db container if unset. The phone engagement service uses the SAME Supabase URL.
+      DATABASE_URL: ${SUPABASE_DB_URL:-postgresql://instagram:instagram@db:5432/instagram_business}
       LEGACY_SQLITE_DB: /app/legacy/posts.db
       BUSINESS_USE_DOCLING: "1"
     volumes:

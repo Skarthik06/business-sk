@@ -24,6 +24,8 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 
 # Engagement + webhook routers (light imports only: rags, settings, rules, service, store, openai).
 from app.engagement.api import router as engagement_router
@@ -40,6 +42,19 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="Business-SK Engagement (phone)", lifespan=lifespan)
+
+# CORS: let the hosted dashboard (GitHub Pages / Cloudflare Pages) call this API from the
+# browser. ENGAGEMENT_CORS_ORIGINS is a comma-separated allowlist; default "*" is fine because
+# the API is read-mostly and the admin endpoints still require the admin secret.
+_origins = [o.strip() for o in os.getenv("ENGAGEMENT_CORS_ORIGINS", "*").split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_origins or ["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(engagement_router)
 app.include_router(webhook_router)
 
@@ -53,3 +68,15 @@ def healthz():
         "live": os.getenv("ENGAGEMENT_LIVE", "0") not in ("0", "false", ""),
         "auto_sync": os.getenv("ENGAGEMENT_AUTO_SYNC", "1") not in ("0", "false", ""),
     }
+
+
+@app.get("/")
+def root():
+    """Friendly root so a bare visit / uptime ping isn't a 404 (was noisy in the logs)."""
+    return {"service": "business-sk-engagement", "ok": True, "health": "/healthz", "docs": "/docs"}
+
+
+@app.get("/favicon.ico")
+def favicon():
+    """Browsers auto-request this; answer 204 so it stops logging 404s."""
+    return Response(status_code=204)

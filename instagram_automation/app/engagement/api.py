@@ -1005,13 +1005,25 @@ def _valid_signature(raw: bytes, header: Optional[str]) -> bool:
 
 @webhook_router.post("/meta")
 async def receive_webhook(request: Request):
-    """Receive a Meta webhook: validate -> store -> dedupe -> process -> 200 fast.
-    Duplicate events are ignored via the unique (account, external_event_id) constraint."""
+    """Receive a Meta webhook: validate signature, ACK 200 in <100ms, then process the events
+    in a background worker thread. Returning fast is REQUIRED: Meta gives the webhook ~5s and
+    RETRIES (eventually disabling it) if we're slow — and the DM/Graph calls in _ingest are
+    blocking. Processing inline was the cause of the ~5-min lag + duplicate deliveries. Now the
+    200 is instant and the DM fires a beat later. Dedupe still protects against any Meta retry
+    via the unique (account, external_event_id) constraint in store_event."""
     raw = await request.body()
     if not _valid_signature(raw, request.headers.get("X-Hub-Signature-256")):
         raise HTTPException(403, "bad signature")
-    import json
+    import json, asyncio
     payload = json.loads(raw or b"{}")
+    # Fire-and-forget in a thread so blocking Graph calls never hold up the 200 ACK to Meta.
+    asyncio.get_running_loop().run_in_executor(None, _process_payload, payload)
+    return {"received": True}
+
+
+def _process_payload(payload: Dict[str, Any]) -> int:
+    """Process every entry of a Meta webhook payload (runs in a worker thread). Each event's
+    own errors are swallowed inside _ingest, so one bad event never stops the rest."""
     processed = 0
     for entry in payload.get("entry", []):
         acct = _account_for_ig(str(entry.get("id", "")))
@@ -1023,7 +1035,7 @@ async def receive_webhook(request: Request):
         # Instagram DMs arrive in the Messenger-style `messaging` array.
         for msg in entry.get("messaging", []):
             processed += _ingest(acct, _parse_messaging(msg), msg)
-    return {"received": True, "processed": processed}
+    return processed
 
 
 def _ingest(acct: Dict[str, Any], ev: Optional[Dict[str, Any]], raw_obj: Dict[str, Any]) -> int:
