@@ -130,8 +130,27 @@ services:
       db:
         condition: service_healthy
 
+  # ── HTTPS reverse proxy (Caddy) — gives the studio a real domain + auto TLS ──
+  # so Google OAuth works (Google blocks raw-IP / http origins). Only used on the
+  # cloud server; harmless locally (it just can't get a cert without a public domain).
+  caddy:
+    image: caddy:2-alpine
+    container_name: business_sk_caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+
 volumes:
   pgdata:
   docling_cache:
   ig_frontend_node_modules:
   hf_cache:
+  caddy_data:
+  caddy_config:

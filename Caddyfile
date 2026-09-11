@@ -1,0 +1,9 @@
+# Auto-HTTPS reverse proxy for the cloud studio.
+# Caddy fetches a free Let's Encrypt cert for the nip.io domain (which resolves to
+# this server's public IP) and proxies to the Vite frontend, which in turn proxies
+# /api and /sk-api to the backends. This gives the studio a real HTTPS domain so
+# Google OAuth works (Google rejects raw-IP / http origins).
+140-238-247-18.nip.io {
+	encode zstd gzip
+	reverse_proxy frontend:3000
+}

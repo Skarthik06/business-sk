@@ -14,6 +14,7 @@ export default defineConfig({
     host: true,          // listen on 0.0.0.0 so the container port is reachable
     port: 3000,
     strictPort: true,
+    allowedHosts: true,  // allow access via a reverse proxy / custom domain (e.g. the nip.io HTTPS host)
     watch: { usePolling: true },   // reliable HMR on Docker Desktop / Windows mounts
     proxy: {
       // API + locally-rendered preview images both live on the backend.
