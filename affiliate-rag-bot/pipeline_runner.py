@@ -85,6 +85,22 @@ async def _new_browser(pw):
     )
     amazon_page = await context.new_page()
     pinterest_page = await context.new_page()
+    # Through a proxy, block heavy sub-resources (images/css/fonts/media) so only the
+    # server-rendered HTML — which already contains the product cards — loads. This makes
+    # proxied fetches fast, cheap (far fewer proxied requests), and reliable.
+    if cfg.scraper_proxy.enabled:
+        async def _block_heavy(route):
+            try:
+                if route.request.resource_type in ("image", "media", "font", "stylesheet"):
+                    await route.abort()
+                else:
+                    await route.continue_()
+            except Exception:
+                try:
+                    await route.continue_()
+                except Exception:
+                    pass
+        await amazon_page.route("**/*", _block_heavy)
     return browser, amazon_page, pinterest_page
 
 

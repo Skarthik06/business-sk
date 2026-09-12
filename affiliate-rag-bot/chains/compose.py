@@ -283,7 +283,6 @@ async def compose_pins(
     caption = _bold_caption(caption)                     # bold names/prices/discounts for IG
 
     # Phase 4: curated hashtag bank merge (consistent reach spine) + #ad disclosure.
-    from config import cfg
     tags = merge_hashtags(category, batch.hashtags or [],
                           use_bank=cfg.content.use_tag_bank, cap=25)
 

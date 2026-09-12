@@ -243,35 +243,45 @@ async def _scrape_page(page: Page, category: str, marketplace: str,
     if page_num > 1:
         url += f"&page={page_num}"
 
-    log.step(f"Scraping Amazon search: {category} ('{term}' · page {page_num})...")
-    try:
-        await page.goto(url, wait_until="domcontentloaded")
-    except Exception as e:
-        # "Download is starting" / net::ERR = Amazon's Akamai bot-wall served the datacenter
-        # IP a challenge instead of the page. The fix is a residential proxy / scraping API.
-        from config import cfg
-        hint = "" if cfg.scraper_proxy.enabled else " — set SCRAPER_PROXY_* (residential proxy/scraping API) so Amazon serves real results from the cloud IP"
-        log.error(f"Amazon blocked the request for '{term}' ({e}){hint}")
-        return []
-    try:
-        await page.wait_for_selector('[data-component-type="s-search-result"]', timeout=15000)
-    except Exception:
-        log.warning(f"no results rendered for '{term}' p{page_num} (possible bot-wall){'' if __import__('config').cfg.scraper_proxy.enabled else ' — set SCRAPER_PROXY_*'}")
-        return []
-    await _delay(600, 1200)
+    from config import cfg
+    proxied = cfg.scraper_proxy.enabled
+    # A residential proxy / scraping API adds latency and is per-IP flaky, so allow longer
+    # per attempt AND retry — each retry rotates to a fresh proxy IP (usually one succeeds).
+    goto_timeout = 90000 if proxied else 30000
+    sel_timeout = 45000 if proxied else 15000
+    attempts = 3 if proxied else 1
 
-    products = await page.evaluate(_SCRAPE_JS, {"marketplace": marketplace, "category": category})
+    for attempt in range(1, attempts + 1):
+        log.step(f"Scraping Amazon: {category} ('{term}' p{page_num}) [try {attempt}/{attempts}]...")
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=goto_timeout)
+            await page.wait_for_selector('[data-component-type="s-search-result"]', timeout=sel_timeout)
+        except Exception as e:
+            log.warning(f"attempt {attempt}/{attempts} failed for '{term}' p{page_num}: {str(e)[:60]}")
+            if attempt < attempts:
+                await _delay(1500, 3000)
+                continue
+            hint = "" if proxied else " — set SCRAPER_PROXY_* so Amazon serves results from the cloud IP"
+            log.error(f"Amazon fetch failed for '{term}' after {attempts} tries{hint}")
+            return []
 
-    # Normalize the review-count string ("1.8K") to an int, upgrade the tiny search
-    # thumbnail to the full-resolution product image, and stamp the source query/page
-    # (used by discovery query-yield stats + the ProductCandidate contract).
-    for p in products:
-        rv = p.get("reviews")
-        p["reviews"] = _parse_count(rv) if rv else None
-        p["image"] = _hi_res_image(p.get("image"))
-        p["source_query"] = term
-        p["source_page"] = page_num
-    return products
+        await _delay(400, 900)
+        products = await page.evaluate(_SCRAPE_JS, {"marketplace": marketplace, "category": category})
+        if not products and attempt < attempts:
+            log.warning(f"0 results for '{term}' p{page_num} — retrying (fresh proxy IP)")
+            await _delay(1500, 3000)
+            continue
+
+        # Normalize the review-count string ("1.8K") to an int, upgrade the tiny search
+        # thumbnail to the full-resolution product image, and stamp the source query/page.
+        for p in products:
+            rv = p.get("reviews")
+            p["reviews"] = _parse_count(rv) if rv else None
+            p["image"] = _hi_res_image(p.get("image"))
+            p["source_query"] = term
+            p["source_page"] = page_num
+        return products
+    return []
 
 
 def _finalize_pool(raw: list[dict], quality: Optional[dict], cap: int) -> list[dict]:
