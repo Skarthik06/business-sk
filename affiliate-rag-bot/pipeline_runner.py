@@ -76,6 +76,9 @@ async def _new_browser(pw):
             "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
         ),
         locale="en-IN",
+        # Scraping-API proxies (e.g. ScraperAPI :8001) do TLS interception with their own CA,
+        # so certificate validation must be relaxed for the proxied requests to load.
+        ignore_https_errors=cfg.scraper_proxy.enabled,
     )
     await context.add_init_script(
         "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"
