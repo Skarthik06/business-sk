@@ -68,7 +68,7 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
 
       {tab === 'generate' && (
         <div className="sk-subnav">
-          {[['find', 'Find products', 'spark'], ['winners', 'Winners', 'trophy'], ['trends', 'Trends', 'bolt'], ['intel', 'Intelligence', 'brain']].map(([k, label]) => (
+          {[['find', 'Find products'], ['winners', 'Winners'], ['trends', 'Trends'], ['intel', 'Intelligence'], ['accounts', 'Accounts']].map(([k, label]) => (
             <button key={k} className={cx('sk-subtab', sub === k && 'on')} onClick={() => setSub(k)}>{label}</button>
           ))}
         </div>
@@ -77,6 +77,7 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
       <div style={showSub('winners')}><WinnersPanel active={tab === 'generate' && sub === 'winners'} say={say} /></div>
       <div style={showSub('trends')}><TrendsPanel active={tab === 'generate' && sub === 'trends'} cats={cats} /></div>
       <div style={showSub('intel')}><IntelligencePanel active={tab === 'generate' && sub === 'intel'} /></div>
+      <div style={showSub('accounts')}><AccountsPanel active={tab === 'generate' && sub === 'accounts'} say={say} /></div>
       <div style={show('post')}><PostTab {...shared} queue={queue} setQueue={setQueue} goAffiliate={() => onNavigate?.('sk-affiliate')} /></div>
       <div style={show('hub')}><HubTab {...shared} /></div>
       <div style={show('history')}><HistoryTab active={tab === 'history'} /></div>
@@ -986,6 +987,73 @@ function IntelligencePanel({ active }) {
   );
 }
 
+// ══════════════════════════════════ AFFILIATE ACCOUNTS (encrypted .ragskey) ═══
+const PROGRAM_LABEL = {
+  amazon_associates: 'Amazon Associates', earnkaro: 'EarnKaro', cuelinks: 'Cuelinks',
+  inrdeals: 'INRDeals', flipkart_affiliate: 'Flipkart Affiliate', vcommission: 'vCommission',
+  admitad: 'Admitad', impact: 'Impact', other: 'Other',
+};
+function AccountsPanel({ active, say }) {
+  const [list, setList] = useState(null);
+  const [programs, setPrograms] = useState([]);
+  const [form, setForm] = useState({ program: 'amazon_associates', label: '', tracking_id: '', api_key: '', api_secret: '', link_template: '', notes: '' });
+  const [busy, setBusy] = useState(false);
+  const reload = () => api.affAccounts().then(setList).catch(() => setList([]));
+  useEffect(() => { if (active && list === null) { reload(); api.affPrograms().then(setPrograms).catch(() => setPrograms(Object.keys(PROGRAM_LABEL))); } }, [active]);
+
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const add = async () => {
+    if (!form.tracking_id && !form.api_key) return say?.('Enter a tracking id/tag or an API key', 'error');
+    setBusy(true);
+    try { await api.affConnect(form); setForm((f) => ({ ...f, label: '', tracking_id: '', api_key: '', api_secret: '', link_template: '', notes: '' })); await reload(); say?.('Affiliate account saved (encrypted)'); }
+    catch (e) { say?.(e?.response?.data?.detail || 'Save failed', 'error'); }
+    finally { setBusy(false); }
+  };
+  const del = async (id) => { if (!window.confirm('Remove this affiliate account?')) return; try { await api.affDelete(id); await reload(); say?.('Removed'); } catch { say?.('Delete failed', 'error'); } };
+  const toggle = async (a) => { try { await api.affUpdate(a.id, { is_active: !a.is_active }); await reload(); } catch { say?.('Update failed', 'error'); } };
+
+  return (
+    <div className="mb-24 flex flex-col gap-4">
+      <div className="panel p-4">
+        <div className="eyebrow mb-1">Affiliate accounts</div>
+        <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>Secrets are encrypted at rest with your <span className="font-mono">.ragskey</span> and never shown again — only a masked preview. The tracking id/tag is stored as-is (it appears in your affiliate links).</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <label className="fld"><span>Program</span>
+            <select className="sk-select" value={form.program} onChange={set('program')}>
+              {(programs.length ? programs : Object.keys(PROGRAM_LABEL)).map((p) => <option key={p} value={p}>{PROGRAM_LABEL[p] || p}</option>)}
+            </select>
+          </label>
+          <label className="fld"><span>Label (optional)</span><input className="sk-input" value={form.label} onChange={set('label')} placeholder="e.g. Main Amazon" /></label>
+          <label className="fld"><span>Tracking id / tag</span><input className="sk-input" value={form.tracking_id} onChange={set('tracking_id')} placeholder="e.g. sparkle060b-21" /></label>
+          <label className="fld"><span>API key (encrypted)</span><input className="sk-input" type="password" value={form.api_key} onChange={set('api_key')} placeholder="optional" autoComplete="new-password" /></label>
+          <label className="fld"><span>API secret (encrypted)</span><input className="sk-input" type="password" value={form.api_secret} onChange={set('api_secret')} placeholder="optional" autoComplete="new-password" /></label>
+          <label className="fld"><span>Link template (optional)</span><input className="sk-input" value={form.link_template} onChange={set('link_template')} placeholder="https://…?url={url_encoded}" /></label>
+        </div>
+        <div className="flex justify-end mt-3"><button className="btn btn-sm" onClick={add} disabled={busy}>{busy ? <Spinner size={13} /> : <Icon name="check" size={13} />} Save account</button></div>
+      </div>
+
+      {list === null ? <div className="panel p-6 text-center"><Spinner size={16} /></div>
+        : list.length === 0 ? <Empty text="No affiliate accounts yet. Add one above — it's stored encrypted and can be used by the engine." />
+        : <div className="flex flex-col gap-2">
+            {list.map((a) => (
+              <div key={a.id} className="acct-row">
+                <span className="prog-badge">{PROGRAM_LABEL[a.program] || a.program}</span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13 }}>{a.label || a.tracking_id || `#${a.id}`}</div>
+                  <div className="text-xs font-mono" style={{ color: 'var(--muted)' }}>
+                    {a.tracking_id && <>tag {a.tracking_id} · </>}
+                    {a.has_api_key ? `key ${a.api_key_masked}` : 'no key'}{a.has_api_secret ? ' · secret set' : ''}
+                  </div>
+                </div>
+                <button className={cx('mini', a.is_active && 'on')} onClick={() => toggle(a)} title="Active">{a.is_active ? 'active' : 'off'}</button>
+                <button className="mini danger" onClick={() => del(a.id)}>Remove</button>
+              </div>
+            ))}
+          </div>}
+    </div>
+  );
+}
+
 function ScoreBar({ label, v, title }) {
   const val = Math.max(0, Math.min(100, Number(v) || 0));
   const col = val >= 80 ? '#3fb950' : val >= 60 ? 'var(--accent)' : val >= 40 ? 'var(--amber)' : 'var(--faint)';
@@ -1209,4 +1277,12 @@ const CardStyles = () => <style>{`
   .stat-v{font:700 18px system-ui;color:var(--text)} .stat-k{font-size:10px;color:var(--muted);text-transform:capitalize;margin-top:2px}
   .reco-row{display:flex;align-items:center;gap:10px;font-size:13px;text-transform:capitalize}
   .q-chip{font:600 11px ui-monospace,monospace;color:var(--muted);background:var(--panel-2);border:1px solid var(--border);border-radius:20px;padding:3px 9px}
+  /* affiliate accounts panel */
+  .fld{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+  .sk-input{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:13px;padding:7px 10px}
+  .sk-input:focus{outline:none;border-color:var(--accent)}
+  .acct-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2)}
+  .prog-badge{font:700 10.5px ui-monospace,monospace;color:var(--accent);border:1px solid var(--accent);border-radius:8px;padding:3px 8px;white-space:nowrap}
+  .mini.on{color:#3fb950;border-color:#3fb950}
+  .mini.danger{color:var(--danger);border-color:var(--danger)}
 `}</style>;

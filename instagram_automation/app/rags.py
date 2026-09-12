@@ -46,6 +46,110 @@ def _account_public(row: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+# ===================== AFFILIATE PROGRAM ACCOUNTS =====================
+# Secrets (api_key/api_secret) are Fernet-encrypted at rest (.ragskey) and masked
+# for the frontend. tracking_id/tag is semi-public (it appears in affiliate URLs).
+
+def _affiliate_public(row: Dict[str, Any]) -> Dict[str, Any]:
+    """Affiliate account dict safe for the frontend (secrets masked, never raw)."""
+    return {
+        "id": row["id"],
+        "program": row["program"],
+        "label": row["label"] or "",
+        "tracking_id": row["tracking_id"] or "",
+        "api_key_masked": _mask(crypto.decrypt(row["api_key"])),
+        "has_api_key": bool(row["api_key"]),
+        "has_api_secret": bool(row["api_secret"]),
+        "link_template": row["link_template"] or "",
+        "notes": row["notes"] or "",
+        "is_active": bool(row["is_active"]),
+        "created_at": row["created_at"],
+    }
+
+
+def list_affiliate_accounts(active_only: bool = False) -> List[Dict[str, Any]]:
+    with connect() as conn:
+        cur = conn.cursor()
+        q = "SELECT * FROM affiliate_accounts"
+        if active_only:
+            q += " WHERE is_active = 1"
+        q += " ORDER BY id"
+        cur.execute(q)
+        return [_affiliate_public(dict(r)) for r in cur.fetchall()]
+
+
+def get_affiliate_account(account_id: int, *, with_secret: bool = False) -> Optional[Dict[str, Any]]:
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM affiliate_accounts WHERE id = %s", (account_id,))
+        row = cur.fetchone()
+    if not row:
+        return None
+    if with_secret:
+        d = dict(row)
+        d["api_key"] = crypto.decrypt(d["api_key"])          # plaintext for internal use
+        d["api_secret"] = crypto.decrypt(d["api_secret"])
+        return d
+    return _affiliate_public(dict(row))
+
+
+def add_affiliate_account(*, program: str, label: str = "", tracking_id: str = "",
+                          api_key: str = "", api_secret: str = "", link_template: str = "",
+                          notes: str = "", is_active: bool = True) -> Dict[str, Any]:
+    init_db()
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute(
+            """INSERT INTO affiliate_accounts
+               (program, label, tracking_id, api_key, api_secret, link_template, notes, is_active)
+               VALUES (%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id""",
+            (program.strip(), label.strip(), tracking_id.strip(),
+             crypto.encrypt(api_key.strip()), crypto.encrypt(api_secret.strip()),
+             link_template.strip(), notes.strip(), int(is_active)),
+        )
+        new_id = cur.fetchone()["id"]
+    return get_affiliate_account(new_id)
+
+
+def update_affiliate_account(account_id: int, **fields: Any) -> Optional[Dict[str, Any]]:
+    allowed = {"program", "label", "tracking_id", "api_key", "api_secret",
+               "link_template", "notes", "is_active"}
+    sets, vals = [], []
+    for key, value in fields.items():
+        if key not in allowed:
+            continue
+        if key in ("api_key", "api_secret"):
+            if not str(value).strip():
+                continue                                     # blank = keep existing secret
+            value = crypto.encrypt(str(value).strip())
+        elif key == "is_active":
+            value = int(bool(value))
+        sets.append(f"{key} = %s"); vals.append(value)
+    if not sets:
+        return get_affiliate_account(account_id)
+    vals.append(account_id)
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute(f"UPDATE affiliate_accounts SET {', '.join(sets)} WHERE id = %s", tuple(vals))
+    return get_affiliate_account(account_id)
+
+
+def delete_affiliate_account(account_id: int) -> bool:
+    with connect() as conn:
+        cur = conn.cursor()
+        cur.execute("DELETE FROM affiliate_accounts WHERE id = %s", (account_id,))
+        return cur.rowcount > 0
+
+
+def active_amazon_tag() -> Optional[str]:
+    """The tracking_id of the active Amazon Associates account, if any — so link
+    building can prefer the stored tag over the .env default."""
+    for a in list_affiliate_accounts(active_only=True):
+        if a["program"] == "amazon_associates" and a["tracking_id"]:
+            return a["tracking_id"]
+    return None
+
+
 def list_accounts(niche: Optional[str] = None, active_only: bool = False) -> List[Dict[str, Any]]:
     with connect() as conn:
         cur = conn.cursor()

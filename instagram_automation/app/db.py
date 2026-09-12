@@ -137,6 +137,26 @@ def init_db() -> None:
             )
             """
         )
+        # Affiliate program accounts (Amazon Associates, EarnKaro, Cuelinks, …).
+        # Secret fields (api_key/api_secret) are Fernet-encrypted at rest (.ragskey);
+        # the tracking_id/tag is semi-public (it appears in affiliate URLs) so it is
+        # stored plaintext. Managed from the studio's Accounts panel.
+        cur.execute(
+            f"""
+            CREATE TABLE IF NOT EXISTS affiliate_accounts (
+                id            SERIAL PRIMARY KEY,
+                program       TEXT NOT NULL,               -- amazon_associates | earnkaro | cuelinks | …
+                label         TEXT NOT NULL DEFAULT '',
+                tracking_id   TEXT DEFAULT '',             -- associate tag / publisher id (semi-public)
+                api_key       TEXT DEFAULT '',             -- encrypted at rest
+                api_secret    TEXT DEFAULT '',             -- encrypted at rest
+                link_template TEXT DEFAULT '',             -- optional network redirect template
+                notes         TEXT DEFAULT '',
+                is_active     INTEGER NOT NULL DEFAULT 1,
+                created_at    TEXT DEFAULT ({_NOW})
+            )
+            """
+        )
         # Posted quote bodies, normalized, to avoid repeating quotes over time.
         cur.execute(
             f"""

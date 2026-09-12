@@ -110,6 +110,12 @@ export default {
   v1CreateLead: (body) => http.post('/v1/leads', body).then((r) => r.data.data),
   v1LeadStatus: (id, status) => http.put(`/v1/leads/${id}/status`, { status }).then((r) => r.data.data),
   v1Schedules: () => http.get('/v1/schedules').then((r) => r.data.data),
+  // affiliate program accounts (encrypted via .ragskey; secrets masked on read)
+  affPrograms: () => http.get('/v1/integrations/affiliate/programs').then((r) => r.data.data.programs),
+  affAccounts: () => http.get('/v1/integrations/affiliate/accounts').then((r) => r.data.data),
+  affConnect: (body) => http.post('/v1/integrations/affiliate/connect', body).then((r) => r.data.data),
+  affUpdate: (id, body) => http.put(`/v1/integrations/affiliate/${id}`, body).then((r) => r.data.data),
+  affDelete: (id) => http.delete(`/v1/integrations/affiliate/${id}`).then((r) => r.data.data),
   bizBlueprint: (cid) => http.get(`/business/campaigns/${cid}/blueprint`).then(data),
   bizEditSlide: (cid, i, body, render = true) => http.put(`/business/campaigns/${cid}/slides/${i}?render=${render}`, body).then(data),
   bizEditCaption: (cid, body) => http.put(`/business/campaigns/${cid}/caption`, body).then(data),

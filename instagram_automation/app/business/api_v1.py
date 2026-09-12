@@ -846,6 +846,82 @@ def instagram_disconnect(account_id: int):
     return ok({"disconnected": account_id})
 
 
+# ===================== AFFILIATE PROGRAM ACCOUNTS (encrypted via .ragskey) ======
+# Store affiliate-program credentials (Amazon Associates, EarnKaro, Cuelinks, …)
+# encrypted at rest; secrets are masked when listed. Admin-authed (this whole router).
+
+AFFILIATE_PROGRAMS = [
+    "amazon_associates", "earnkaro", "cuelinks", "inrdeals", "flipkart_affiliate",
+    "vcommission", "admitad", "impact", "other",
+]
+
+
+class AffiliateConnect(BaseModel):
+    program: str
+    label: str = ""
+    tracking_id: str = ""            # associate tag / publisher id
+    api_key: str = ""
+    api_secret: str = ""
+    link_template: str = ""
+    notes: str = ""
+    is_active: bool = True
+
+
+class AffiliateUpdate(BaseModel):
+    program: Optional[str] = None
+    label: Optional[str] = None
+    tracking_id: Optional[str] = None
+    api_key: Optional[str] = None
+    api_secret: Optional[str] = None
+    link_template: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+@router.get("/integrations/affiliate/programs")
+def affiliate_programs():
+    """The affiliate programs the panel supports (for the dropdown)."""
+    return ok({"programs": AFFILIATE_PROGRAMS})
+
+
+@router.get("/integrations/affiliate/accounts")
+def affiliate_accounts_list():
+    from app import rags
+    return ok(rags.list_affiliate_accounts())
+
+
+@router.post("/integrations/affiliate/connect")
+def affiliate_connect(body: AffiliateConnect):
+    from app import rags
+    if body.program not in AFFILIATE_PROGRAMS:
+        raise HTTPException(422, f"unknown program '{body.program}'")
+    acc = rags.add_affiliate_account(
+        program=body.program, label=body.label, tracking_id=body.tracking_id,
+        api_key=body.api_key, api_secret=body.api_secret,
+        link_template=body.link_template, notes=body.notes, is_active=body.is_active)
+    store.audit("AFFILIATE_CONNECTED", "affiliate_account", acc.get("id"), new_value=body.program)
+    return ok(acc)
+
+
+@router.put("/integrations/affiliate/{account_id}")
+def affiliate_update(account_id: int, body: AffiliateUpdate):
+    from app import rags
+    acc = rags.update_affiliate_account(account_id, **body.model_dump(exclude_none=True))
+    if not acc:
+        raise HTTPException(404, "Affiliate account not found")
+    store.audit("AFFILIATE_UPDATED", "affiliate_account", account_id)
+    return ok(acc)
+
+
+@router.delete("/integrations/affiliate/{account_id}")
+def affiliate_delete(account_id: int):
+    from app import rags
+    if not rags.delete_affiliate_account(account_id):
+        raise HTTPException(404, "Affiliate account not found")
+    store.audit("AFFILIATE_DISCONNECTED", "affiliate_account", account_id)
+    return ok({"disconnected": account_id})
+
+
 # ===================== LEADS (§19) + CALENDAR/SCHEDULES =====================
 
 class LeadIn(BaseModel):
