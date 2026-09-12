@@ -67,6 +67,18 @@ async def scrape_amazon(state: BotState, config: RunnableConfig) -> dict:
         elif cfg.discovery.enabled:
             from rag.discovery_stats import discovery_stats
             candidates = _discovery.category_queries(category)
+            # Trend-aware discovery: fold in persisted trending terms (from prior runs'
+            # Trend Analyst memory) so mining leans toward what's rising. Cold start ⇒
+            # empty ⇒ no change. Deduped, trend terms explored alongside subcategories.
+            if cfg.trends.enabled and cfg.trends.discovery_terms > 0:
+                try:
+                    from rag.trends import trend_store
+                    tterms = trend_store.trending_terms(category, cfg.trends.discovery_terms)
+                    for t in tterms:
+                        if t and t not in candidates:
+                            candidates.insert(0, t)      # prioritise trending intents
+                except Exception as te:
+                    log.warning(f"scrape_amazon: trend-aware discovery skipped: {te}")
             queries = discovery_stats.pick_queries(category, candidates, cfg.discovery.max_queries)
             products, yields = await scrape_products_multi(
                 amazon_page, category, marketplace, queries, quality=opts,
@@ -160,18 +172,37 @@ async def search_trends(state: BotState, config: RunnableConfig) -> dict:
     try:
         from tools.search import fetch_trending_keywords
 
-        keywords = await fetch_trending_keywords(
-            state["category"],
-            cfg.amazon.marketplace,
-        )
+        category = state["category"]
+        keywords = await fetch_trending_keywords(category, cfg.amazon.marketplace)
+
+        # ── Trend Analyst (Phase 3) ──────────────────────────────────────────
+        # Persist this run's keywords as trend observations, then read back momentum +
+        # direction (built from history). Fail-open: persistence/momentum problems never
+        # abort the run — keywords still flow to the composer. Momentum is INTERNAL.
+        trend_signals: list[dict] = []
+        if cfg.trends.enabled:
+            try:
+                from rag.trends import trend_store
+                source = "tavily" if cfg.tavily_api_key else "fallback"
+                await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: trend_store.record_observations(category, keywords, source))
+                trend_signals = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: trend_store.category_trends(category, limit=cfg.trends.max_keywords))
+            except Exception as te:
+                log.warning(f"search_trends: trend memory skipped: {te}")
+
         return {
             "trend_keywords": keywords,
-            "stream_log": [f"Tavily found {len(keywords)} trending keywords"],
+            "trend_signals":  trend_signals,
+            "stream_log": [
+                f"trends: {len(keywords)} keywords, "
+                f"{len(trend_signals)} with momentum/direction"
+            ],
         }
 
     except Exception as e:
         log.warning(f"search_trends: {e}")
-        return {"trend_keywords": [], "errors": [f"search_trends: {e}"]}
+        return {"trend_keywords": [], "trend_signals": [], "errors": [f"search_trends: {e}"]}
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -259,6 +290,7 @@ async def compose_pins(state: BotState, config: RunnableConfig) -> dict:
             rag_context=    state.get("rag_context", []),
             product_ideas=  state.get("rag_product_ideas", []),
             count=          state["products_per_run"],
+            trend_signals=  state.get("trend_signals", []),
         )
 
         if not pins:
@@ -279,6 +311,14 @@ async def compose_pins(state: BotState, config: RunnableConfig) -> dict:
                     p["novelty_score"] = nov.get(p["product"].get("asin", ""))
             except Exception as e:
                 log.warning(f"compose_pins: novelty scoring skipped: {e}")
+
+        # ── Trend Analyst (Phase 3) — per-product trend alignment ────────────
+        # Deterministic (keyword match vs this run's trend signals); no extra LLM call.
+        if cfg.trends.enabled:
+            from chains import discovery as _discovery
+            signals = state.get("trend_signals", [])
+            for p in pins:
+                p["trend_score"] = _discovery.trend_alignment(p["product"], signals)
 
         ranked = [p["product"] for p in pins]
         for i, p in enumerate(ranked):

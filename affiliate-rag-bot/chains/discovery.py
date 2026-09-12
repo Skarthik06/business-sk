@@ -250,15 +250,41 @@ def confidence_score(p: dict) -> float:
     return round(floor + (1.0 - floor) * have, 3)  # map [0,1]→[floor,1]
 
 
-def product_intelligence(p: dict, sub: dict, novelty: Optional[int]) -> int:
-    """Master pick score = content_score blended with novelty (weight NOVELTY_WEIGHT).
-    Novelty rewards products UNLIKE what we've already posted, so the feed stays fresh."""
+def trend_alignment(p: dict, trend_signals: Optional[list]) -> Optional[int]:
+    """0-100 — how much a product rides a current trend. Match trend keywords against
+    the product title/category (substring); score = best-matching trend's momentum, or
+    a small baseline (25) when trends exist but none match. None when no trend data
+    (so it has no effect — G13: never a claim, and no penalty at cold start)."""
+    if not trend_signals:
+        return None
+    hay = f"{p.get('title') or p.get('product_title','')} {p.get('category','')}".lower()
+    best = 0
+    matched = False
+    for t in trend_signals:
+        kw = (t.get("keyword") or "").lower().strip()
+        if kw and kw in hay:
+            matched = True
+            best = max(best, int(t.get("momentum") or 0))
+    return best if matched else 25
+
+
+def product_intelligence(p: dict, sub: dict, novelty: Optional[int],
+                         trend: Optional[int] = None) -> int:
+    """Master pick score — a weighted blend of content_score with novelty and trend.
+    Each optional signal only participates when enabled AND present, so the weights
+    renormalise gracefully (never penalises cold-start). Weights are env-tunable."""
     from config import cfg
     cs = content_score(p, sub)
-    if not cfg.novelty.enabled or novelty is None:
-        return cs
-    w = max(0.0, min(cfg.novelty.weight, 1.0))
-    return int(_clamp(cs * (1 - w) + float(novelty) * w))
+    parts: list[tuple[float, float]] = []                 # (value, weight)
+    active_extra = 0.0
+    if cfg.novelty.enabled and novelty is not None:
+        w = max(0.0, min(cfg.novelty.weight, 1.0)); parts.append((float(novelty), w)); active_extra += w
+    if cfg.trends.enabled and trend is not None:
+        w = max(0.0, min(cfg.trends.weight, 1.0)); parts.append((float(trend), w)); active_extra += w
+    base_w = max(0.0, 1.0 - active_extra)
+    parts.append((float(cs), base_w))
+    total_w = sum(w for _, w in parts) or 1.0
+    return int(_clamp(sum(v * w for v, w in parts) / total_w))
 
 
 def winner_score(intelligence: int, confidence: float, freshness: float = 1.0) -> int:
@@ -283,8 +309,9 @@ def evidence(p: dict) -> list[str]:
     return out
 
 
-def winner_bundle(p: dict, novelty: Optional[int] = None) -> dict:
-    """Full Phase-2 annotation for one product: novelty + confidence + intelligence +
+def winner_bundle(p: dict, novelty: Optional[int] = None,
+                  trend: Optional[int] = None) -> dict:
+    """Full annotation for one product: novelty + trend + confidence + intelligence +
     winner score + evidence. Additive — layers on top of score_product()."""
     sub = {
         "value_score": value_score(p),
@@ -293,9 +320,10 @@ def winner_bundle(p: dict, novelty: Optional[int] = None) -> dict:
         "content_potential_score": content_potential_score(p),
     }
     conf = confidence_score(p)
-    intel = product_intelligence(p, sub, novelty)
+    intel = product_intelligence(p, sub, novelty, trend)
     return {
         "novelty_score":     novelty,                       # None when disabled/cold-start-unknown
+        "trend_score":       trend,                         # None when no trend data
         "confidence":        conf,
         "intelligence_score": intel,
         "winner_score":      winner_score(intel, conf),

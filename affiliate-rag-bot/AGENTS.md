@@ -76,6 +76,7 @@ explains the base engine.
 | Discovery Planner | [discovery-planner.agents.md](agents/discovery-planner.agents.md) | Multi-query subcategory mining, pagination, adaptive stopping, yield-based rotation | `tools/amazon.py`, `rag/discovery_stats.py`, `graph/nodes.py`, `config.DiscoveryConfig` |
 | Novelty Analyst | [novelty-analyst.agents.md](agents/novelty-analyst.agents.md) | Semantic freshness vs already-posted pins (avoid repetitive ideas) | `rag/store.py` (`novelty_scores`), `graph/nodes.py` (`compose_pins`), `config.NoveltyConfig` |
 | Winner Engine | [winner-engine.agents.md](agents/winner-engine.agents.md) | Confidence, product-intelligence, winner score + tier, "why this product" evidence | `chains/discovery.py`, `server.py` (`/api/generate`) |
+| Trend Analyst | [trend-analyst.agents.md](agents/trend-analyst.agents.md) | Persistent trend memory, momentum + direction, trend-aware discovery + content, trend alignment in winner score | `rag/trends.py`, `graph/nodes.py`, `chains/compose.py`, `server.py` (`/api/trends`), `config.TrendConfig` |
 
 Funnel this layer optimises: **Instagram → attention → website/storefront → discovery →
 product → click → Amazon → purchase → commission.**

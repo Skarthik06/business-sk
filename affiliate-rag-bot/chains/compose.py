@@ -21,6 +21,8 @@ Token discipline:
 """
 from __future__ import annotations
 
+from typing import Optional
+
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
@@ -171,12 +173,33 @@ def _winners_block(rag_context: list[dict], product_ideas: list[str]) -> str:
 
 # ─── Public API: the single call ──────────────────────────────────────────────
 
+def _trends_block(trend_keywords: list[str], trend_signals: Optional[list[dict]]) -> str:
+    """Compact trend context for the ONE LLM call. Prefers momentum/direction signals
+    (e.g. 'wireless earbuds↑EXPLODING') so the model can lead with what's rising — at
+    no extra token cost vs a bare keyword list. Direction is an internal signal, not a
+    claim the caption should assert as fact."""
+    arrow = {"EXPLODING": "↑EXPLODING", "RISING": "↑RISING", "STABLE": "STABLE",
+             "DECLINING": "↓DECLINING", "UNKNOWN": ""}
+    if trend_signals:
+        parts = []
+        for t in trend_signals[:MAX_TRENDS]:
+            kw = (t.get("keyword") or "").strip()
+            if not kw:
+                continue
+            tag = arrow.get((t.get("direction") or "UNKNOWN"), "")
+            parts.append(f"{kw}{(' ' + tag) if tag else ''}")
+        if parts:
+            return ", ".join(parts)
+    return ", ".join((trend_keywords or [])[:MAX_TRENDS]) or "trending, best, popular"
+
+
 async def compose_pins(
     products:       list[dict],
     trend_keywords: list[str],
     rag_context:    list[dict],
     product_ideas:  list[str],
     count:          int = 3,
+    trend_signals:  Optional[list[dict]] = None,
 ) -> list[dict]:
     """Rank + write `count` pins in ONE structured LLM call. Returns PinContent dicts."""
     if not products:
@@ -209,7 +232,7 @@ async def compose_pins(
         "count":      count,
         "category":   category,
         "candidates": _candidates_block(products),
-        "trends":     ", ".join((trend_keywords or [])[:MAX_TRENDS]) or "trending, best, popular",
+        "trends":     _trends_block(trend_keywords, trend_signals),
         "winners":    _winners_block(rag_context, product_ideas),
     }
 

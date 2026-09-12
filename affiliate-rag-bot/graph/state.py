@@ -61,6 +61,7 @@ class BotState(TypedDict):
 
     # ── NODE 3: search_trends ─────────────────────────────────────────
     trend_keywords:   list[str]
+    trend_signals:    list[dict]   # [{keyword, momentum, direction}] — Phase 3 Trend Analyst
 
     # ── NODE 4: rag_retrieve ──────────────────────────────────────────
     rag_context:      list[RAGContext]     # similar past pins from pgvector

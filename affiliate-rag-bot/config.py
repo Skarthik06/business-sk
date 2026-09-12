@@ -104,6 +104,21 @@ class NoveltyConfig:
 
 
 @dataclass
+class TrendConfig:
+    """Phase 3 (Trend Analyst) — persistent trend memory + momentum, trend-aware
+    discovery and content. Momentum/direction are INTERNAL model scores (never a
+    market fact, G13). Provider stays optional (Tavily); absence ⇒ graceful fallback."""
+    enabled:       bool  = field(default_factory=lambda: os.getenv("TREND_ENABLED", "1") != "0")
+    max_keywords:  int   = field(default_factory=lambda: int(os.getenv("TREND_MAX_KEYWORDS", "12")))
+    lookback_days: int   = field(default_factory=lambda: int(os.getenv("TREND_LOOKBACK_DAYS", "14")))
+    # How much a product's trend alignment influences product-intelligence (small — a
+    # product should never be picked on trend alone; discovery-first, G14).
+    weight:        float = field(default_factory=lambda: float(os.getenv("TREND_WEIGHT", "0.08")))
+    # Trending terms blended into discovery query rotation per run.
+    discovery_terms: int = field(default_factory=lambda: int(os.getenv("TREND_DISCOVERY_TERMS", "3")))
+
+
+@dataclass
 class Config:
     amazon:            AmazonConfig    = field(default_factory=AmazonConfig)
     pinterest:         PinterestConfig = field(default_factory=PinterestConfig)
@@ -111,6 +126,7 @@ class Config:
     bot:               BotConfig       = field(default_factory=BotConfig)
     discovery:         DiscoveryConfig = field(default_factory=DiscoveryConfig)
     novelty:           NoveltyConfig   = field(default_factory=NoveltyConfig)
+    trends:            TrendConfig     = field(default_factory=TrendConfig)
     # ── LLM (OpenAI / ChatGPT) ──────────────────────────────────────────
     openai_api_key:    str             = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     openai_model:      str             = field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-5-nano"))

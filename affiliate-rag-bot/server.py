@@ -370,8 +370,8 @@ def _content_item(pin: dict) -> dict:
         "affiliate_link":    affiliate_link,
         # ── discovery scores (deterministic, derived from real fields — no fabrication) ──
         **_discovery.score_product(pin),
-        # ── Phase 2: novelty + confidence + intelligence + winner score + evidence ──
-        **_discovery.winner_bundle(pin, pin.get("novelty_score")),
+        # ── Phase 2+3: novelty + trend + confidence + intelligence + winner + evidence ──
+        **_discovery.winner_bundle(pin, pin.get("novelty_score"), pin.get("trend_score")),
         # ── news-style aliases (drop-in for slide/caption generators) ──
         "title":          pin.get("pin_title", ""),
         "summary":        caption,
@@ -482,9 +482,19 @@ async def api_generate(
             items.extend(_content_item(p) for p in r["pins"])
             errors.extend(f"[{label}] {e}" for e in r["errors"])
 
-    # Rank by the Winner Score (intelligence × confidence, novelty-aware) so the
-    # strongest, freshest, best-evidenced picks lead; fall back to content_score.
+    # Rank by the Winner Score (intelligence × confidence, novelty- & trend-aware) so
+    # the strongest, freshest, best-evidenced picks lead; fall back to content_score.
     items.sort(key=lambda it: it.get("winner_score", it.get("content_score", 0)), reverse=True)
+
+    # Trend context for this run (JSON) — momentum/direction per category (cold-start empty).
+    trend_ctx: list[dict] = []
+    if cfg.trends.enabled:
+        try:
+            from rag.trends import trend_store
+            for lab in labels[:MAX_CATEGORIES]:
+                trend_ctx.extend(trend_store.category_trends(lab, limit=8))
+        except Exception:
+            pass
 
     finished = time.time()
     return JSONResponse(status_code=200, content={
@@ -505,6 +515,8 @@ async def api_generate(
         "avg_novelty": (round(sum(it["novelty_score"] for it in items if it.get("novelty_score") is not None)
                               / max(1, sum(1 for it in items if it.get("novelty_score") is not None)), 1)
                         if any(it.get("novelty_score") is not None for it in items) else None),
+        # Phase 3 — trend context for this run (JSON: keyword, momentum, direction, …).
+        "trends": trend_ctx,
         "elapsed_seconds": round(finished - started, 2),
         "errors": errors,
     })
@@ -550,6 +562,26 @@ def get_discovery_queries(category: Optional[str] = None, limit: int = 30) -> di
     from rag.discovery_stats import discovery_stats
     rows = discovery_stats.top(category, limit=max(1, min(limit, 200)))
     return {"ok": True, "count": len(rows), "queries": rows}
+
+
+@app.get("/api/trends")
+def get_trends(category: Optional[str] = None, limit: int = 30) -> dict:
+    """Phase 3 — Trend Intelligence. Trending keywords with INTERNAL momentum (0-100) +
+    direction (EXPLODING/RISING/STABLE/DECLINING/UNKNOWN), built from persisted
+    observations. JSON only. Empty on cold start; momentum is a model score, not a
+    market fact. Pass ?category= to scope to one category."""
+    from rag.trends import trend_store
+    lim = max(1, min(limit, 200))
+    rows = trend_store.category_trends(category, limit=lim) if category else trend_store.all_trends(limit=lim)
+    return {"ok": True, "category": category, "count": len(rows), "trends": rows}
+
+
+@app.get("/api/trends/{category}")
+def get_trends_for_category(category: str, limit: int = 20) -> dict:
+    """Trend Intelligence scoped to one category (path form)."""
+    from rag.trends import trend_store
+    rows = trend_store.category_trends(category, limit=max(1, min(limit, 200)))
+    return {"ok": True, "category": category, "count": len(rows), "trends": rows}
 
 
 @app.get("/api/collections")
