@@ -381,28 +381,36 @@ async def scrape_products_multi(page: Page, category: str, marketplace: str,
                 except Exception:
                     pass
 
-    # Overall deadline: use whatever tabs finished by the cutoff (a few products from one
-    # good tab is plenty), so a single slow/bad proxy IP can't stall the whole run.
+    # EARLY-EXIT: stop as soon as we have enough unique quality products (one good tab
+    # yields ~40, we only need ~10), so a fast tab ends the run without waiting on the
+    # slow ones. A hard deadline still caps the worst case.
     deadline = float(os.getenv("SCRAPER_DEADLINE_SEC", "45")) if cfg.scraper_proxy.enabled else 300
+    enough = max(40, int(target_pool) // 2)
     tasks = [asyncio.create_task(_fetch(t, pg)) for t, pg in combos]
-    done, pending = await asyncio.wait(tasks, timeout=deadline)
-    for t in pending:
-        t.cancel()
-    if pending:
-        log.warning(f"[discovery] {len(pending)}/{len(tasks)} tab(s) exceeded {deadline:.0f}s — using {len(done)} that finished")
-    results = []
-    for t in done:
-        try:
-            results.append(t.result())
-        except Exception:
-            pass
-
+    pending = set(tasks)
     raw_all: list[dict] = []
     per_term: dict = {}
-    for term, page_raw in results:
-        per_term.setdefault(term, [])
-        per_term[term].extend(page_raw or [])
-        raw_all.extend(page_raw or [])
+    loop = asyncio.get_event_loop()
+    start = loop.time()
+    while pending:
+        remaining = deadline - (loop.time() - start)
+        if remaining <= 0:
+            break
+        done, pending = await asyncio.wait(pending, timeout=remaining,
+                                           return_when=asyncio.FIRST_COMPLETED)
+        if not done:                                   # hit the deadline
+            break
+        for t in done:
+            try:
+                term, rows = t.result()
+            except Exception:
+                continue
+            per_term.setdefault(term, []).extend(rows or [])
+            raw_all.extend(rows or [])
+        if len(_finalize_pool(raw_all, quality, cap=10**9)) >= enough:
+            break                                      # got plenty — stop waiting on slow tabs
+    for t in pending:
+        t.cancel()
 
     yields: dict = {}
     for term, rows in per_term.items():
