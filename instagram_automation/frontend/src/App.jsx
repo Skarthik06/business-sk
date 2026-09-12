@@ -44,11 +44,19 @@ const NAV_GROUPS = [
   {
     id: 'sk', label: 'Business-SK', icon: 'spark',
     items: [
-      { id: 'sk-affiliate', label: 'Affiliate', icon: 'spark' },
-      { id: 'sk-post', label: 'Post to IG', icon: 'pin' },
+      { id: 'sk-overview', label: 'Overview', icon: 'studio' },
+      { id: 'sk-affiliate', label: 'Discover', icon: 'spark' },
+      { id: 'sk-winners', label: 'Winners', icon: 'spark' },
+      { id: 'sk-trends', label: 'Trends', icon: 'bolt' },
+      { id: 'sk-intelligence', label: 'Intelligence', icon: 'doc' },
+      { id: 'sk-calendar', label: 'Content Calendar', icon: 'news' },
+      { id: 'sk-post', label: 'Content Studio', icon: 'pin' },
       { id: 'sk-storefront', label: 'Storefront', icon: 'ext' },
-      { id: 'sk-history', label: 'History', icon: 'history' },
+      { id: 'sk-revenue', label: 'Revenue', icon: 'history' },
       { id: 'sk-engagement', label: 'Engagement', icon: 'bolt' },
+      { id: 'sk-agents', label: 'Agents', icon: 'settings' },
+      { id: 'sk-accounts', label: 'Accounts', icon: 'shield' },
+      { id: 'sk-history', label: 'History', icon: 'history' },
     ],
   },
 ];
@@ -235,7 +243,7 @@ export default function App() {
           {view === 'history' && <History />}
           {/* Business-SK stays MOUNTED (hidden when inactive) so an in-progress generation /
               queued batch persists as you switch panels and come back. */}
-          <div style={{ display: ['sk-affiliate', 'sk-post', 'sk-storefront', 'sk-history'].includes(view) ? 'block' : 'none' }}>
+          <div style={{ display: ['sk-overview', 'sk-affiliate', 'sk-winners', 'sk-trends', 'sk-intelligence', 'sk-calendar', 'sk-post', 'sk-storefront', 'sk-revenue', 'sk-agents', 'sk-accounts', 'sk-history'].includes(view) ? 'block' : 'none' }}>
             <BusinessSK notify={notify} accounts={accounts} view={view} onNavigate={setView} />
           </div>
           {view === 'sk-engagement' && <Engagement notify={notify} />}

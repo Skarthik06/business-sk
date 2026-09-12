@@ -899,6 +899,15 @@ def affiliate_active_tag():
     return ok({"tag": rags.active_amazon_tag() or ""})
 
 
+@router.post("/affiliate/sync-performance")
+def affiliate_sync_performance(limit: int = 50):
+    """Pull real Instagram insights for published affiliate carousels and feed them to
+    the affiliate performance loop (Learning + winner prediction). Only real Graph
+    metrics; fail-open. Safe to call repeatedly (latest snapshot per post wins)."""
+    from app.business import affiliate_sync
+    return ok(affiliate_sync.sync_affiliate_performance(limit=max(1, min(limit, 200))))
+
+
 @router.post("/integrations/affiliate/connect")
 def affiliate_connect(body: AffiliateConnect):
     from app import rags

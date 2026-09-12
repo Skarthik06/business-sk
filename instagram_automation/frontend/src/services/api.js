@@ -116,6 +116,7 @@ export default {
   affConnect: (body) => http.post('/v1/integrations/affiliate/connect', body).then((r) => r.data.data),
   affUpdate: (id, body) => http.put(`/v1/integrations/affiliate/${id}`, body).then((r) => r.data.data),
   affDelete: (id) => http.delete(`/v1/integrations/affiliate/${id}`).then((r) => r.data.data),
+  affSyncPerformance: () => http.post('/v1/affiliate/sync-performance').then((r) => r.data.data),
   bizBlueprint: (cid) => http.get(`/business/campaigns/${cid}/blueprint`).then(data),
   bizEditSlide: (cid, i, body, render = true) => http.put(`/business/campaigns/${cid}/slides/${i}?render=${render}`, body).then(data),
   bizEditCaption: (cid, body) => http.put(`/business/campaigns/${cid}/caption`, body).then(data),

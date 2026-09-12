@@ -8,13 +8,31 @@ const DEFAULT_CATS = [
   { name: 'beauty', rate: 6 }, { name: 'fitness', rate: 5 }, { name: 'toys', rate: 5 },
   { name: 'books', rate: 4 }, { name: 'electronics', rate: 4 },
 ];
-// sk-engagement routes to the shared JK Engagement panel in App.jsx, not here.
-const VIEW_TAB = { 'sk-affiliate': 'generate', 'sk-post': 'post', 'sk-storefront': 'hub', 'sk-history': 'history' };
-const TAB_TITLE = { generate: 'Affiliate', post: 'Post to IG', hub: 'Storefront', history: 'History' };
+// Each Business-SK sidebar item maps to a page here. sk-engagement routes to the
+// shared JK Engagement panel in App.jsx, not here.
+const VIEW_TAB = {
+  'sk-overview': 'overview', 'sk-affiliate': 'generate', 'sk-winners': 'winners',
+  'sk-trends': 'trends', 'sk-intelligence': 'intel', 'sk-calendar': 'calendar',
+  'sk-post': 'post', 'sk-storefront': 'hub', 'sk-revenue': 'revenue',
+  'sk-agents': 'agents', 'sk-accounts': 'accounts', 'sk-history': 'history',
+};
+const TAB_TITLE = {
+  overview: 'Overview', generate: 'Discover', winners: 'Winners', trends: 'Trends',
+  intel: 'Intelligence', calendar: 'Content Calendar', post: 'Content Studio',
+  hub: 'Storefront', revenue: 'Revenue', agents: 'Agents', accounts: 'Accounts', history: 'History',
+};
 const TAB_KICKER = {
+  overview: 'Your affiliate operation at a glance — status, winners, and what to do next.',
   generate: 'Pick categories, choose how many products each, and find the best-selling picks.',
-  post: 'Review the batch from Affiliate, choose an account, and publish — no category setup here.',
+  winners: 'The strongest, freshest, best-evidenced picks across everything you have posted.',
+  trends: 'Trending keywords with momentum and direction, learned from every run.',
+  intel: 'Performance, learned recommendations, discovery yields and retailer health.',
+  calendar: 'Your publishing queue and the suggested weekly plan.',
+  post: 'Review the batch from Discover, choose an account, and publish.',
   hub: 'Your public Amazon page — the link for your Instagram bio.',
+  revenue: 'Measured results and the funnel — log a post to power the learning loop.',
+  agents: 'Every capability is an agent — tune its constraints live, no restart.',
+  accounts: 'Your affiliate program accounts, stored encrypted with your .ragskey.',
   history: 'Every carousel you have published.',
 };
 const LS_FAV = 'sk_favorites';
@@ -45,9 +63,7 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
 
   const shared = { cats, say, config, accounts };
   const queued = queue.reduce((n, g) => n + (g.products?.length || 0), 0);
-  const [sub, setSub] = useState('find');   // Affiliate sub-view: find | winners | trends | intel
   const show = (t) => ({ display: tab === t ? 'block' : 'none' });
-  const showSub = (s) => ({ display: tab === 'generate' && sub === s ? 'block' : 'none' });
   return (
     <div className="fade-up">
       <div className="flex items-end justify-between flex-wrap gap-4 mb-6">
@@ -66,21 +82,15 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
         </div>
       </div>
 
-      {tab === 'generate' && (
-        <div className="sk-subnav">
-          {[['find', 'Find products'], ['winners', 'Winners'], ['trends', 'Trends'], ['intel', 'Intelligence'], ['revenue', 'Revenue'], ['calendar', 'Calendar'], ['agents', 'Agents'], ['accounts', 'Accounts']].map(([k, label]) => (
-            <button key={k} className={cx('sk-subtab', sub === k && 'on')} onClick={() => setSub(k)}>{label}</button>
-          ))}
-        </div>
-      )}
-      <div style={showSub('find')}><GenerateTab {...shared} setQueue={setQueue} goPost={() => onNavigate?.('sk-post')} /></div>
-      <div style={showSub('winners')}><WinnersPanel active={tab === 'generate' && sub === 'winners'} say={say} /></div>
-      <div style={showSub('trends')}><TrendsPanel active={tab === 'generate' && sub === 'trends'} cats={cats} /></div>
-      <div style={showSub('intel')}><IntelligencePanel active={tab === 'generate' && sub === 'intel'} /></div>
-      <div style={showSub('revenue')}><RevenuePanel active={tab === 'generate' && sub === 'revenue'} say={say} /></div>
-      <div style={showSub('calendar')}><CalendarPanel active={tab === 'generate' && sub === 'calendar'} say={say} /></div>
-      <div style={showSub('agents')}><AgentsPanel active={tab === 'generate' && sub === 'agents'} say={say} /></div>
-      <div style={showSub('accounts')}><AccountsPanel active={tab === 'generate' && sub === 'accounts'} say={say} /></div>
+      <div style={show('overview')}><OverviewPanel active={tab === 'overview'} health={health} stats={stats} accounts={accounts} go={onNavigate} /></div>
+      <div style={show('generate')}><GenerateTab {...shared} setQueue={setQueue} goPost={() => onNavigate?.('sk-post')} /></div>
+      <div style={show('winners')}><WinnersPanel active={tab === 'winners'} say={say} /></div>
+      <div style={show('trends')}><TrendsPanel active={tab === 'trends'} cats={cats} /></div>
+      <div style={show('intel')}><IntelligencePanel active={tab === 'intel'} /></div>
+      <div style={show('revenue')}><RevenuePanel active={tab === 'revenue'} say={say} /></div>
+      <div style={show('calendar')}><CalendarPanel active={tab === 'calendar'} say={say} /></div>
+      <div style={show('agents')}><AgentsPanel active={tab === 'agents'} say={say} /></div>
+      <div style={show('accounts')}><AccountsPanel active={tab === 'accounts'} say={say} /></div>
       <div style={show('post')}><PostTab {...shared} queue={queue} setQueue={setQueue} goAffiliate={() => onNavigate?.('sk-affiliate')} /></div>
       <div style={show('hub')}><HubTab {...shared} /></div>
       <div style={show('history')}><HistoryTab active={tab === 'history'} /></div>
@@ -881,6 +891,71 @@ function ProductCard({ it, copy, fav, onFav, say }) {
   );
 }
 
+// ══════════════════════════════════ OVERVIEW (blueprint §6) ═══════════════════
+function OverviewPanel({ active, health, stats, accounts = [], go }) {
+  const [perf, setPerf] = useState(null);
+  const [wins, setWins] = useState(null);
+  useEffect(() => {
+    if (!active) return;
+    skApi.perfOverview().then(setPerf).catch(() => setPerf(null));
+    skApi.winners(6).then((d) => setWins(d.winners || [])).catch(() => setWins([]));
+  }, [active]);
+  const totals = perf?.totals || {};
+  const connected = perf?.connected;
+  const card = (label, value) => (
+    <div className="stat-tile"><div className="stat-v">{value == null ? 'Not connected' : value}</div><div className="stat-k">{label}</div></div>
+  );
+  const StatusDot = ({ ok, warn, label }) => (
+    <div className="flex items-center gap-2 text-sm"><span style={{ width: 9, height: 9, borderRadius: '50%', background: ok ? '#3fb950' : warn ? 'var(--amber)' : 'var(--faint)' }} />{label}<span className="flex-1" /><span className="text-xs font-mono" style={{ color: 'var(--faint)' }}>{ok ? 'Healthy' : warn ? 'Optional' : '—'}</span></div>
+  );
+  return (
+    <div className="mb-24 flex flex-col gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
+        {card('Posted products', stats?.total_seen ?? 0)}
+        {card('IG accounts', accounts.length)}
+        {card('Link clicks', connected ? (totals.link_clicks ?? '—') : null)}
+        {card('Orders', connected ? (totals.orders ?? '—') : null)}
+        {card('Commission', connected ? (totals.commission != null ? '₹' + totals.commission : '—') : null)}
+        {card('Winner products', wins == null ? '…' : wins.length)}
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="panel p-4">
+          <div className="eyebrow mb-3">Operational status</div>
+          <div className="flex flex-col gap-2.5">
+            <StatusDot ok={health?.ok} label="Product discovery" />
+            <StatusDot ok={accounts.length > 0} label="Instagram session" />
+            <StatusDot ok={stats?.db_ok} label="Database" />
+            <StatusDot ok={(stats?.total_seen ?? 0) > 0} warn={stats?.db_ok} label="RAG memory" />
+            <StatusDot ok={connected} warn label="Affiliate tracking" />
+          </div>
+        </div>
+        <div className="panel p-4">
+          <div className="eyebrow mb-3">Next best action</div>
+          {accounts.length === 0
+            ? <ActionCard title="Connect an Instagram account" body="Add your IG account so carousels can be published." btn="Go to Accounts" onClick={() => go?.('accounts')} />
+            : <ActionCard title="Find winning products" body="Run Discover to surface fresh, high-winner-score products, then publish." btn="Open Discover" onClick={() => go?.('sk-affiliate')} />}
+        </div>
+      </div>
+      <div className="panel p-4">
+        <div className="eyebrow mb-3">Recent winners</div>
+        {wins == null ? <div className="text-center p-4"><Spinner size={16} /></div>
+          : wins.length === 0 ? <p className="text-sm" style={{ color: 'var(--muted)' }}>No posted products yet — publish a few carousels and your top winners show here.</p>
+          : <div className="flex flex-col gap-2">{wins.map((w, i) => (
+              <div key={(w.asin || '') + i} className="acct-row">
+                {w.winner_tier && <span className={cx('mini', 'on')} style={{ minWidth: 44, textAlign: 'center' }}>{w.winner_tier} · {w.winner_score}</span>}
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{w.product_title || w.title}</span>
+                <span className="text-xs font-mono" style={{ color: 'var(--muted)' }}>{w.price}</span>
+              </div>))}</div>}
+      </div>
+    </div>
+  );
+}
+const ActionCard = ({ title, body, btn, onClick }) => (
+  <div><div style={{ fontWeight: 600, fontSize: 14 }}>{title}</div>
+    <p className="text-sm mt-1 mb-3" style={{ color: 'var(--muted)' }}>{body}</p>
+    <button className="btn btn-sm" onClick={onClick}>{btn} <Icon name="chevR" size={14} /></button></div>
+);
+
 // ══════════════════════════════════ WINNERS (Phase 10) ════════════════════════
 function WinnersPanel({ active, say }) {
   const [data, setData] = useState(null);
@@ -1010,7 +1085,10 @@ function RevenuePanel({ active, say }) {
   return (
     <div className="mb-24 flex flex-col gap-4">
       <div className="panel p-4">
-        <div className="eyebrow mb-2">Revenue &amp; performance</div>
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <div className="eyebrow">Revenue &amp; performance</div>
+          <button className="btn btn-sm" onClick={async () => { try { const r = await api.affSyncPerformance(); reload(); say?.(`Synced ${r.synced} post(s) from Instagram`); } catch { say?.('Sync needs a connected IG account + posted carousels', 'error'); } }}><Icon name="bolt" size={13} /> Sync from Instagram</button>
+        </div>
         {!connected
           ? <p className="text-sm" style={{ color: 'var(--muted)' }}>No measured results yet. Enter metrics below (from your Instagram insights + affiliate dashboard) to start the learning loop — nothing is ever guessed.</p>
           : <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
