@@ -43,23 +43,32 @@ const NAV_GROUPS = [
   },
   {
     id: 'sk', label: 'Business-SK', icon: 'spark',
-    items: [
-      { id: 'sk-overview', label: 'Overview', icon: 'studio' },
-      { id: 'sk-affiliate', label: 'Discover', icon: 'spark' },
-      { id: 'sk-winners', label: 'Winners', icon: 'spark' },
-      { id: 'sk-trends', label: 'Trends', icon: 'bolt' },
-      { id: 'sk-intelligence', label: 'Intelligence', icon: 'doc' },
-      { id: 'sk-calendar', label: 'Content Calendar', icon: 'news' },
-      { id: 'sk-post', label: 'Content Studio', icon: 'pin' },
-      { id: 'sk-storefront', label: 'Storefront', icon: 'ext' },
-      { id: 'sk-revenue', label: 'Revenue', icon: 'history' },
-      { id: 'sk-engagement', label: 'Engagement', icon: 'bolt' },
-      { id: 'sk-agents', label: 'Agents', icon: 'settings' },
-      { id: 'sk-accounts', label: 'Accounts', icon: 'shield' },
-      { id: 'sk-history', label: 'History', icon: 'history' },
+    sections: [
+      { label: 'Workspace', items: [
+        { id: 'sk-affiliate', label: 'Affiliate', icon: 'spark' },
+        { id: 'sk-post', label: 'Content Studio', icon: 'pin' },
+        { id: 'sk-engagement', label: 'Engagement', icon: 'bolt' },
+        { id: 'sk-storefront', label: 'Storefront', icon: 'ext' },
+      ] },
+      { label: 'Insights', items: [
+        { id: 'sk-overview', label: 'Overview', icon: 'studio' },
+        { id: 'sk-winners', label: 'Winners', icon: 'spark' },
+        { id: 'sk-trends', label: 'Trends', icon: 'bolt' },
+        { id: 'sk-intelligence', label: 'Intelligence', icon: 'doc' },
+        { id: 'sk-calendar', label: 'Content Calendar', icon: 'news' },
+        { id: 'sk-revenue', label: 'Revenue', icon: 'history' },
+      ] },
+      { label: 'Affiliate settings', items: [
+        { id: 'sk-agents', label: 'Agents', icon: 'settings' },
+        { id: 'sk-accounts', label: 'Accounts', icon: 'shield' },
+        { id: 'sk-history', label: 'History', icon: 'history' },
+      ] },
     ],
   },
 ];
+
+// Flatten a group's items whether it uses flat `items` or nested `sections`.
+const groupItems = (g) => g.items || (g.sections || []).flatMap((s) => s.items);
 
 // Universal panels — shared across BOTH businesses (account tokens, API keys,
 // personal studio). They live OUTSIDE the Business-JK / Business-SK groups.
@@ -70,7 +79,7 @@ const UNIVERSAL = [
 ];
 
 // Flat list (used by the compact mobile bar).
-const NAV = [...NAV_GROUPS.flatMap((g) => g.items), ...UNIVERSAL];
+const NAV = [...NAV_GROUPS.flatMap(groupItems), ...UNIVERSAL];
 
 export default function App() {
   const [view, setView] = useState('dashboard');
@@ -156,11 +165,18 @@ export default function App() {
               {openGroups[group.id] && (
                 <div className="space-y-1 mt-1" style={{ marginLeft: 11, paddingLeft: 9,
                      borderLeft: '1px solid var(--border)' }}>
-                  {group.items.map((n) => (
-                    <div key={n.id} className={cx('nav-item', view === n.id && 'active')}
-                      onClick={() => setView(n.id)}>
-                      <Icon name={n.icon} size={16} /> {n.label}
-                      <span className="nav-dot" />
+                  {(group.sections || [{ items: group.items }]).map((sec, si) => (
+                    <div key={sec.label || si} className={si > 0 ? 'mt-2' : ''}>
+                      {sec.label && (
+                        <div className="eyebrow" style={{ padding: '4px 10px 2px', fontSize: '0.52rem', color: 'var(--faint)' }}>{sec.label}</div>
+                      )}
+                      {sec.items.map((n) => (
+                        <div key={n.id} className={cx('nav-item', view === n.id && 'active')}
+                          onClick={() => setView(n.id)}>
+                          <Icon name={n.icon} size={16} /> {n.label}
+                          <span className="nav-dot" />
+                        </div>
+                      ))}
                     </div>
                   ))}
                 </div>

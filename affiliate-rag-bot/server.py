@@ -424,6 +424,9 @@ async def api_generate(
     price_min: Optional[int] = Query(default=None, ge=0),
     price_max: Optional[int] = Query(default=None, ge=0, le=1_000_000),
     content: Optional[str] = Query(default=None, description="caption style: auto|DEAL_DROP|STORY|LISTICLE|PROBLEM_SOLUTION|QUESTION|TRANSFORMATION|GIFT_GUIDE|BUDGET|PREMIUM|VIRAL_FIND"),
+    goal: Optional[str] = Query(default=None, description="ranking goal: balanced|viral|intent|value|trending|fresh|commission"),
+    combo_budget: Optional[int] = Query(default=None, ge=0, le=1_000_000, description="if set, also return a combo (products from distinct categories summing <= this budget)"),
+    combo_size: int = Query(default=3, ge=2, le=5),
 ) -> JSONResponse:
     """
     CONTENT SERVICE — generate ready-to-post product content and return it as JSON.
@@ -509,9 +512,29 @@ async def api_generate(
         except Exception:
             pass
 
-    # Rank by the Winner Score (intelligence × confidence, novelty/trend/performance-aware)
-    # so the strongest, freshest, best-evidenced picks lead; fall back to content_score.
-    items.sort(key=lambda it: it.get("winner_score", it.get("content_score", 0)), reverse=True)
+    # Goal-driven ranking (Find Winners): re-rank by the goal's signal, else winner score.
+    _GOAL_KEY = {
+        "viral": "instagram_score", "intent": "purchase_intent_score", "value": "value_score",
+        "trending": "trend_score", "fresh": "novelty_score",
+    }
+    g = (goal or "").strip().lower()
+    if g == "commission":
+        rate = _discovery.COMMISSION
+        items.sort(key=lambda it: rate.get((it.get("category") or "").lower(), 0), reverse=True)
+    elif g in _GOAL_KEY:
+        k = _GOAL_KEY[g]
+        items.sort(key=lambda it: (it.get(k) or 0, it.get("winner_score", 0)), reverse=True)
+    else:
+        # balanced (default): Winner Score (intelligence × confidence, novelty/trend/perf-aware).
+        items.sort(key=lambda it: it.get("winner_score", it.get("content_score", 0)), reverse=True)
+
+    # Combo builder: a set of products from DISTINCT categories whose real prices sum <= budget.
+    combo = None
+    if combo_budget and items:
+        bundles = _discovery.build_bundles([{**it, "content_score": it.get("winner_score", it.get("content_score", 0))} for it in items],
+                                           int(combo_budget), size=int(combo_size))
+        if bundles:
+            combo = bundles[0]
 
     # Trend context for this run (JSON) — momentum/direction per category (cold-start empty).
     trend_ctx: list[dict] = []
@@ -547,6 +570,9 @@ async def api_generate(
         # Phase 4 — content style used + fact-check summary.
         "content_style": (items[0].get("content_style") if items else ""),
         "content_warnings": [w for it in items for w in it.get("content_warnings", [])],
+        # goal-driven ranking + optional combo bundle.
+        "goal": g or "balanced",
+        "combo": combo,
         "elapsed_seconds": round(finished - started, 2),
         "errors": errors,
     })

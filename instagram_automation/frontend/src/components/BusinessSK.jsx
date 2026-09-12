@@ -17,7 +17,7 @@ const VIEW_TAB = {
   'sk-agents': 'agents', 'sk-accounts': 'accounts', 'sk-history': 'history',
 };
 const TAB_TITLE = {
-  overview: 'Overview', generate: 'Discover', winners: 'Winners', trends: 'Trends',
+  overview: 'Overview', generate: 'Affiliate', winners: 'Winners', trends: 'Trends',
   intel: 'Intelligence', calendar: 'Content Calendar', post: 'Content Studio',
   hub: 'Storefront', revenue: 'Revenue', agents: 'Agents', accounts: 'Accounts', history: 'History',
 };
@@ -39,6 +39,12 @@ const LS_FAV = 'sk_favorites';
 const LS_QUEUE = 'sk_queue';
 const CAPTION_STYLES = ['auto', 'DEAL_DROP', 'STORY', 'LISTICLE', 'PROBLEM_SOLUTION', 'QUESTION',
   'TRANSFORMATION', 'GIFT_GUIDE', 'BUDGET', 'PREMIUM', 'VIRAL_FIND'];
+const GOALS = [
+  { k: 'balanced', label: 'Balanced' }, { k: 'viral', label: 'Viral potential' },
+  { k: 'intent', label: 'High purchase intent' }, { k: 'value', label: 'Best value' },
+  { k: 'trending', label: 'Trending' }, { k: 'fresh', label: 'Fresh / novel' },
+  { k: 'commission', label: 'High commission' },
+];
 
 export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate', onNavigate }) {
   const tab = VIEW_TAB[view] || 'generate';
@@ -110,6 +116,10 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   const [minReviews, setMinReviews] = useState(50);
   const [priceMax, setPriceMax] = useState(5000);
   const [style, setStyle] = useState('auto');            // Phase 4 caption style (A/B)
+  const [goal, setGoal] = useState('balanced');          // ranking goal (Find Winners)
+  const [comboOn, setComboOn] = useState(false);         // combo/bundle mode
+  const [comboBudget, setComboBudget] = useState(3000);
+  const [combo, setCombo] = useState(null);              // returned combo bundle
   const [running, setRunning] = useState(false);
   const [prog, setProg] = useState([]);                  // per-post progress rows
   const [groups, setGroups] = useState(null);            // [{id,label,category,products}]
@@ -142,9 +152,11 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   const run = async () => {
     if (!selected.length) return say('Select at least one category', 'error');
     if (postCount > 10) return say('Instagram allows up to 10 posts — deselect a few subcategories', 'error');
-    setRunning(true); setGroups(null);
-    const opts = { min_rating: minRating, min_reviews: minReviews, price_max: priceMax, content: style };
+    setRunning(true); setGroups(null); setCombo(null);
+    const opts = { min_rating: minRating, min_reviews: minReviews, price_max: priceMax, content: style, goal,
+                   ...(comboOn ? { combo_budget: comboBudget } : {}) };
     const out = [];
+    const errs = [];
     setProg(jobs.map((j) => ({ id: j.label, phase: 'queued', n: 0 })));
     for (const j of jobs) {
       setProg((p) => p.map((r) => (r.id === j.label ? { ...r, phase: 'generating' } : r)));
@@ -154,6 +166,8 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
           : await skApi.generate([j.cat], counts[j.cat] || 3, opts);
         const products = (r.items || []).map((it) => ({ ...it, category: j.cat }));  // keep base category
         out.push({ id: j.label, label: j.label, category: j.cat, products, caption: r.caption || '', hashtags: r.hashtags || [], content_style: r.content_style || '', warnings: r.content_warnings || [] });
+        if (r.combo) setCombo(r.combo);
+        (r.errors || []).forEach((e) => errs.push(e));
         setProg((p) => p.map((r2) => (r2.id === j.label ? { ...r2, phase: 'done', n: products.length } : r2)));
       } catch (e) {
         setProg((p) => p.map((r2) => (r2.id === j.label ? { ...r2, phase: 'error', n: 0 } : r2)));
@@ -163,7 +177,11 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
     const nonEmpty = out.filter((g) => g.products.length);
     setQueue(nonEmpty);                                  // AUTO-reflect into Post to IG (no manual send)
     const total = out.reduce((n, g) => n + g.products.length, 0);
-    say(total ? `${total} products → ${nonEmpty.length} post${nonEmpty.length === 1 ? '' : 's'} ready in Post to IG` : 'No new products (deduped)', total ? 'ok' : 'error');
+    const blocked = errs.some((e) => /blocked|Download is starting|scrape_amazon|bot-wall/i.test(e));
+    say(total
+      ? `${total} products → ${nonEmpty.length} post${nonEmpty.length === 1 ? '' : 's'} ready in Content Studio`
+      : blocked ? 'Amazon blocked the cloud IP — add a scraping proxy (see Agents/Accounts) to fetch products'
+      : 'No new products (deduped or filtered out)', total ? 'ok' : 'error');
     setRunning(false);
   };
 
@@ -211,12 +229,18 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
           <div className={cx('posts-meter', postCount > 10 && 'over')}>
             <b>{postCount}</b> / 10 post{postCount === 1 ? '' : 's'} <span>· Instagram allows up to 10</span>
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-xs" style={{ color: 'var(--faint)' }}>Caption style</label>
-            <select className="sk-select" value={style} onChange={(e) => setStyle(e.target.value)} title="How the AI writes the caption (A/B)">
-              {CAPTION_STYLES.map((s) => <option key={s} value={s}>{s === 'auto' ? 'Auto (AI picks)' : s.replace(/_/g, ' ').toLowerCase()}</option>)}
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="text-xs" style={{ color: 'var(--faint)' }}>Goal</label>
+            <select className="sk-select" value={goal} onChange={(e) => setGoal(e.target.value)} title="What to optimise this run for (Find Winners)">
+              {GOALS.map((gopt) => <option key={gopt.k} value={gopt.k}>{gopt.label}</option>)}
             </select>
-            <button className="btn btn-sm btn-ghost" onClick={() => setShowOpts((v) => !v)}><Icon name="settings" size={13} /> Quality filters {showOpts ? '▾' : '▸'}</button>
+            <label className="text-xs" style={{ color: 'var(--faint)' }}>Style</label>
+            <select className="sk-select" value={style} onChange={(e) => setStyle(e.target.value)} title="How the AI writes the caption (A/B)">
+              {CAPTION_STYLES.map((s) => <option key={s} value={s}>{s === 'auto' ? 'Auto' : s.replace(/_/g, ' ').toLowerCase()}</option>)}
+            </select>
+            <button className={cx('mini', comboOn && 'on')} onClick={() => setComboOn((v) => !v)} title="Build a combo: complementary products summing under a budget">🎁 Combo {comboOn ? 'on' : 'off'}</button>
+            {comboOn && <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--faint)' }}>under ₹<input className="sk-input" style={{ width: 74 }} value={comboBudget} onChange={(e) => setComboBudget(Number(e.target.value) || 0)} inputMode="numeric" /></span>}
+            <button className="btn btn-sm btn-ghost" onClick={() => setShowOpts((v) => !v)}><Icon name="settings" size={13} /> Filters {showOpts ? '▾' : '▸'}</button>
           </div>
         </div>
         {showOpts && (
@@ -254,13 +278,27 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
       {groups && (
         <div className="mb-24">
           <div className="flex items-center gap-3 mb-4">
-            <div className="step-head"><span className="step-n">2</span> Review — {readyPosts} post{readyPosts === 1 ? '' : 's'} ready in Post to IG</div>
+            <div className="step-head"><span className="step-n">2</span> Review — {readyPosts} post{readyPosts === 1 ? '' : 's'} ready in Content Studio</div>
             <span className="flex-1" />
             {total > 0 && <>
               <button className="btn btn-sm btn-ghost" onClick={() => copy(JSON.stringify(allItems, null, 2), 'JSON')}><Icon name="doc" size={12} /> JSON</button>
               <button className="btn btn-sm btn-ghost" onClick={() => downloadCSV(allItems)}><Icon name="ext" size={12} /> CSV</button>
             </>}
           </div>
+          {combo && (
+            <div className="panel p-4 mb-5" style={{ borderColor: 'var(--accent)' }}>
+              <div className="flex items-center gap-2 mb-2"><span className="prog-badge">🎁 {combo.title}</span><span className="text-xs" style={{ color: 'var(--muted)' }}>{combo.count} products · combined ₹{Number(combo.combined_price).toLocaleString()}</span></div>
+              <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-2">
+                {(combo.products || []).map((p, i) => (
+                  <div key={(p.asin || '') + i} className="acct-row" style={{ flexDirection: 'column', alignItems: 'stretch', gap: 6 }}>
+                    {(p.image_url || p.image) ? <img src={hiRes(p.image_url || p.image)} alt="" style={{ width: '100%', height: 90, objectFit: 'contain', background: '#fff', borderRadius: 8 }} /> : null}
+                    <div style={{ fontSize: 11, fontWeight: 600, lineHeight: 1.2, maxHeight: 28, overflow: 'hidden' }}>{p.product_title || p.title}</div>
+                    <div className="text-xs font-mono" style={{ color: 'var(--accent)' }}>{p.price}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
           {total === 0 ? <Empty text="No new products (deduped). Try other subcategories or lower the quality filters." /> : (
             (groups.filter((g) => g.products.length)).map((g) => (
               <div key={g.id} className="mb-6">

@@ -244,11 +244,19 @@ async def _scrape_page(page: Page, category: str, marketplace: str,
         url += f"&page={page_num}"
 
     log.step(f"Scraping Amazon search: {category} ('{term}' · page {page_num})...")
-    await page.goto(url, wait_until="domcontentloaded")
+    try:
+        await page.goto(url, wait_until="domcontentloaded")
+    except Exception as e:
+        # "Download is starting" / net::ERR = Amazon's Akamai bot-wall served the datacenter
+        # IP a challenge instead of the page. The fix is a residential proxy / scraping API.
+        from config import cfg
+        hint = "" if cfg.scraper_proxy.enabled else " — set SCRAPER_PROXY_* (residential proxy/scraping API) so Amazon serves real results from the cloud IP"
+        log.error(f"Amazon blocked the request for '{term}' ({e}){hint}")
+        return []
     try:
         await page.wait_for_selector('[data-component-type="s-search-result"]', timeout=15000)
     except Exception:
-        log.warning(f"search results did not render in time ('{term}' p{page_num})")
+        log.warning(f"no results rendered for '{term}' p{page_num} (possible bot-wall){'' if __import__('config').cfg.scraper_proxy.enabled else ' — set SCRAPER_PROXY_*'}")
         return []
     await _delay(600, 1200)
 

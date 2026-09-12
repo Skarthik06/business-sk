@@ -55,11 +55,20 @@ def _initial_state(category: str, products_per_run: int) -> dict:
 
 
 async def _new_browser(pw):
-    """Launch a stealth Chromium context with the two pages the graph needs."""
-    browser = await pw.chromium.launch(
-        headless=cfg.bot.headless,
-        args=["--no-sandbox", "--disable-blink-features=AutomationControlled"],
-    )
+    """Launch a stealth Chromium context with the two pages the graph needs.
+    Routes through a residential proxy / scraping API when configured, so Amazon does
+    not block the datacenter IP (see config.ScraperProxyConfig)."""
+    launch_kwargs: dict = {
+        "headless": cfg.bot.headless,
+        "args": ["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+    }
+    if cfg.scraper_proxy.enabled:
+        proxy = {"server": cfg.scraper_proxy.server}
+        if cfg.scraper_proxy.user:
+            proxy["username"] = cfg.scraper_proxy.user
+            proxy["password"] = cfg.scraper_proxy.password
+        launch_kwargs["proxy"] = proxy
+    browser = await pw.chromium.launch(**launch_kwargs)
     context = await browser.new_context(
         viewport={"width": 1366, "height": 768},
         user_agent=(

@@ -163,6 +163,24 @@ class CompetitorConfig:
 
 
 @dataclass
+class ScraperProxyConfig:
+    """Route the scraping browser through a residential proxy / scraping API so Amazon
+    doesn't block the datacenter IP (Akamai bot-wall). Works with ScraperAPI, ScrapingBee,
+    BrightData, or any HTTP proxy. Unset ⇒ direct connection (fine locally / residential IP,
+    blocked from a cloud datacenter). ScraperAPI example:
+      SCRAPER_PROXY_SERVER=http://proxy-server.scraperapi.com:8001
+      SCRAPER_PROXY_USER=scraperapi   SCRAPER_PROXY_PASS=<your key>
+    """
+    server: str = field(default_factory=lambda: os.getenv("SCRAPER_PROXY_SERVER", ""))
+    user:   str = field(default_factory=lambda: os.getenv("SCRAPER_PROXY_USER", ""))
+    password: str = field(default_factory=lambda: os.getenv("SCRAPER_PROXY_PASS", ""))
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.server)
+
+
+@dataclass
 class Config:
     amazon:            AmazonConfig    = field(default_factory=AmazonConfig)
     pinterest:         PinterestConfig = field(default_factory=PinterestConfig)
@@ -176,6 +194,7 @@ class Config:
     performance:       PerformanceConfig = field(default_factory=PerformanceConfig)
     retailers:         RetailerConfig  = field(default_factory=RetailerConfig)
     competitor:        CompetitorConfig = field(default_factory=CompetitorConfig)
+    scraper_proxy:     ScraperProxyConfig = field(default_factory=ScraperProxyConfig)
     # ── LLM (OpenAI / ChatGPT) ──────────────────────────────────────────
     openai_api_key:    str             = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     openai_model:      str             = field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-5-nano"))
