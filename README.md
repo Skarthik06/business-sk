@@ -1,44 +1,17 @@
-# Business-SK — Stack / Orchestration
+# Business-SK
 
-The deployment glue for the Business-SK platform. The application code lives in two
-separate repositories; clone them **as siblings** next to this one, then run the stack
-with the `docker-compose.yml` here.
+A private, personal project. All rights reserved.
 
-## Layout
+This repository is not documented for public use — it's my own work, maintained for my own
+deployment.
 
-```
-BUSINESS_SK/
-├─ docker-compose.yml        # orchestrates all 4 services (this repo)
-├─ initdb/                   # Postgres init (creates the affiliate DB)
-├─ AUDIT.md                  # full build/change audit
-├─ creative-system.html      # "The Still Set" creative-system playbook
-├─ instagram_automation/     # → github.com/Skarthik06/business-sk           (JK real-estate + IG backend + frontend)
-└─ affiliate-rag-bot/        # → github.com/Skarthik06/business-sk-affiliate  (SK Amazon-affiliate engine)
-```
+## Version history
 
-## Setup
+- **v1.2.1** — Reliable product fetching from the cloud (residential-proxy support).
+- **v1.2.0** — Deep-link panel URLs; "posted" confirmation cards + refresh in the studio.
+- **v1.1.0** — Studio dashboard reorganised (Workspace / Insights / Affiliate settings);
+  goal-based ranking and combo/bundle mode.
+- **v1.0.0** — First stable release: the full affiliate autopilot (product discovery, scoring,
+  content generation, publishing, performance loop, learning) and the studio dashboard.
 
-```bash
-# clone the three repos as siblings
-git clone https://github.com/Skarthik06/business-sk-stack.git BUSINESS_SK
-cd BUSINESS_SK
-git clone https://github.com/Skarthik06/business-sk.git instagram_automation
-git clone https://github.com/Skarthik06/business-sk-affiliate.git affiliate-rag-bot
-
-# create the two .env files from their .env.example templates, then:
-docker compose up -d --build
-```
-
-## Services
-
-| Service | Port | Repo |
-|---|---|---|
-| frontend (Vite/React) | 3000 | business-sk |
-| backend (IG publisher + Still Set renderer) | 8000 | business-sk |
-| affiliate_backend (product discovery) | 8100 | business-sk-affiliate |
-| db (Postgres + pgvector) | 5432 | — |
-
-## Secrets
-
-Never committed. Each service reads its own `.env` (see `.env.example` in each repo);
-the IG token encryption key (`.ragskey`) is git-ignored and stays local.
+_See `RELEASES.md` for how versions are cut, deployed, and rolled back._
