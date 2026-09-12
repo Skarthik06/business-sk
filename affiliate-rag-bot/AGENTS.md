@@ -65,6 +65,18 @@ its file, so the spec never overstates reality.
 | Carousel Publisher | [carousel-publisher.agents.md](agents/carousel-publisher.agents.md) | IG carousel selection/order, secure posting, comment→DM, storefront refresh | `instagram_automation/app/*` |
 | Still Set Templates | [still-set-templates.agents.md](agents/still-set-templates.agents.md) | Designed-slide look: product-is-hero (big/clean), index frame, tint system, type, layout-by-count, no-fabrication | `instagram_automation/app/services/sk_render.py` |
 
+### Autopilot layer (v5 — Phases 1–2 of the [Autopilot blueprint](docs/AUTOPILOT_BLUEPRINT.md))
+
+Built as editable agents (spec + env-tunable constraints) so behaviour can be re-tuned as the
+project runs. The 10-phase roadmap lives in `docs/AUTOPILOT_BLUEPRINT.md`; `docs/ENGINE_GUIDE.md`
+explains the base engine.
+
+| Agent | File | Governs | Key code |
+|-------|------|---------|----------|
+| Discovery Planner | [discovery-planner.agents.md](agents/discovery-planner.agents.md) | Multi-query subcategory mining, pagination, adaptive stopping, yield-based rotation | `tools/amazon.py`, `rag/discovery_stats.py`, `graph/nodes.py`, `config.DiscoveryConfig` |
+| Novelty Analyst | [novelty-analyst.agents.md](agents/novelty-analyst.agents.md) | Semantic freshness vs already-posted pins (avoid repetitive ideas) | `rag/store.py` (`novelty_scores`), `graph/nodes.py` (`compose_pins`), `config.NoveltyConfig` |
+| Winner Engine | [winner-engine.agents.md](agents/winner-engine.agents.md) | Confidence, product-intelligence, winner score + tier, "why this product" evidence | `chains/discovery.py`, `server.py` (`/api/generate`) |
+
 Funnel this layer optimises: **Instagram → attention → website/storefront → discovery →
 product → click → Amazon → purchase → commission.**
 

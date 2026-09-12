@@ -213,6 +213,7 @@ def _pin_to_json(pin: dict, posted_map: dict) -> dict:
         "pin_description":   pin.get("pin_description", ""),
         "hashtags":          pin.get("hashtags", []),
         "affiliate_link":    pin.get("affiliate_link", ""),
+        "novelty_score":     pin.get("novelty_score"),          # Phase 2 (None if disabled)
         "posted":            bool(result.get("success")),
         "post_error":        result.get("error"),
     }

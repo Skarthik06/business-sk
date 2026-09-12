@@ -229,6 +229,93 @@ def score_product(p: dict) -> dict:
     }
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 2 — Novelty Analyst + Winner Engine (see agents/novelty-analyst,
+# agents/winner-engine). All deterministic; novelty is supplied by the caller
+# (rag.store.novelty_scores) so this module stays free of DB/embedding deps.
+# ══════════════════════════════════════════════════════════════════════════════
+
+def confidence_score(p: dict) -> float:
+    """0.55–1.0 — how complete/reliable a candidate's evidence is. A strong product
+    with a couple of missing fields is only gently penalised, never zeroed, so we
+    never *select* on incomplete evidence but also don't discard good products."""
+    from config import cfg
+    floor = cfg.novelty.min_confidence
+    have = 0.0
+    if _price_int(p) is not None:                 have += 0.30    # real price
+    if p.get("image") or p.get("image_url"):      have += 0.20    # valid image
+    if p.get("rating"):                           have += 0.20    # rating present
+    if _reviews_int(p) > 0:                        have += 0.15    # review volume
+    if p.get("asin"):                             have += 0.15    # stable identity
+    return round(floor + (1.0 - floor) * have, 3)  # map [0,1]→[floor,1]
+
+
+def product_intelligence(p: dict, sub: dict, novelty: Optional[int]) -> int:
+    """Master pick score = content_score blended with novelty (weight NOVELTY_WEIGHT).
+    Novelty rewards products UNLIKE what we've already posted, so the feed stays fresh."""
+    from config import cfg
+    cs = content_score(p, sub)
+    if not cfg.novelty.enabled or novelty is None:
+        return cs
+    w = max(0.0, min(cfg.novelty.weight, 1.0))
+    return int(_clamp(cs * (1 - w) + float(novelty) * w))
+
+
+def winner_score(intelligence: int, confidence: float, freshness: float = 1.0) -> int:
+    """winner_score = product_intelligence × confidence × freshness (§20 of the
+    blueprint). Freshness defaults to 1.0 until product first/last-seen data exists."""
+    return int(_clamp(intelligence * confidence * freshness))
+
+
+def evidence(p: dict) -> list[str]:
+    """Grounded, human-readable reasons — ONLY things the real data supports (G13).
+    Shown in the studio's 'Why this product?' panel. Never a fabricated claim."""
+    out: list[str] = []
+    if _price_int(p) is not None:            out.append(f"real price available (₹{_price_int(p):,})")
+    if p.get("rating"):                      out.append(f"strong rating ({p.get('rating')}★)")
+    rv = _reviews_int(p)
+    if rv:                                   out.append(f"{rv:,} reviews (social proof)")
+    if int(p.get("discount_pct") or 0) > 0:  out.append(f"real discount ({int(p['discount_pct'])}% off)")
+    if (p.get("bought_past_month") or ""):   out.append(f"recent demand ({p['bought_past_month']} bought/mo)")
+    if (p.get("badge") or ""):               out.append(f"badge: {p['badge']}")
+    if p.get("image") or p.get("image_url"): out.append("valid product image")
+    if (p.get("category") or ""):            out.append(f"relevant category ({p['category']})")
+    return out
+
+
+def winner_bundle(p: dict, novelty: Optional[int] = None) -> dict:
+    """Full Phase-2 annotation for one product: novelty + confidence + intelligence +
+    winner score + evidence. Additive — layers on top of score_product()."""
+    sub = {
+        "value_score": value_score(p),
+        "purchase_intent_score": purchase_intent_score(p),
+        "instagram_score": instagram_score(p),
+        "content_potential_score": content_potential_score(p),
+    }
+    conf = confidence_score(p)
+    intel = product_intelligence(p, sub, novelty)
+    return {
+        "novelty_score":     novelty,                       # None when disabled/cold-start-unknown
+        "confidence":        conf,
+        "intelligence_score": intel,
+        "winner_score":      winner_score(intel, conf),
+        "winner_tier":       tier(winner_score(intel, conf)),
+        "evidence":          evidence(p),
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Phase 1 — Discovery query planning (see agents/discovery-planner).
+# ══════════════════════════════════════════════════════════════════════════════
+
+def category_queries(category: str) -> list[str]:
+    """All candidate search intents for a base category (subcategories + the base term)."""
+    cat = (category or "").lower()
+    subs = list(SUBCATEGORIES.get(cat, []))
+    base = cat.strip()
+    return ([base] + subs) if base and base not in subs else (subs or [base])
+
+
 # ── Collections & bundles (Collection-Builder) ───────────────────────────────
 def build_price_bands(products: list[dict]) -> list[dict]:
     """Group scored products into truthful price-band collections (real prices only)."""

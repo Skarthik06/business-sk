@@ -233,6 +233,48 @@ _SCRAPE_JS = r"""
 """
 
 
+async def _scrape_page(page: Page, category: str, marketplace: str,
+                       term: str, page_num: int = 1) -> list[dict]:
+    """Scrape ONE search-results page for `term` and return RAW normalized products
+    (no quality filter / dedup yet — the caller pools + filters across pages)."""
+    url = f"https://www.{marketplace}/s?k={quote_plus(term)}&ref=nb_sb_noss"
+    if page_num > 1:
+        url += f"&page={page_num}"
+
+    log.step(f"Scraping Amazon search: {category} ('{term}' · page {page_num})...")
+    await page.goto(url, wait_until="domcontentloaded")
+    try:
+        await page.wait_for_selector('[data-component-type="s-search-result"]', timeout=15000)
+    except Exception:
+        log.warning(f"search results did not render in time ('{term}' p{page_num})")
+        return []
+    await _delay(600, 1200)
+
+    products = await page.evaluate(_SCRAPE_JS, {"marketplace": marketplace, "category": category})
+
+    # Normalize the review-count string ("1.8K") to an int, upgrade the tiny search
+    # thumbnail to the full-resolution product image, and stamp the source query/page
+    # (used by discovery query-yield stats + the ProductCandidate contract).
+    for p in products:
+        rv = p.get("reviews")
+        p["reviews"] = _parse_count(rv) if rv else None
+        p["image"] = _hi_res_image(p.get("image"))
+        p["source_query"] = term
+        p["source_page"] = page_num
+    return products
+
+
+def _finalize_pool(raw: list[dict], quality: Optional[dict], cap: int) -> list[dict]:
+    """Quality-gate → attractiveness sort → within-run dedup → top `cap`. Shared by
+    the single-query and multi-query paths so both apply the SAME uniqueness rules."""
+    kept = [p for p in raw if _passes_quality(p, quality)]
+    if not kept:  # relaxed fallback so a strict filter never empties a category
+        kept = [p for p in raw if p.get("image") and _parse_price(p.get("price"))]
+    kept.sort(key=_attractiveness, reverse=True)
+    kept = _dedup_products(kept)                 # drop variant/duplicate listings
+    return kept[:cap]
+
+
 async def scrape_products(page: Page, category: str, marketplace: str,
                           query: Optional[str] = None,
                           quality: Optional[dict] = None) -> list[dict]:
@@ -243,41 +285,53 @@ async def scrape_products(page: Page, category: str, marketplace: str,
     `query`   — free-text search term (overrides the category→keyword mapping).
     `quality` — per-request min_rating/min_reviews/price_min/price_max overrides.
 
-    Pipeline: extract ~40 → keep only those passing quality constraints → rank by
-    attractiveness → return top 25. Links/details are matched by construction (the
-    affiliate URL is built from the exact ASIN scraped).
+    Single-query path (keyword mode, or discovery disabled). Extract ~60 → keep only
+    those passing quality → rank by attractiveness → dedup → top 40. Links/details
+    are matched by construction (the affiliate URL is built from the exact ASIN).
     """
     term = (query or CATEGORY_SEARCH.get(category, category) or category).strip()
-    url  = f"https://www.{marketplace}/s?k={quote_plus(term)}&ref=nb_sb_noss"
-
-    log.step(f"Scraping Amazon search: {category} ('{term}')...")
-    await page.goto(url, wait_until="domcontentloaded")
-    try:
-        await page.wait_for_selector('[data-component-type="s-search-result"]', timeout=15000)
-    except Exception:
-        log.warning("search results did not render in time")
-    await _delay(600, 1200)
-
-    products = await page.evaluate(_SCRAPE_JS, {"marketplace": marketplace, "category": category})
-
-    # Normalize the review-count string ("1.8K") to an int, and upgrade the tiny
-    # search thumbnail to the full-resolution product image.
-    for p in products:
-        rv = p.get("reviews")
-        p["reviews"] = _parse_count(rv) if rv else None
-        p["image"] = _hi_res_image(p.get("image"))
-
-    kept = [p for p in products if _passes_quality(p, quality)]
-    if not kept:  # relaxed fallback so a strict filter never empties a category
-        kept = [p for p in products if p.get("image") and _parse_price(p.get("price"))]
-    kept.sort(key=_attractiveness, reverse=True)
-    kept = _dedup_products(kept)                 # drop variant/duplicate listings (see below)
-    result = kept[:40]                           # deep pool so a full 10 unique survive seen-filter
-
-    log.success(
-        f"Scraped {len(products)} → {len(kept)} unique passed quality → top {len(result)} by attractiveness"
-    )
+    raw = await _scrape_page(page, category, marketplace, term, 1)
+    result = _finalize_pool(raw, quality, cap=40)
+    log.success(f"Scraped {len(raw)} → top {len(result)} unique quality products ('{term}')")
     return result
+
+
+async def scrape_products_multi(page: Page, category: str, marketplace: str,
+                                queries: list[str], quality: Optional[dict] = None,
+                                max_pages: int = 2, target_pool: int = 60) -> tuple[list[dict], dict]:
+    """Phase 1 discovery: mine SEVERAL search intents (+ pagination) for one category,
+    pool them, and return the top unique quality products — plus a per-query yield map
+    for adaptive rotation. Stops early once the unique quality pool reaches
+    `target_pool` (adaptive stopping keeps runtime bounded).
+
+    Returns (products, yields) where yields = {query: {"raw": n, "quality_unique": n}}.
+    """
+    raw_all: list[dict] = []
+    yields: dict = {}
+    for term in queries:
+        term = (term or "").strip()
+        if not term:
+            continue
+        before_unique = len(_finalize_pool(raw_all, quality, cap=10**6))
+        q_raw = 0
+        for pg in range(1, max_pages + 1):
+            page_raw = await _scrape_page(page, category, marketplace, term, pg)
+            if not page_raw:
+                break                                    # no more pages for this term
+            raw_all.extend(page_raw)
+            q_raw += len(page_raw)
+        after_unique = len(_finalize_pool(raw_all, quality, cap=10**6))
+        yields[term] = {"raw": q_raw, "quality_unique": max(0, after_unique - before_unique)}
+        # Adaptive stopping — enough unique quality candidates pooled.
+        if after_unique >= target_pool:
+            log.info(f"[discovery] target pool {target_pool} reached after '{term}' — stopping early")
+            break
+
+    result = _finalize_pool(raw_all, quality, cap=max(target_pool, 40))
+    log.success(
+        f"[discovery] {len(queries)} intents · {len(raw_all)} raw → {len(result)} unique quality products"
+    )
+    return result, yields
 
 
 def _dedup_products(products: list[dict]) -> list[dict]:

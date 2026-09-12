@@ -41,30 +41,49 @@ async def scrape_amazon(state: BotState, config: RunnableConfig) -> dict:
     amazon_page, _ = _pages(config)
 
     try:
-        from tools.amazon import amazon_login, scrape_products
+        from tools.amazon import amazon_login, scrape_products, scrape_products_multi
+        from chains import discovery as _discovery
 
         opts        = config.get("configurable", {}).get("options", {}) or {}
         marketplace = opts.get("marketplace") or cfg.amazon.marketplace
+        category    = state["category"]
+        keyword     = opts.get("q")
 
         # Amazon login is only needed for the legacy SiteStripe link method.
         # The default "deeplink" method builds official ?tag= URLs with no login,
         # and search results are public — so we skip login entirely there.
         if cfg.amazon.link_method == "sitestripe":
             await amazon_login(amazon_page, cfg.amazon.email, cfg.amazon.password, marketplace)
-        products = await scrape_products(
-            amazon_page,
-            state["category"],
-            marketplace,
-            query=opts.get("q"),      # free-text keyword override (else category mapping)
-            quality=opts,             # min_rating/min_reviews/price_min/price_max overrides
-        )
+
+        # ── Discovery Planner (Phase 1) ──────────────────────────────────────
+        # Category mode with discovery ON: mine SEVERAL subcategory intents (rotated
+        # by past yield) + pagination + adaptive stopping → far more UNIQUE products.
+        # Keyword mode (explicit q) or discovery OFF: original single-query scrape.
+        log_line = ""
+        if keyword and keyword.strip():
+            products = await scrape_products(amazon_page, category, marketplace,
+                                             query=keyword, quality=opts)
+            log_line = f"scraped {len(products)} products for keyword '{keyword.strip()}'"
+        elif cfg.discovery.enabled:
+            from rag.discovery_stats import discovery_stats
+            candidates = _discovery.category_queries(category)
+            queries = discovery_stats.pick_queries(category, candidates, cfg.discovery.max_queries)
+            products, yields = await scrape_products_multi(
+                amazon_page, category, marketplace, queries, quality=opts,
+                max_pages=cfg.discovery.max_pages, target_pool=cfg.discovery.target_pool)
+            discovery_stats.record_yields(category, yields)          # adaptive learning
+            log_line = (f"discovery mined {len(queries)} intents "
+                        f"({', '.join(queries)}) → {len(products)} unique products")
+        else:
+            products = await scrape_products(amazon_page, category, marketplace, quality=opts)
+            log_line = f"scraped {len(products)} products for '{category}'"
 
         if not products:
             return {"errors": ["scrape_amazon: no products found — Amazon DOM may have changed"]}
 
         return {
             "raw_products": products,
-            "stream_log": [f"scraped {len(products)} raw products from Amazon Best Sellers"],
+            "stream_log": [log_line],
         }
 
     except Exception as e:
@@ -245,6 +264,21 @@ async def compose_pins(state: BotState, config: RunnableConfig) -> dict:
         if not pins:
             return {"ranked_products": [], "generated_content": [],
                     "errors": ["compose_pins: LLM returned no usable pins"]}
+
+        # ── Novelty Analyst (Phase 2) ────────────────────────────────────────
+        # Score how UNLIKE already-posted pins each chosen product is — computed HERE,
+        # before store_results embeds this run's pins (else products match themselves).
+        # Fail-open: any error leaves novelty_score unset (treated as unknown).
+        if cfg.novelty.enabled:
+            try:
+                from rag.store import rag_store
+                chosen = [p["product"] for p in pins]
+                nov = await asyncio.get_event_loop().run_in_executor(
+                    None, lambda: rag_store.novelty_scores(chosen))
+                for p in pins:
+                    p["novelty_score"] = nov.get(p["product"].get("asin", ""))
+            except Exception as e:
+                log.warning(f"compose_pins: novelty scoring skipped: {e}")
 
         ranked = [p["product"] for p in pins]
         for i, p in enumerate(ranked):

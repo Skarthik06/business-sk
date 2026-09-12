@@ -76,11 +76,41 @@ class BotConfig:
 
 
 @dataclass
+class DiscoveryConfig:
+    """Phase 1 (Autopilot blueprint) — multi-query discovery + adaptive stopping.
+
+    Category mode mines SEVERAL subcategory search intents per run (rotated by past
+    yield) and paginates each, instead of one fixed category term — so each run
+    surfaces far more UNIQUE products. All bounded so runtime stays predictable.
+    Set DISCOVERY_ENABLED=0 to fall back to the original single-query behaviour."""
+    enabled:      bool = field(default_factory=lambda: os.getenv("DISCOVERY_ENABLED", "1") != "0")
+    max_queries:  int  = field(default_factory=lambda: int(os.getenv("DISCOVERY_MAX_QUERIES", "5")))
+    max_pages:    int  = field(default_factory=lambda: int(os.getenv("DISCOVERY_MAX_PAGES", "2")))
+    target_pool:  int  = field(default_factory=lambda: int(os.getenv("DISCOVERY_TARGET_POOL", "60")))
+
+
+@dataclass
+class NoveltyConfig:
+    """Phase 2 — semantic novelty (avoid conceptually-repetitive products) + the
+    transparent winner score. Novelty compares a candidate against already-posted
+    pins in pgvector; higher = less similar to what we've already covered. It is an
+    internal ranking feature only — never a claim shown to a buyer (G13)."""
+    enabled:   bool  = field(default_factory=lambda: os.getenv("NOVELTY_ENABLED", "1") != "0")
+    weight:    float = field(default_factory=lambda: float(os.getenv("NOVELTY_WEIGHT", "0.10")))
+    # winner_score = product_intelligence * confidence * freshness. This is the floor
+    # confidence never drops below, so a strong product with a couple of missing
+    # fields is only gently penalised, never zeroed.
+    min_confidence: float = field(default_factory=lambda: float(os.getenv("WINNER_MIN_CONFIDENCE", "0.55")))
+
+
+@dataclass
 class Config:
     amazon:            AmazonConfig    = field(default_factory=AmazonConfig)
     pinterest:         PinterestConfig = field(default_factory=PinterestConfig)
     storage:           StorageConfig   = field(default_factory=StorageConfig)
     bot:               BotConfig       = field(default_factory=BotConfig)
+    discovery:         DiscoveryConfig = field(default_factory=DiscoveryConfig)
+    novelty:           NoveltyConfig   = field(default_factory=NoveltyConfig)
     # ── LLM (OpenAI / ChatGPT) ──────────────────────────────────────────
     openai_api_key:    str             = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     openai_model:      str             = field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-5-nano"))

@@ -370,6 +370,8 @@ def _content_item(pin: dict) -> dict:
         "affiliate_link":    affiliate_link,
         # ── discovery scores (deterministic, derived from real fields — no fabrication) ──
         **_discovery.score_product(pin),
+        # ── Phase 2: novelty + confidence + intelligence + winner score + evidence ──
+        **_discovery.winner_bundle(pin, pin.get("novelty_score")),
         # ── news-style aliases (drop-in for slide/caption generators) ──
         "title":          pin.get("pin_title", ""),
         "summary":        caption,
@@ -480,8 +482,9 @@ async def api_generate(
             items.extend(_content_item(p) for p in r["pins"])
             errors.extend(f"[{label}] {e}" for e in r["errors"])
 
-    # Rank by the master Product Content Score (S→D), so the strongest picks lead.
-    items.sort(key=lambda it: it.get("content_score", 0), reverse=True)
+    # Rank by the Winner Score (intelligence × confidence, novelty-aware) so the
+    # strongest, freshest, best-evidenced picks lead; fall back to content_score.
+    items.sort(key=lambda it: it.get("winner_score", it.get("content_score", 0)), reverse=True)
 
     finished = time.time()
     return JSONResponse(status_code=200, content={
@@ -497,6 +500,11 @@ async def api_generate(
         "caption": (items[0].get("summary") if items else ""),
         "hashtags": (items[0].get("hashtags") if items else []),
         "tiers": {t: sum(1 for it in items if it.get("tier") == t) for t in ("S", "A", "B", "C", "D")},
+        # Phase 2 — winner tiers (from winner_score) + novelty coverage of this batch.
+        "winner_tiers": {t: sum(1 for it in items if it.get("winner_tier") == t) for t in ("S", "A", "B", "C", "D")},
+        "avg_novelty": (round(sum(it["novelty_score"] for it in items if it.get("novelty_score") is not None)
+                              / max(1, sum(1 for it in items if it.get("novelty_score") is not None)), 1)
+                        if any(it.get("novelty_score") is not None for it in items) else None),
         "elapsed_seconds": round(finished - started, 2),
         "errors": errors,
     })
@@ -532,6 +540,16 @@ def get_taxonomy() -> dict:
                   {"tier": "C", "min": 60}, {"tier": "D", "min": 0}],
         "weights": _discovery.WEIGHTS,
     }
+
+
+@app.get("/api/discovery/queries")
+def get_discovery_queries(category: Optional[str] = None, limit: int = 30) -> dict:
+    """Phase 1 — the Discovery Planner's learned query yields (which search intents
+    produce the most fresh, unique products). Powers the Intelligence panel and lets
+    you see/tune how discovery is rotating. Empty on first runs (cold start)."""
+    from rag.discovery_stats import discovery_stats
+    rows = discovery_stats.top(category, limit=max(1, min(limit, 200)))
+    return {"ok": True, "count": len(rows), "queries": rows}
 
 
 @app.get("/api/collections")

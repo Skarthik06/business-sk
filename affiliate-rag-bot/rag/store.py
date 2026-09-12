@@ -193,6 +193,41 @@ class RAGStore:
         log.info(f"[RAG] Discovered {len(titles)} successful product types in '{category}'")
         return titles
 
+    # ── Semantic novelty (Phase 2 — Novelty Analyst) ─────────────────────────
+
+    def novelty_scores(self, products: list[dict]) -> dict:
+        """Return {asin: novelty 0-100} — how UNLIKE already-posted pins each product
+        is. 100 = nothing similar has been posted (great); low = we've covered this
+        idea already. Compares 'category + title' against the pin memory via cosine
+        similarity. Cold-start / any failure ⇒ 100 for all (emptiness is normal, G7).
+        Novelty is an internal ranking feature ONLY — never a claim shown to a buyer."""
+        out: dict = {}
+        if not products:
+            return out
+        try:
+            store = get_vector_store()
+        except Exception as e:
+            log.warning(f"[RAG] novelty store unavailable: {e} — treating all as novel")
+            return {(p.get("asin") or ""): 100 for p in products}
+
+        for p in products:
+            asin = p.get("asin") or ""
+            text = f"{p.get('category','')} {p.get('title') or p.get('product_title','')}".strip()
+            if not text:
+                out[asin] = 100
+                continue
+            try:
+                hits = store.similarity_search_with_relevance_scores(text, k=1, filter=_where())
+                if not hits:
+                    out[asin] = 100                    # nothing posted yet like this
+                else:
+                    # relevance ∈ [0,1] (cosine); novelty is its complement.
+                    rel = max(0.0, min(1.0, float(hits[0][1])))
+                    out[asin] = int(round((1.0 - rel) * 100))
+            except Exception:
+                out[asin] = 100                        # fail-open: assume novel
+        return out
+
     # ── Stats ──────────────────────────────────────────────────────────────────
 
     def count(self) -> int:
