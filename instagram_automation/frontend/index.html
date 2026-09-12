@@ -3,6 +3,17 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      // Google sign-in only works on the real HTTPS domain (Google blocks raw-IP /
+      // http origins with "Error 400: invalid_request"). If someone opens the studio
+      // via the bare server IP, bounce them to the HTTPS nip.io domain (same server,
+      // valid cert) so login always works. Path + query are preserved.
+      (function () {
+        if (location.hostname === '140.238.247.18') {
+          location.replace('https://140-238-247-18.nip.io' + location.pathname + location.search + location.hash);
+        }
+      })();
+    </script>
     <link rel="icon" href="/favicon.ico" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
