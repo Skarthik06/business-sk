@@ -354,7 +354,12 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   const [busyAll, setBusyAll] = useState(false);
   const [posted, setPosted] = useState(() => load('sk_posted_cards', []));  // small "posted" cards
   const addPosted = (card) => setPosted((p) => { const next = [card, ...p.filter((x) => x.id !== card.id)].slice(0, 30); save('sk_posted_cards', next); return next; });
-  const refresh = () => { setStatuses({}); skApi.posts(10).then((d) => { /* pulls latest recorded posts to confirm */ (d.posts || []).length; say('Refreshed'); }).catch(() => say('Refreshed')); };
+  const refresh = () => {
+    if (queue.length && !window.confirm(`Clear the ${queue.length} staged post${queue.length === 1 ? '' : 's'} here? (Run "Find products" in Affiliate to re-stage.)`)) return;
+    setStatuses({});
+    setQueue([]);                                   // clear the held/staged queue
+    say('Cleared staged posts');
+  };
 
   useEffect(() => { if (!account && accounts[0]) setAccount(accounts[0].id); }, [accounts, account]);
   const setSt = (id, patch) => setStatuses((s) => ({ ...s, [id]: { ...(s[id] || {}), ...patch } }));
@@ -427,7 +432,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
         <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
           <div className="step-head"><span className="step-n">1</span> Publish · {queue.length} post{queue.length === 1 ? '' : 's'}{doneCount ? ` · ${doneCount} done` : ''}</div>
           <div className="flex gap-2">
-            <button className="btn btn-sm btn-ghost" onClick={refresh} title="Clear posting state / refresh"><Icon name="bolt" size={13} /> Refresh</button>
+            <button className="btn btn-sm btn-ghost" onClick={refresh} title="Clear the staged posts here"><Icon name="bolt" size={13} /> Clear staged</button>
             <button className="btn btn-sm btn-ghost" onClick={goAffiliate}><Icon name="spark" size={13} /> {queue.length ? 'Edit in Affiliate' : 'Find products'}</button>
           </div>
         </div>
