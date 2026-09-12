@@ -119,6 +119,50 @@ class TrendConfig:
 
 
 @dataclass
+class ContentConfig:
+    """Phase 4 (Content Intelligence) — content styles (A/B), hashtag bank, and
+    post-generation caption validation. Still ONE structured LLM call (G10)."""
+    # Default caption style; "auto" lets the model choose the best fit for the batch.
+    default_style: str = field(default_factory=lambda: os.getenv("CONTENT_DEFAULT_STYLE", "auto"))
+    validate:      bool = field(default_factory=lambda: os.getenv("CONTENT_VALIDATE", "1") != "0")
+    use_tag_bank:  bool = field(default_factory=lambda: os.getenv("CONTENT_TAG_BANK", "1") != "0")
+
+
+@dataclass
+class PublishingConfig:
+    """Phase 5 (Publishing Platform) — draft/queue/schedule state machine + account
+    safety. The intelligence layer decides WHAT to publish; the IG automation service
+    executes HOW. A global emergency stop halts all new publishing."""
+    min_interval_seconds: int = field(default_factory=lambda: int(os.getenv("PUBLISH_MIN_INTERVAL", "1200")))
+    max_retries:          int = field(default_factory=lambda: int(os.getenv("PUBLISH_MAX_RETRIES", "3")))
+
+
+@dataclass
+class PerformanceConfig:
+    """Phase 6-7 (Performance Loop + Learning) — measured results reweight future
+    selection. All metrics come ONLY from a connected source; absent ⇒ 'not connected'
+    (never fabricated, G13). Learned priors influence ranking at a bounded weight."""
+    enabled:        bool  = field(default_factory=lambda: os.getenv("PERFORMANCE_ENABLED", "1") != "0")
+    lookback_days:  int   = field(default_factory=lambda: int(os.getenv("PERFORMANCE_LOOKBACK_DAYS", "90")))
+    prior_weight:   float = field(default_factory=lambda: float(os.getenv("PERFORMANCE_PRIOR_WEIGHT", "0.10")))
+    min_sample:     int   = field(default_factory=lambda: int(os.getenv("PERFORMANCE_MIN_SAMPLE", "3")))
+
+
+@dataclass
+class RetailerConfig:
+    """Phase 8 (Multi-Retailer) — Amazon is the only live adapter; others stay disabled
+    until their data + affiliate-link method are actually available (blueprint §47)."""
+    enabled: str = field(default_factory=lambda: os.getenv("RETAILERS_ENABLED", "amazon"))  # csv
+
+
+@dataclass
+class CompetitorConfig:
+    """Phase 9 (Competitor Intelligence) — OFF by default; a discovery signal only,
+    never content cloning. Needs a data source before it does anything real."""
+    enabled: bool = field(default_factory=lambda: os.getenv("COMPETITOR_ENABLED", "0") != "0")
+
+
+@dataclass
 class Config:
     amazon:            AmazonConfig    = field(default_factory=AmazonConfig)
     pinterest:         PinterestConfig = field(default_factory=PinterestConfig)
@@ -127,6 +171,11 @@ class Config:
     discovery:         DiscoveryConfig = field(default_factory=DiscoveryConfig)
     novelty:           NoveltyConfig   = field(default_factory=NoveltyConfig)
     trends:            TrendConfig     = field(default_factory=TrendConfig)
+    content:           ContentConfig   = field(default_factory=ContentConfig)
+    publishing:        PublishingConfig = field(default_factory=PublishingConfig)
+    performance:       PerformanceConfig = field(default_factory=PerformanceConfig)
+    retailers:         RetailerConfig  = field(default_factory=RetailerConfig)
+    competitor:        CompetitorConfig = field(default_factory=CompetitorConfig)
     # ── LLM (OpenAI / ChatGPT) ──────────────────────────────────────────
     openai_api_key:    str             = field(default_factory=lambda: os.getenv("OPENAI_API_KEY", ""))
     openai_model:      str             = field(default_factory=lambda: os.getenv("OPENAI_MODEL", "gpt-5-nano"))

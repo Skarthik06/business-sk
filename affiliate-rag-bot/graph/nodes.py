@@ -284,6 +284,7 @@ async def compose_pins(state: BotState, config: RunnableConfig) -> dict:
     try:
         from chains.compose import compose_pins as _compose
 
+        opts = config.get("configurable", {}).get("options", {}) or {}
         pins = await _compose(
             products=       fresh,
             trend_keywords= state.get("trend_keywords", []),
@@ -291,6 +292,7 @@ async def compose_pins(state: BotState, config: RunnableConfig) -> dict:
             product_ideas=  state.get("rag_product_ideas", []),
             count=          state["products_per_run"],
             trend_signals=  state.get("trend_signals", []),
+            content_style=  opts.get("content_style") or cfg.content.default_style,
         )
 
         if not pins:

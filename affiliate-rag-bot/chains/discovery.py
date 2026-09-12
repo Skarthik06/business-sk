@@ -287,6 +287,15 @@ def product_intelligence(p: dict, sub: dict, novelty: Optional[int],
     return int(_clamp(sum(v * w for v, w in parts) / total_w))
 
 
+def blend_prior(intelligence: int, prior: Optional[float], weight: float) -> int:
+    """Fold a measured performance prior (0-100) into product-intelligence at `weight`
+    (Phase 7). None prior ⇒ unchanged (no effect before data exists, G7)."""
+    if prior is None:
+        return int(intelligence)
+    w = max(0.0, min(weight, 1.0))
+    return int(_clamp(intelligence * (1 - w) + float(prior) * w))
+
+
 def winner_score(intelligence: int, confidence: float, freshness: float = 1.0) -> int:
     """winner_score = product_intelligence × confidence × freshness (§20 of the
     blueprint). Freshness defaults to 1.0 until product first/last-seen data exists."""

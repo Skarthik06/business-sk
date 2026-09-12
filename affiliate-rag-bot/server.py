@@ -368,6 +368,8 @@ def _content_item(pin: dict) -> dict:
         "product_url":       pin.get("product_url", ""),
         "hashtags":          pin.get("hashtags", []),
         "affiliate_link":    affiliate_link,
+        "content_style":     pin.get("content_style", ""),      # Phase 4 A/B style
+        "content_warnings":  pin.get("content_warnings", []),   # Phase 4 fact-check (empty=clean)
         # ── discovery scores (deterministic, derived from real fields — no fabrication) ──
         **_discovery.score_product(pin),
         # ── Phase 2+3: novelty + trend + confidence + intelligence + winner + evidence ──
@@ -421,6 +423,7 @@ async def api_generate(
     min_reviews: Optional[int] = Query(default=None, ge=0),
     price_min: Optional[int] = Query(default=None, ge=0),
     price_max: Optional[int] = Query(default=None, ge=0, le=1_000_000),
+    content: Optional[str] = Query(default=None, description="caption style: auto|DEAL_DROP|STORY|LISTICLE|PROBLEM_SOLUTION|QUESTION|TRANSFORMATION|GIFT_GUIDE|BUDGET|PREMIUM|VIRAL_FIND"),
 ) -> JSONResponse:
     """
     CONTENT SERVICE — generate ready-to-post product content and return it as JSON.
@@ -448,6 +451,8 @@ async def api_generate(
                  ("price_min", price_min), ("price_max", price_max)):
         if v is not None:
             options[k] = v
+    if content and content.strip():
+        options["content_style"] = content.strip()
 
     ppr = int(products_per_run or cfg.bot.products_per_run)
 
@@ -482,8 +487,29 @@ async def api_generate(
             items.extend(_content_item(p) for p in r["pins"])
             errors.extend(f"[{label}] {e}" for e in r["errors"])
 
-    # Rank by the Winner Score (intelligence × confidence, novelty- & trend-aware) so
-    # the strongest, freshest, best-evidenced picks lead; fall back to content_score.
+    # Phase 7 — fold measured performance priors (per category) into intelligence + winner
+    # score, so categories that actually performed rise. No data ⇒ unchanged (G7).
+    if cfg.performance.enabled:
+        try:
+            from performance.learner import learner
+            cats = learner.category_priors()
+            if cats:
+                for it in items:
+                    pr = cats.get(it.get("category", ""))
+                    prior = pr["prior"] if pr else None
+                    if prior is not None:
+                        it["performance_prior"] = prior
+                        it["intelligence_score"] = _discovery.blend_prior(
+                            it.get("intelligence_score", it.get("content_score", 0)),
+                            prior, cfg.performance.prior_weight)
+                        it["winner_score"] = _discovery.winner_score(
+                            it["intelligence_score"], it.get("confidence", 1.0))
+                        it["winner_tier"] = _discovery.tier(it["winner_score"])
+        except Exception:
+            pass
+
+    # Rank by the Winner Score (intelligence × confidence, novelty/trend/performance-aware)
+    # so the strongest, freshest, best-evidenced picks lead; fall back to content_score.
     items.sort(key=lambda it: it.get("winner_score", it.get("content_score", 0)), reverse=True)
 
     # Trend context for this run (JSON) — momentum/direction per category (cold-start empty).
@@ -517,6 +543,9 @@ async def api_generate(
                         if any(it.get("novelty_score") is not None for it in items) else None),
         # Phase 3 — trend context for this run (JSON: keyword, momentum, direction, …).
         "trends": trend_ctx,
+        # Phase 4 — content style used + fact-check summary.
+        "content_style": (items[0].get("content_style") if items else ""),
+        "content_warnings": [w for it in items for w in it.get("content_warnings", [])],
         "elapsed_seconds": round(finished - started, 2),
         "errors": errors,
     })
@@ -618,6 +647,7 @@ class RecordPostRequest(BaseModel):
     permalink: Optional[str] = None
     caption:   str = ""
     status:    str = "posted"
+    content_style: str = ""              # Phase 4 A/B style (from /api/generate item)
 
 
 @app.post("/api/posts")
@@ -633,7 +663,7 @@ def record_post(body: RecordPostRequest) -> dict:
         "rating": p.get("rating"), "reviews": p.get("reviews"),
     } for p in (body.products or [])]
     rec = post_store.record(body.category, minimal, body.media_id, body.permalink,
-                            body.caption, status=body.status)
+                            body.caption, status=body.status, content_style=body.content_style)
     return {"ok": True, "post": rec}
 
 
@@ -645,6 +675,171 @@ def list_posts(limit: int = 50) -> dict:
         return {"ok": True, "posts": post_store.list(limit), "stats": post_store.stats()}
     except Exception as e:  # noqa: BLE001
         return {"ok": False, "posts": [], "error": str(e)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PUBLISHING PLATFORM (Phase 5) — draft/queue/schedule + emergency stop. The
+# intelligence layer stages jobs; the IG automation service executes them.
+# ══════════════════════════════════════════════════════════════════════════════
+
+class EnqueueRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    category:      str = ""
+    payload:       dict = Field(default_factory=dict)   # the draft carousel (items/caption/hashtags)
+    account_id:    str = "default"
+    status:        str = "QUEUED"                        # DRAFT | QUEUED | SCHEDULED
+
+
+class JobActionRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    job_id: str
+    to:     Optional[str] = None                         # for transition
+    error:  Optional[str] = None
+
+
+class EmergencyStopRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    on: bool = True
+
+
+@app.get("/api/publishing/queue")
+def publishing_queue(status: Optional[str] = None, account_id: Optional[str] = None,
+                     limit: int = 100) -> dict:
+    from publishing.queue import publish_queue
+    return {"ok": True, "jobs": publish_queue.list(status, account_id, limit)}
+
+
+@app.post("/api/publishing/queue")
+def publishing_enqueue(body: EnqueueRequest) -> dict:
+    from publishing.queue import publish_queue
+    job = publish_queue.enqueue(body.category, body.payload, body.account_id, status=body.status)
+    return {"ok": True, "job": job}
+
+
+@app.post("/api/publishing/transition")
+def publishing_transition(body: JobActionRequest) -> dict:
+    """State-machine move (used by the IG automation service): RUNNING/PUBLISHED/FAILED/…"""
+    from publishing.queue import publish_queue
+    return publish_queue.transition(body.job_id, body.to or "", body.error)
+
+
+@app.post("/api/publishing/cancel")
+def publishing_cancel(body: JobActionRequest) -> dict:
+    from publishing.queue import publish_queue
+    return publish_queue.cancel(body.job_id)
+
+
+@app.get("/api/publishing/next")
+def publishing_next(account_id: str = "default") -> dict:
+    """The next due job for the IG automation service to execute (None if nothing/stopped)."""
+    from publishing.queue import publish_queue
+    return {"ok": True, "job": publish_queue.next_due(account_id)}
+
+
+@app.post("/api/publishing/emergency-stop")
+def publishing_emergency_stop(body: EmergencyStopRequest) -> dict:
+    from publishing.queue import publish_queue
+    return {"ok": True, **publish_queue.emergency_stop(body.on)}
+
+
+@app.get("/api/publishing/account")
+def publishing_account(account_id: str = "default") -> dict:
+    from publishing.queue import publish_queue
+    return {"ok": True, "health": publish_queue.account_health(account_id)}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PERFORMANCE LOOP (Phase 6) + LEARNING (Phase 7) + INTELLIGENCE.
+# Metrics come ONLY from a connected source; absent ⇒ "not connected" (never faked).
+# ══════════════════════════════════════════════════════════════════════════════
+
+class PerformanceIngestRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    post_id:    str
+    account_id: str = "default"
+    source:     str = "manual"                 # e.g. 'instagram_insights', 'affiliate_tracker'
+    metrics:    dict = Field(default_factory=dict)  # {reach, saves, link_clicks, orders, commission, …}
+
+
+@app.post("/api/performance/ingest")
+def performance_ingest(body: PerformanceIngestRequest) -> dict:
+    """Ingest observed metrics for a post from a connected source. Only real numbers."""
+    from performance.store import performance_store
+    return {"ok": True, **performance_store.ingest(body.post_id, body.metrics,
+                                                    body.account_id, body.source)}
+
+
+@app.get("/api/performance/overview")
+def performance_overview() -> dict:
+    from performance.store import performance_store
+    return {"ok": True, **performance_store.overview()}
+
+
+@app.get("/api/performance/posts")
+def performance_posts(limit: int = 50) -> dict:
+    from performance.store import performance_store
+    return {"ok": True, "posts": performance_store.by_posts(max(1, min(limit, 200)))}
+
+
+@app.get("/api/performance/categories")
+def performance_categories() -> dict:
+    from performance.learner import learner
+    return {"ok": True, "priors": learner.category_priors()}
+
+
+@app.get("/api/intelligence/insights")
+def intelligence_insights() -> dict:
+    """Learned recommendations (best categories/styles by measured outcome). Empty until data."""
+    from performance.learner import learner
+    return {"ok": True, **learner.recommendations()}
+
+
+@app.get("/api/intelligence/recommendations")
+def intelligence_recommendations() -> dict:
+    from performance.learner import learner
+    return {"ok": True, **learner.recommendations()}
+
+
+@app.get("/api/intelligence/winners")
+def intelligence_winners(limit: int = 12) -> dict:
+    """Predicted-winner shortlist (Phase 10) — uses measured priors when available, else
+    falls back to the deterministic winner_score over posted products (graceful, no ML needed)."""
+    from prediction.model import predict_winners
+    return {"ok": True, **predict_winners(limit=max(1, min(limit, 50)))}
+
+
+# ── Multi-retailer (Phase 8) ──────────────────────────────────────────────────
+
+@app.get("/api/retailers")
+def list_retailers() -> dict:
+    """Adapter registry + health. Amazon is live; others report not-implemented (no fabrication)."""
+    from tools.retailers import health, enabled_retailers
+    return {"ok": True, "enabled": enabled_retailers(), "adapters": health()}
+
+
+# ── Competitor intelligence (Phase 9 — isolated, opt-in) ──────────────────────
+
+class CompetitorRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    handle: str
+    note:   str = ""
+
+
+@app.get("/api/competitors")
+def list_competitors() -> dict:
+    from competitor.store import competitor_store
+    if not competitor_store.enabled():
+        return {"ok": True, "enabled": False, "competitors": [],
+                "note": "competitor intelligence disabled (set COMPETITOR_ENABLED=1)"}
+    return {"ok": True, "enabled": True, "competitors": competitor_store.list()}
+
+
+@app.post("/api/competitors")
+def add_competitor(body: CompetitorRequest) -> dict:
+    from competitor.store import competitor_store
+    if not competitor_store.enabled():
+        return {"ok": False, "error": "competitor intelligence disabled (set COMPETITOR_ENABLED=1)"}
+    return competitor_store.add(body.handle, body.note)
 
 
 # ─── LINK HUB — one page with ALL posted products carrying your affiliate tag ──

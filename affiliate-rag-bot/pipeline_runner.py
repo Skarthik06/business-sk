@@ -215,6 +215,8 @@ def _pin_to_json(pin: dict, posted_map: dict) -> dict:
         "affiliate_link":    pin.get("affiliate_link", ""),
         "novelty_score":     pin.get("novelty_score"),          # Phase 2 (None if disabled)
         "trend_score":       pin.get("trend_score"),            # Phase 3 (None if no trend data)
+        "content_style":     pin.get("content_style", ""),      # Phase 4 A/B style
+        "content_warnings":  pin.get("content_warnings", []),   # Phase 4 fact-check
         "posted":            bool(result.get("success")),
         "post_error":        result.get("error"),
     }

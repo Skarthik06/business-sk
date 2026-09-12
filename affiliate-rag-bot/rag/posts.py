@@ -35,6 +35,7 @@ class SkPost(Base):
     affiliate_links = Column(Text,      nullable=False, default="[]")       # JSON
     products      = Column(Text,        nullable=False, default="[]")       # full [{asin,title,price,image,link}]
     caption       = Column(Text,        nullable=False, default="")
+    content_style = Column(String(30),  nullable=False, default="")         # Phase 4 A/B style
     status        = Column(String(20),  nullable=False, default="posted")  # posted | failed | dry
     posted_at     = Column(DateTime,    nullable=False, default=datetime.utcnow)
 
@@ -51,6 +52,7 @@ def _session() -> Session:
         # Idempotent migration for the `products` column on pre-existing tables.
         with _engine.begin() as c:
             c.execute(text("ALTER TABLE sk_posts ADD COLUMN IF NOT EXISTS products TEXT NOT NULL DEFAULT '[]'"))
+            c.execute(text("ALTER TABLE sk_posts ADD COLUMN IF NOT EXISTS content_style VARCHAR(30) NOT NULL DEFAULT ''"))
         _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
         log.success("[Posts] sk_posts table ready ✓")
     return _SessionLocal()
@@ -58,7 +60,8 @@ def _session() -> Session:
 
 class PostStore:
     def record(self, category: str, products: list[dict], media_id: Optional[str],
-               permalink: Optional[str], caption: str, status: str = "posted") -> dict:
+               permalink: Optional[str], caption: str, status: str = "posted",
+               content_style: str = "") -> dict:
         """Insert a post row and return it (with the unique post_<N>#<category> label)."""
         asins = [p.get("asin", "") for p in products]
         links = [p.get("affiliate_link", "") for p in products]
@@ -67,7 +70,7 @@ class PostStore:
                 category=category, media_id=media_id, permalink=permalink,
                 product_count=len(products), product_asins=json.dumps(asins),
                 affiliate_links=json.dumps(links), products=json.dumps(products),
-                caption=caption, status=status,
+                caption=caption, status=status, content_style=content_style,
             )
             s.add(row)
             s.flush()                                   # assigns id
@@ -120,6 +123,7 @@ class PostStore:
             "product_asins": json.loads(r.product_asins or "[]"),
             "affiliate_links": json.loads(r.affiliate_links or "[]"),
             "caption": r.caption, "status": r.status,
+            "content_style": r.content_style or "",
             "posted_at": r.posted_at.isoformat() if r.posted_at else "",
         }
 

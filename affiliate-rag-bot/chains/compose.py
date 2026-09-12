@@ -29,6 +29,8 @@ from pydantic import BaseModel, Field
 
 from config import cfg
 from utils.logger import log
+from chains.hashtags import merge_hashtags
+from chains.validate import audit_caption
 
 FTC = "#Ad | As an Amazon Associate I earn from qualifying purchases."
 
@@ -80,11 +82,18 @@ MAX_IDEAS      = 5    # proven product-type names
 
 # ─── Output schema (guaranteed by structured output) ─────────────────────────
 
+# Content styles (Phase 4 A/B). The composer tags each caption with the style it used,
+# so performance can later be compared per style (see agents/content-intelligence).
+STYLES = ["DEAL_DROP", "STORY", "LISTICLE", "PROBLEM_SOLUTION", "QUESTION",
+          "TRANSFORMATION", "GIFT_GUIDE", "BUDGET", "PREMIUM", "VIRAL_FIND"]
+
+
 class PinBatch(BaseModel):
     """ONE universal caption for the whole carousel — NOT one per product (saves tokens)."""
     picks:    list[int] = Field(description="0-based indices of the chosen products from CANDIDATES, best first, exactly the requested count")
     caption:  str       = Field(description="ONE catchy Instagram carousel caption covering ALL chosen products together: a scroll-stopping hook, then why they're worth it (weave in a couple of REAL prices/discounts/ratings from the rows — never invent), a 'shop via the link in bio' nudge. Do NOT add any 'As an Amazon Associate' disclosure sentence. Under 1500 chars.")
     hashtags: list[str] = Field(description="15-25 relevant hashtags (no '#' prefix), mixing broad and niche; include 'ad' as one of them")
+    style:    str       = Field(default="", description="the caption STYLE you used, exactly one of: DEAL_DROP, STORY, LISTICLE, PROBLEM_SOLUTION, QUESTION, TRANSFORMATION, GIFT_GUIDE, BUDGET, PREMIUM, VIRAL_FIND")
 
 
 # ─── Prompts (system is fully static → cache-friendly) ───────────────────────
@@ -117,11 +126,34 @@ HUMAN = (
     "CATEGORY: {category}\n"
     "Pick the {count} best {category} products for one carousel and write ONE "
     "emoji-rich, {category}-themed caption that LISTS them with their real prices + "
-    "discounts, then hashtags.\n\n"
+    "discounts, then hashtags.\n"
+    "STYLE: {style}\n\n"
     "CANDIDATES (id | title | price | social proof):\n{candidates}\n\n"
     "TRENDS: {trends}\n\n"
     "PROVEN winners: {winners}"
 )
+
+_STYLE_HINT = {
+    "DEAL_DROP": "punchy deal-drop energy, lead with the biggest discount",
+    "STORY": "a short relatable mini-story before the picks",
+    "LISTICLE": "clean numbered listicle of the picks",
+    "PROBLEM_SOLUTION": "name a common problem, then the products that solve it",
+    "QUESTION": "open with an engaging question to the reader",
+    "TRANSFORMATION": "before/after glow-up framing",
+    "GIFT_GUIDE": "gift-guide framing (who each is perfect for)",
+    "BUDGET": "budget-hero framing, emphasise how little they cost",
+    "PREMIUM": "premium/aesthetic framing, make them feel high-end",
+    "VIRAL_FIND": "'you didn't know you needed this' viral-find energy",
+}
+
+
+def _style_directive(content_style: str) -> str:
+    cs = (content_style or "auto").strip().upper()
+    if cs in ("", "AUTO"):
+        return "choose the single best-fitting style for these products; set `style` to the one you used."
+    if cs in _STYLE_HINT:
+        return f"write in the {cs} style — {_STYLE_HINT[cs]}; set `style` to {cs}."
+    return "choose the best-fitting style; set `style` accordingly."
 
 
 # ─── Compact input builders (noise reduction) ────────────────────────────────
@@ -200,6 +232,7 @@ async def compose_pins(
     product_ideas:  list[str],
     count:          int = 3,
     trend_signals:  Optional[list[dict]] = None,
+    content_style:  str = "auto",
 ) -> list[dict]:
     """Rank + write `count` pins in ONE structured LLM call. Returns PinContent dicts."""
     if not products:
@@ -234,6 +267,7 @@ async def compose_pins(
         "candidates": _candidates_block(products),
         "trends":     _trends_block(trend_keywords, trend_signals),
         "winners":    _winners_block(rag_context, product_ideas),
+        "style":      _style_directive(content_style),
     }
 
     log.ai(f"Composing ONE caption for {count} products from {min(len(products), MAX_CANDIDATES)} candidates in ONE structured call...")
@@ -247,9 +281,22 @@ async def compose_pins(
     for _bad in ("As an Amazon Associate I earn from qualifying purchases.", FTC, "#Ad |"):
         caption = caption.replace(_bad, "").strip()      # strip any disclosure the model still added
     caption = _bold_caption(caption)                     # bold names/prices/discounts for IG
-    tags = [h.lstrip("#") for h in (batch.hashtags or [])][:25]
-    if not any(t.lower() == "ad" for t in tags):         # minimal, clean FTC disclosure
-        tags.insert(0, "ad")
+
+    # Phase 4: curated hashtag bank merge (consistent reach spine) + #ad disclosure.
+    from config import cfg
+    tags = merge_hashtags(category, batch.hashtags or [],
+                          use_bank=cfg.content.use_tag_bank, cap=25)
+
+    # Phase 4: record the style used (normalise to a known value; else UNKNOWN).
+    style = (batch.style or "").strip().upper()
+    if style not in STYLES:
+        style = (content_style or "").strip().upper() if (content_style or "").strip().upper() in STYLES else "UNKNOWN"
+
+    # Phase 4: fact-check numeric claims against the chosen products (non-destructive).
+    chosen_products = [products[i] for i in (batch.picks or []) if 0 <= i < len(products)]
+    warnings = audit_caption(caption, chosen_products) if cfg.content.validate else []
+    if warnings:
+        log.warning(f"[content-validate] {len(warnings)} unverified numeric claim(s): {warnings[:2]}")
 
     results: list[dict] = []
     seen_ids: set = set()
@@ -264,5 +311,7 @@ async def compose_pins(
             "pin_description": caption,   # SHARED — one caption per carousel, not per product
             "hashtags":        tags,      # SHARED
             "affiliate_link":  "",        # filled by get_affiliate_links node
+            "content_style":   style,           # Phase 4 A/B tag
+            "content_warnings": warnings,        # Phase 4 fact-check (empty = all grounded)
         })
     return results

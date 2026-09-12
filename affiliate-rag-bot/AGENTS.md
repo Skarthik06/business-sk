@@ -77,6 +77,14 @@ explains the base engine.
 | Novelty Analyst | [novelty-analyst.agents.md](agents/novelty-analyst.agents.md) | Semantic freshness vs already-posted pins (avoid repetitive ideas) | `rag/store.py` (`novelty_scores`), `graph/nodes.py` (`compose_pins`), `config.NoveltyConfig` |
 | Winner Engine | [winner-engine.agents.md](agents/winner-engine.agents.md) | Confidence, product-intelligence, winner score + tier, "why this product" evidence | `chains/discovery.py`, `server.py` (`/api/generate`) |
 | Trend Analyst | [trend-analyst.agents.md](agents/trend-analyst.agents.md) | Persistent trend memory, momentum + direction, trend-aware discovery + content, trend alignment in winner score | `rag/trends.py`, `graph/nodes.py`, `chains/compose.py`, `server.py` (`/api/trends`), `config.TrendConfig` |
+| Content Intelligence | [content-intelligence.agents.md](agents/content-intelligence.agents.md) | Content styles (A/B), curated hashtag bank, caption fact-check | `chains/compose.py`, `chains/hashtags.py`, `chains/validate.py`, `server.py`, `config.ContentConfig` |
+| Publishing Agent | [publishing-agent.agents.md](agents/publishing-agent.agents.md) | Draft/queue/schedule state machine, spacing, retries, emergency stop | `publishing/queue.py`, `server.py` (`/api/publishing/*`), `config.PublishingConfig` |
+| Account Safety | [account-safety.agents.md](agents/account-safety.agents.md) | Account health signal + global emergency stop | `publishing/queue.py`, `server.py` (`/api/publishing/account`) |
+| Performance Analyst | [performance-analyst.agents.md](agents/performance-analyst.agents.md) | Measured results storage + funnel/efficiency metrics (connected-source-only) | `performance/store.py`, `server.py` (`/api/performance/*`), `config.PerformanceConfig` |
+| Learning Agent | [learning-agent.agents.md](agents/learning-agent.agents.md) | Category/style priors (sample-gated) folded into ranking | `performance/learner.py`, `chains/discovery.py`, `server.py` (`/api/intelligence/*`) |
+| Retailer Adapter | [retailer-adapter.agents.md](agents/retailer-adapter.agents.md) | Multi-retailer interface + affiliate-link service (Amazon live, others gated) | `tools/retailers/*`, `tools/affiliate.py`, `server.py` (`/api/retailers`), `config.RetailerConfig` |
+| Competitor Intelligence | [competitor-intel.agents.md](agents/competitor-intel.agents.md) | Opt-in watchlist as a market-pattern discovery signal (never cloning) | `competitor/store.py`, `server.py` (`/api/competitors`), `config.CompetitorConfig` |
+| Winner Prediction | [winner-prediction.agents.md](agents/winner-prediction.agents.md) | Predicted-winner shortlist; deterministic→historical-average, graceful fallback | `prediction/model.py`, `server.py` (`/api/intelligence/winners`) |
 
 Funnel this layer optimises: **Instagram → attention → website/storefront → discovery →
 product → click → Amazon → purchase → commission.**
