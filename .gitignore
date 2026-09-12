@@ -19,8 +19,11 @@
 **/secrets.json
 **/*credentials*.json
 **/*CREDENTIALS*
+**/*credentials*
 **/*.local.txt
 CREDENTIALS.local.txt
+credentials_affiliate.txt
+**/credentials_affiliate.txt
 
 # ── Python ──────────────────────────────────────────────────────────────────
 **/venv/
