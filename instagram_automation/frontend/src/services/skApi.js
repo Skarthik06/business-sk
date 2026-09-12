@@ -48,5 +48,17 @@ export default {
   winners:       (limit = 12) => sk.get('/intelligence/winners', { params: { limit } }).then(data),
   insights:      () => sk.get('/intelligence/insights').then(data),
   perfOverview:  () => sk.get('/performance/overview').then(data),
+  perfPosts:     (limit = 50) => sk.get('/performance/posts', { params: { limit } }).then(data),
+  perfIngest:    (body) => sk.post('/performance/ingest', body).then(data),
   retailers:     () => sk.get('/retailers').then(data),
+  // agents control panel (editable constraints, runtime overlay)
+  agents:        () => sk.get('/agents').then(data),
+  setAgentSetting: (key, value) => sk.post('/agents/settings', { key, value: String(value) }).then(data),
+  clearAgentSetting: (key) => sk.delete(`/agents/settings/${key}`).then(data),
+  // publishing queue
+  pubQueue:      (status) => sk.get('/publishing/queue', { params: status ? { status } : {} }).then(data),
+  pubEnqueue:    (body) => sk.post('/publishing/queue', body).then(data),
+  pubCancel:     (job_id) => sk.post('/publishing/cancel', { job_id }).then(data),
+  pubEmergencyStop: (on) => sk.post('/publishing/emergency-stop', { on }).then(data),
+  pubAccount:    () => sk.get('/publishing/account').then(data),
 };

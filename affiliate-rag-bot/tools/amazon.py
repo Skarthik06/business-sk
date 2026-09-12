@@ -148,11 +148,13 @@ def _passes_quality(p: dict, overrides: Optional[dict] = None) -> bool:
     Per-request `overrides` (min_rating/min_reviews/price_min/price_max) win over
     the config defaults so the UI can tune the constraints."""
     from config import cfg
+    import runtime
     o = overrides or {}
-    min_rating  = o.get("min_rating")  if o.get("min_rating")  is not None else cfg.bot.min_rating
-    min_reviews = o.get("min_reviews") if o.get("min_reviews") is not None else cfg.bot.min_reviews
+    # Per-request overrides win; else the runtime overlay (Agents panel); else config default.
+    min_rating  = o.get("min_rating")  if o.get("min_rating")  is not None else runtime.get("QUALITY_MIN_RATING", cfg.bot.min_rating, "float")
+    min_reviews = o.get("min_reviews") if o.get("min_reviews") is not None else runtime.get("QUALITY_MIN_REVIEWS", cfg.bot.min_reviews, "int")
     price_min   = o.get("price_min")   if o.get("price_min")   is not None else cfg.bot.price_min
-    price_max   = o.get("price_max")   if o.get("price_max")   is not None else cfg.bot.price_max
+    price_max   = o.get("price_max")   if o.get("price_max")   is not None else runtime.get("QUALITY_PRICE_MAX", cfg.bot.price_max, "int")
 
     price = _parse_price(p.get("price"))
     if not p.get("image") or not price:
@@ -360,6 +362,34 @@ def _dedup_products(products: list[dict]) -> list[dict]:
     return out
 
 
+# ─── Affiliate tag resolution (stored account → env fallback) ─────────────────
+# Prefer the Amazon Associates tag saved in the IG backend's encrypted account store
+# (managed from the studio Accounts panel) over the static .env tag. Cached ~5 min;
+# any failure falls back to the configured tag so link-building never breaks.
+import os as _os
+import time as _time
+import urllib.request as _urlreq
+import json as _json
+
+_tag_cache = {"tag": None, "at": 0.0}
+_IG_URL = _os.getenv("IG_BACKEND_URL", "http://backend:8000")
+
+
+def resolve_associate_tag(default_tag: str) -> str:
+    now = _time.time()
+    if _tag_cache["tag"] is not None and now - _tag_cache["at"] < 300:
+        return _tag_cache["tag"] or default_tag
+    tag = None
+    try:
+        with _urlreq.urlopen(_IG_URL + "/api/v1/integrations/affiliate/active-tag", timeout=4) as r:
+            body = _json.loads(r.read().decode())
+            tag = ((body.get("data") or {}).get("tag") or "").strip() or None
+    except Exception:
+        tag = None
+    _tag_cache["tag"] = tag; _tag_cache["at"] = now
+    return tag or default_tag
+
+
 # ─── Affiliate Link ───────────────────────────────────────────────────────────
 
 def _deep_link(asin: str, associate_tag: str, marketplace: str) -> str:
@@ -393,6 +423,8 @@ async def get_affiliate_link(
         log.warning(f"No ASIN found for: {product['title'][:40]}")
         return product.get("url", "")
 
+    # Prefer the tag from the stored (encrypted) Amazon account over the .env default.
+    associate_tag = resolve_associate_tag(associate_tag)
     product_url = product.get("url") or _deep_link(asin, associate_tag, marketplace)
 
     # 1) Network-agnostic template (EarnKaro / Cuelinks / INRDeals, etc.) — wins if set.

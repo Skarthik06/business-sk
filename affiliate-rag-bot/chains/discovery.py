@@ -240,7 +240,8 @@ def confidence_score(p: dict) -> float:
     with a couple of missing fields is only gently penalised, never zeroed, so we
     never *select* on incomplete evidence but also don't discard good products."""
     from config import cfg
-    floor = cfg.novelty.min_confidence
+    import runtime
+    floor = runtime.get("WINNER_MIN_CONFIDENCE", cfg.novelty.min_confidence, "float")
     have = 0.0
     if _price_int(p) is not None:                 have += 0.30    # real price
     if p.get("image") or p.get("image_url"):      have += 0.20    # valid image
@@ -274,13 +275,14 @@ def product_intelligence(p: dict, sub: dict, novelty: Optional[int],
     Each optional signal only participates when enabled AND present, so the weights
     renormalise gracefully (never penalises cold-start). Weights are env-tunable."""
     from config import cfg
+    import runtime
     cs = content_score(p, sub)
     parts: list[tuple[float, float]] = []                 # (value, weight)
     active_extra = 0.0
     if cfg.novelty.enabled and novelty is not None:
-        w = max(0.0, min(cfg.novelty.weight, 1.0)); parts.append((float(novelty), w)); active_extra += w
+        w = max(0.0, min(runtime.get("NOVELTY_WEIGHT", cfg.novelty.weight, "float"), 1.0)); parts.append((float(novelty), w)); active_extra += w
     if cfg.trends.enabled and trend is not None:
-        w = max(0.0, min(cfg.trends.weight, 1.0)); parts.append((float(trend), w)); active_extra += w
+        w = max(0.0, min(runtime.get("TREND_WEIGHT", cfg.trends.weight, "float"), 1.0)); parts.append((float(trend), w)); active_extra += w
     base_w = max(0.0, 1.0 - active_extra)
     parts.append((float(cs), base_w))
     total_w = sum(w for _, w in parts) or 1.0

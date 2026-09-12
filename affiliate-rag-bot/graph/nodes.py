@@ -70,19 +70,24 @@ async def scrape_amazon(state: BotState, config: RunnableConfig) -> dict:
             # Trend-aware discovery: fold in persisted trending terms (from prior runs'
             # Trend Analyst memory) so mining leans toward what's rising. Cold start ⇒
             # empty ⇒ no change. Deduped, trend terms explored alongside subcategories.
-            if cfg.trends.enabled and cfg.trends.discovery_terms > 0:
+            import runtime
+            dterms = runtime.get("TREND_DISCOVERY_TERMS", cfg.trends.discovery_terms, "int")
+            if cfg.trends.enabled and dterms > 0:
                 try:
                     from rag.trends import trend_store
-                    tterms = trend_store.trending_terms(category, cfg.trends.discovery_terms)
+                    tterms = trend_store.trending_terms(category, dterms)
                     for t in tterms:
                         if t and t not in candidates:
                             candidates.insert(0, t)      # prioritise trending intents
                 except Exception as te:
                     log.warning(f"scrape_amazon: trend-aware discovery skipped: {te}")
-            queries = discovery_stats.pick_queries(category, candidates, cfg.discovery.max_queries)
+            mq = runtime.get("DISCOVERY_MAX_QUERIES", cfg.discovery.max_queries, "int")
+            mp = runtime.get("DISCOVERY_MAX_PAGES", cfg.discovery.max_pages, "int")
+            tp = runtime.get("DISCOVERY_TARGET_POOL", cfg.discovery.target_pool, "int")
+            queries = discovery_stats.pick_queries(category, candidates, mq)
             products, yields = await scrape_products_multi(
                 amazon_page, category, marketplace, queries, quality=opts,
-                max_pages=cfg.discovery.max_pages, target_pool=cfg.discovery.target_pool)
+                max_pages=mp, target_pool=tp)
             discovery_stats.record_yields(category, yields)          # adaptive learning
             log_line = (f"discovery mined {len(queries)} intents "
                         f"({', '.join(queries)}) → {len(products)} unique products")
@@ -292,7 +297,7 @@ async def compose_pins(state: BotState, config: RunnableConfig) -> dict:
             product_ideas=  state.get("rag_product_ideas", []),
             count=          state["products_per_run"],
             trend_signals=  state.get("trend_signals", []),
-            content_style=  opts.get("content_style") or cfg.content.default_style,
+            content_style=  opts.get("content_style") or __import__("runtime").get("CONTENT_DEFAULT_STYLE", cfg.content.default_style, "str"),
         )
 
         if not pins:

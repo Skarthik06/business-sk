@@ -498,10 +498,11 @@ async def api_generate(
                     pr = cats.get(it.get("category", ""))
                     prior = pr["prior"] if pr else None
                     if prior is not None:
+                        import runtime as _rt
                         it["performance_prior"] = prior
                         it["intelligence_score"] = _discovery.blend_prior(
                             it.get("intelligence_score", it.get("content_score", 0)),
-                            prior, cfg.performance.prior_weight)
+                            prior, _rt.get("PERFORMANCE_PRIOR_WEIGHT", cfg.performance.prior_weight, "float"))
                         it["winner_score"] = _discovery.winner_score(
                             it["intelligence_score"], it.get("confidence", 1.0))
                         it["winner_tier"] = _discovery.tier(it["winner_score"])
@@ -840,6 +841,62 @@ def add_competitor(body: CompetitorRequest) -> dict:
     if not competitor_store.enabled():
         return {"ok": False, "error": "competitor intelligence disabled (set COMPETITOR_ENABLED=1)"}
     return competitor_store.add(body.handle, body.note)
+
+
+# ── Agents control panel (editable constraints, runtime overlay) ──────────────
+
+AGENT_ROSTER = [
+    {"name": "discovery-planner", "role": "Multi-query mining, pagination, adaptive rotation"},
+    {"name": "novelty-analyst", "role": "Semantic freshness vs posted pins"},
+    {"name": "winner-engine", "role": "Confidence + intelligence + winner score + evidence"},
+    {"name": "trend-analyst", "role": "Persistent trends, momentum + direction, trend-aware"},
+    {"name": "content-intelligence", "role": "Content styles (A/B), hashtag bank, caption fact-check"},
+    {"name": "publishing-agent", "role": "Queue + state machine + spacing + emergency stop"},
+    {"name": "account-safety", "role": "Account health + emergency stop"},
+    {"name": "performance-analyst", "role": "Measured results + funnel metrics"},
+    {"name": "learning-agent", "role": "Category/style priors folded into ranking"},
+    {"name": "retailer-adapter", "role": "Multi-retailer interface + affiliate-link service"},
+    {"name": "competitor-intel", "role": "Opt-in watchlist (market signal, never cloning)"},
+    {"name": "winner-prediction", "role": "Predicted winners (deterministic → historical)"},
+    {"name": "product-scout", "role": "Category-taxonomy retrieval + quality gate"},
+    {"name": "product-scorer", "role": "Multi-score ranking + tiers"},
+]
+
+
+class AgentSettingRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    key:   str
+    value: str
+
+
+@app.get("/api/agents")
+def list_agents() -> dict:
+    """The agent roster + their editable constraints (current effective value + bounds)."""
+    import runtime
+    overrides = runtime.all_overrides()
+    knobs: dict = {}
+    for key, spec in runtime.TUNABLE.items():
+        knobs.setdefault(spec["agent"], []).append({
+            "key": key, "label": spec["label"], "type": spec["type"],
+            "min": spec["min"], "max": spec["max"],
+            "value": overrides.get(key, ""), "is_overridden": key in overrides,
+        })
+    agents = [{**a, "editable": knobs.get(a["name"], [])} for a in AGENT_ROSTER]
+    return {"ok": True, "count": len(agents), "agents": agents}
+
+
+@app.post("/api/agents/settings")
+def set_agent_setting(body: AgentSettingRequest) -> dict:
+    """Set a runtime constraint (validated + bounded). Takes effect within ~5s, no restart."""
+    import runtime
+    return runtime.set_value(body.key, body.value)
+
+
+@app.delete("/api/agents/settings/{key}")
+def clear_agent_setting(key: str) -> dict:
+    """Reset a constraint to its config/env default."""
+    import runtime
+    return runtime.clear(key)
 
 
 # ─── LINK HUB — one page with ALL posted products carrying your affiliate tag ──

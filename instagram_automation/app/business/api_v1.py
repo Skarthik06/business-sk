@@ -890,6 +890,15 @@ def affiliate_accounts_list():
     return ok(rags.list_affiliate_accounts())
 
 
+@router.get("/integrations/affiliate/active-tag")
+def affiliate_active_tag():
+    """Semi-public: the active Amazon Associates tag (appears in every affiliate URL),
+    read internally by the affiliate service to build links from the stored account.
+    Never returns api_key/secret. Open path (see api._OPEN_PATHS)."""
+    from app import rags
+    return ok({"tag": rags.active_amazon_tag() or ""})
+
+
 @router.post("/integrations/affiliate/connect")
 def affiliate_connect(body: AffiliateConnect):
     from app import rags

@@ -68,7 +68,7 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
 
       {tab === 'generate' && (
         <div className="sk-subnav">
-          {[['find', 'Find products'], ['winners', 'Winners'], ['trends', 'Trends'], ['intel', 'Intelligence'], ['accounts', 'Accounts']].map(([k, label]) => (
+          {[['find', 'Find products'], ['winners', 'Winners'], ['trends', 'Trends'], ['intel', 'Intelligence'], ['revenue', 'Revenue'], ['calendar', 'Calendar'], ['agents', 'Agents'], ['accounts', 'Accounts']].map(([k, label]) => (
             <button key={k} className={cx('sk-subtab', sub === k && 'on')} onClick={() => setSub(k)}>{label}</button>
           ))}
         </div>
@@ -77,6 +77,9 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
       <div style={showSub('winners')}><WinnersPanel active={tab === 'generate' && sub === 'winners'} say={say} /></div>
       <div style={showSub('trends')}><TrendsPanel active={tab === 'generate' && sub === 'trends'} cats={cats} /></div>
       <div style={showSub('intel')}><IntelligencePanel active={tab === 'generate' && sub === 'intel'} /></div>
+      <div style={showSub('revenue')}><RevenuePanel active={tab === 'generate' && sub === 'revenue'} say={say} /></div>
+      <div style={showSub('calendar')}><CalendarPanel active={tab === 'generate' && sub === 'calendar'} say={say} /></div>
+      <div style={showSub('agents')}><AgentsPanel active={tab === 'generate' && sub === 'agents'} say={say} /></div>
       <div style={showSub('accounts')}><AccountsPanel active={tab === 'generate' && sub === 'accounts'} say={say} /></div>
       <div style={show('post')}><PostTab {...shared} queue={queue} setQueue={setQueue} goAffiliate={() => onNavigate?.('sk-affiliate')} /></div>
       <div style={show('hub')}><HubTab {...shared} /></div>
@@ -987,6 +990,128 @@ function IntelligencePanel({ active }) {
   );
 }
 
+// ══════════════════════════════════ REVENUE + PERFORMANCE (Phase 6/7) ═════════
+function RevenuePanel({ active, say }) {
+  const [ov, setOv] = useState(null);
+  const [posts, setPosts] = useState(null);
+  const [form, setForm] = useState({ post_id: '', reach: '', saves: '', link_clicks: '', orders: '', commission: '' });
+  const [busy, setBusy] = useState(false);
+  const reload = () => { skApi.perfOverview().then(setOv).catch(() => setOv(null)); skApi.perfPosts().then((d) => setPosts(d.posts || [])).catch(() => setPosts([])); };
+  useEffect(() => { if (active && !ov) reload(); }, [active]);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const ingest = async () => {
+    if (!form.post_id) return say?.('Enter the post id (from History)', 'error');
+    const metrics = {}; ['reach', 'saves', 'link_clicks', 'orders', 'commission'].forEach((k) => { if (form[k] !== '') metrics[k] = Number(form[k]); });
+    setBusy(true);
+    try { await skApi.perfIngest({ post_id: String(form.post_id), source: 'manual', metrics }); setForm({ post_id: '', reach: '', saves: '', link_clicks: '', orders: '', commission: '' }); reload(); say?.('Performance saved — learning updated'); }
+    catch { say?.('Save failed', 'error'); } finally { setBusy(false); }
+  };
+  const connected = ov?.connected;
+  return (
+    <div className="mb-24 flex flex-col gap-4">
+      <div className="panel p-4">
+        <div className="eyebrow mb-2">Revenue &amp; performance</div>
+        {!connected
+          ? <p className="text-sm" style={{ color: 'var(--muted)' }}>No measured results yet. Enter metrics below (from your Instagram insights + affiliate dashboard) to start the learning loop — nothing is ever guessed.</p>
+          : <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+              {Object.entries(ov.derived || {}).map(([k, v]) => <div key={k} className="stat-tile"><div className="stat-v">{v == null ? '—' : (k.includes('commission') ? '₹' + v : v)}</div><div className="stat-k">{k.replace(/_/g, ' ')}</div></div>)}
+            </div>}
+      </div>
+      <div className="panel p-4">
+        <div className="eyebrow mb-2">Log a post's results</div>
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-2">
+          <label className="fld"><span>Post id</span><input className="sk-input" value={form.post_id} onChange={set('post_id')} placeholder="e.g. 12" /></label>
+          <label className="fld"><span>Reach</span><input className="sk-input" value={form.reach} onChange={set('reach')} inputMode="numeric" /></label>
+          <label className="fld"><span>Saves</span><input className="sk-input" value={form.saves} onChange={set('saves')} inputMode="numeric" /></label>
+          <label className="fld"><span>Clicks</span><input className="sk-input" value={form.link_clicks} onChange={set('link_clicks')} inputMode="numeric" /></label>
+          <label className="fld"><span>Orders</span><input className="sk-input" value={form.orders} onChange={set('orders')} inputMode="numeric" /></label>
+          <label className="fld"><span>Commission ₹</span><input className="sk-input" value={form.commission} onChange={set('commission')} inputMode="numeric" /></label>
+        </div>
+        <div className="flex justify-end mt-3"><button className="btn btn-sm" onClick={ingest} disabled={busy}>{busy ? <Spinner size={13} /> : <Icon name="check" size={13} />} Save results</button></div>
+      </div>
+      {(posts || []).length > 0 && (
+        <div className="panel p-4"><div className="eyebrow mb-2">Logged posts (by outcome)</div>
+          <div className="flex flex-col gap-2">{posts.map((p) => <div key={p.post_id} className="acct-row"><span className="prog-badge">post {p.post_id}</span><span className="text-xs font-mono" style={{ color: 'var(--muted)', flex: 1 }}>{Object.entries(p.metrics).filter(([, v]) => v != null).map(([k, v]) => `${k}:${v}`).join(' · ') || 'no metrics'}</span><b>{p.outcome_score ?? '—'}</b></div>)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ══════════════════════════════════ CONTENT CALENDAR (Phase 5) ════════════════
+const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const CAL_PLAN = { Mon: 'Home', Tue: 'Electronics', Wed: 'Fashion', Thu: 'Books', Fri: 'Home', Sat: 'Trending', Sun: 'Weekly Winners' };
+function CalendarPanel({ active, say }) {
+  const [jobs, setJobs] = useState(null);
+  const [acct, setAcct] = useState(null);
+  const reload = () => { skApi.pubQueue().then((d) => setJobs(d.jobs || [])).catch(() => setJobs([])); skApi.pubAccount().then((d) => setAcct(d.health)).catch(() => setAcct(null)); };
+  useEffect(() => { if (active && jobs === null) reload(); }, [active]);
+  const estop = async (on) => { try { await skApi.pubEmergencyStop(on); reload(); say?.(on ? 'Emergency stop ON' : 'Emergency stop cleared'); } catch { say?.('Failed', 'error'); } };
+  const cancel = async (id) => { try { await skApi.pubCancel(id); reload(); } catch { say?.('Failed', 'error'); } };
+  const byDay = {};
+  (jobs || []).forEach((j) => { const d = j.scheduled_for ? new Date(j.scheduled_for) : null; const key = d ? DOW[d.getDay()] : 'Unscheduled'; (byDay[key] = byDay[key] || []).push(j); });
+  return (
+    <div className="mb-24 flex flex-col gap-4">
+      <div className="panel p-4 flex items-center justify-between flex-wrap gap-3">
+        <div><div className="eyebrow mb-1">Content calendar &amp; queue</div>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>Scheduled publishing jobs (spaced automatically). Account: <b style={{ color: acct?.status === 'STOPPED' ? 'var(--danger)' : acct?.status === 'ATTENTION' ? 'var(--amber)' : '#3fb950' }}>{acct?.status || '—'}</b></p></div>
+        <div className="flex gap-2">
+          <button className="btn btn-sm" onClick={reload}><Icon name="bolt" size={13} /> Refresh</button>
+          {acct?.emergency_stop ? <button className="btn btn-sm" style={{ borderColor: '#3fb950', color: '#3fb950' }} onClick={() => estop(false)}>Resume</button>
+            : <button className="btn btn-sm" style={{ borderColor: 'var(--danger)', color: 'var(--danger)' }} onClick={() => estop(true)}>🛑 Emergency stop</button>}
+        </div>
+      </div>
+      <div className="panel p-4">
+        <div className="eyebrow mb-2">Suggested weekly plan</div>
+        <div className="cal-grid">{DOW.slice(1).concat('Sun').map((d) => (
+          <div key={d} className="cal-cell"><div className="cal-dow">{d}</div><div className="cal-cat">{CAL_PLAN[d]}</div>
+            {(byDay[d] || []).map((j) => <div key={j.job_id} className="cal-job">{j.category || 'post'} · {j.status}<button className="cal-x" onClick={() => cancel(j.job_id)}>×</button></div>)}
+          </div>
+        ))}</div>
+        <p className="text-xs mt-2" style={{ color: 'var(--faint)' }}>Plan is a suggestion; actual schedule follows fresh inventory + performance. Enqueue posts from Find products → send to queue (coming online as the IG service consumes the queue).</p>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════ AGENTS CONTROL PANEL (editable) ═══════════
+function AgentsPanel({ active, say }) {
+  const [data, setData] = useState(null);
+  const reload = () => skApi.agents().then((d) => setData(d.agents || [])).catch(() => setData([]));
+  useEffect(() => { if (active && data === null) reload(); }, [active]);
+  const save = async (key, value) => { try { const r = await skApi.setAgentSetting(key, value); if (r.ok === false) return say?.(r.error || 'Invalid', 'error'); reload(); say?.(`${key} = ${value}`); } catch { say?.('Save failed', 'error'); } };
+  const reset = async (key) => { try { await skApi.clearAgentSetting(key); reload(); say?.(`${key} reset to default`); } catch { say?.('Failed', 'error'); } };
+  return (
+    <div className="mb-24 flex flex-col gap-4">
+      <div className="panel p-4"><div className="eyebrow mb-1">Agents</div>
+        <p className="text-xs" style={{ color: 'var(--muted)' }}>Every capability is an agent. Tunable constraints below take effect within a few seconds — no restart. Blank = using the config default.</p></div>
+      {data === null ? <div className="panel p-6 text-center"><Spinner size={16} /></div>
+        : data.map((a) => (
+          <div key={a.name} className="panel p-4">
+            <div className="flex items-center gap-2 mb-1"><span className="prog-badge">{a.name}</span><span className="text-xs" style={{ color: 'var(--muted)' }}>{a.role}</span></div>
+            {a.editable.length === 0 ? <p className="text-xs" style={{ color: 'var(--faint)' }}>No runtime knobs (behaviour fixed / env-only).</p>
+              : <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mt-2">
+                  {a.editable.map((k) => <AgentKnob key={k.key} k={k} onSave={save} onReset={reset} />)}
+                </div>}
+          </div>
+        ))}
+    </div>
+  );
+}
+function AgentKnob({ k, onSave, onReset }) {
+  const [v, setV] = useState(k.value ?? '');
+  useEffect(() => { setV(k.value ?? ''); }, [k.value]);
+  return (
+    <div className="knob-row">
+      <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 12.5, fontWeight: 600 }}>{k.label}</div>
+        <div className="text-xs font-mono" style={{ color: 'var(--faint)' }}>{k.key}{k.type !== 'str' ? ` · ${k.min}–${k.max}` : ''}</div></div>
+      <input className="sk-input" style={{ width: 96 }} value={v} onChange={(e) => setV(e.target.value)} placeholder="default" />
+      <button className="mini on" onClick={() => onSave(k.key, v)}>Set</button>
+      {k.is_overridden && <button className="mini" onClick={() => onReset(k.key)}>Reset</button>}
+    </div>
+  );
+}
+
 // ══════════════════════════════════ AFFILIATE ACCOUNTS (encrypted .ragskey) ═══
 const PROGRAM_LABEL = {
   amazon_associates: 'Amazon Associates', earnkaro: 'EarnKaro', cuelinks: 'Cuelinks',
@@ -1285,4 +1410,13 @@ const CardStyles = () => <style>{`
   .prog-badge{font:700 10.5px ui-monospace,monospace;color:var(--accent);border:1px solid var(--accent);border-radius:8px;padding:3px 8px;white-space:nowrap}
   .mini.on{color:#3fb950;border-color:#3fb950}
   .mini.danger{color:var(--danger);border-color:var(--danger)}
+  /* content calendar */
+  .cal-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px}
+  .cal-cell{border:1px solid var(--border);border-radius:11px;background:var(--panel-2);padding:9px;min-height:84px}
+  .cal-dow{font:700 11px ui-monospace,monospace;color:var(--faint)}
+  .cal-cat{font-size:12.5px;font-weight:600;margin-top:2px}
+  .cal-job{display:flex;align-items:center;gap:4px;font:600 10px ui-monospace,monospace;color:var(--accent);background:var(--panel);border:1px solid var(--border);border-radius:7px;padding:2px 6px;margin-top:5px}
+  .cal-x{margin-left:auto;border:none;background:none;color:var(--danger);cursor:pointer;font-size:14px;line-height:1}
+  /* agent knob rows */
+  .knob-row{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid var(--border);border-radius:10px;background:var(--panel-2)}
 `}</style>;
