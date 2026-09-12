@@ -5,6 +5,7 @@ Handles: login, best-sellers scraping, SiteStripe affiliate link generation.
 """
 from __future__ import annotations
 import asyncio
+import os
 import re
 from typing import Optional
 from urllib.parse import quote_plus
@@ -18,6 +19,26 @@ async def _delay(min_ms: int, max_ms: int = 0) -> None:
     import random
     ms = random.randint(min_ms, max_ms or min_ms)
     await asyncio.sleep(ms / 1000)
+
+
+async def _apply_proxy_block(page: Page) -> None:
+    """Abort heavy sub-resources (image/css/font/media) on a page so only the product
+    HTML loads through the proxy — much faster + far fewer proxied requests (cheaper)."""
+    async def _block(route):
+        try:
+            if route.request.resource_type in ("image", "media", "font", "stylesheet"):
+                await route.abort()
+            else:
+                await route.continue_()
+        except Exception:
+            try:
+                await route.continue_()
+            except Exception:
+                pass
+    try:
+        await page.route("**/*", _block)
+    except Exception:
+        pass
 
 
 async def _human_type(page: Page, selector: str, text: str) -> None:
@@ -247,9 +268,11 @@ async def _scrape_page(page: Page, category: str, marketplace: str,
     proxied = cfg.scraper_proxy.enabled
     # A residential proxy / scraping API adds latency and is per-IP flaky, so allow longer
     # per attempt AND retry — each retry rotates to a fresh proxy IP (usually one succeeds).
-    goto_timeout = 90000 if proxied else 30000
-    sel_timeout = 45000 if proxied else 15000
-    attempts = 3 if proxied else 1
+    # With sub-resources blocked the HTML-only load is quick; fail fast + retry (fresh IP)
+    # rather than waiting on a slow proxy IP.
+    goto_timeout = 30000 if proxied else 30000
+    sel_timeout = 20000 if proxied else 15000
+    attempts = 2 if proxied else 1
 
     for attempt in range(1, attempts + 1):
         log.step(f"Scraping Amazon: {category} ('{term}' p{page_num}) [try {attempt}/{attempts}]...")
@@ -265,7 +288,8 @@ async def _scrape_page(page: Page, category: str, marketplace: str,
             log.error(f"Amazon fetch failed for '{term}' after {attempts} tries{hint}")
             return []
 
-        await _delay(400, 900)
+        if not proxied:
+            await _delay(400, 900)                        # human cadence only on the direct path
         products = await page.evaluate(_SCRAPE_JS, {"marketplace": marketplace, "category": category})
         if not products and attempt < attempts:
             log.warning(f"0 results for '{term}' p{page_num} — retrying (fresh proxy IP)")
@@ -325,31 +349,69 @@ async def scrape_products_multi(page: Page, category: str, marketplace: str,
     `target_pool` (adaptive stopping keeps runtime bounded).
 
     Returns (products, yields) where yields = {query: {"raw": n, "quality_unique": n}}.
+
+    PERFORMANCE: every (query, page) is fetched CONCURRENTLY on its own tab (bounded by a
+    semaphore), so total time ≈ the slowest single fetch instead of the sum of them — a big
+    speed-up over the slower proxy path.
     """
+    from config import cfg
+    ctx = page.context
+    terms = [t.strip() for t in queries if t and t.strip()]
+    combos = [(t, pg) for t in terms for pg in range(1, max_pages + 1)]
+    if not combos:
+        return [], {}
+
+    # Concurrency: parallel tabs. ScraperAPI free allows ~5 concurrent — cap at 4.
+    conc = 4 if cfg.scraper_proxy.enabled else 2
+    sem = asyncio.Semaphore(conc)
+
+    async def _fetch(term: str, pg: int):
+        async with sem:
+            p = await ctx.new_page()
+            if cfg.scraper_proxy.enabled:
+                await _apply_proxy_block(p)
+            try:
+                return term, await _scrape_page(p, category, marketplace, term, pg)
+            except Exception as e:                        # a bad tab must not kill the batch
+                log.warning(f"[discovery] tab failed '{term}' p{pg}: {str(e)[:50]}")
+                return term, []
+            finally:
+                try:
+                    await p.close()
+                except Exception:
+                    pass
+
+    # Overall deadline: use whatever tabs finished by the cutoff (a few products from one
+    # good tab is plenty), so a single slow/bad proxy IP can't stall the whole run.
+    deadline = float(os.getenv("SCRAPER_DEADLINE_SEC", "45")) if cfg.scraper_proxy.enabled else 300
+    tasks = [asyncio.create_task(_fetch(t, pg)) for t, pg in combos]
+    done, pending = await asyncio.wait(tasks, timeout=deadline)
+    for t in pending:
+        t.cancel()
+    if pending:
+        log.warning(f"[discovery] {len(pending)}/{len(tasks)} tab(s) exceeded {deadline:.0f}s — using {len(done)} that finished")
+    results = []
+    for t in done:
+        try:
+            results.append(t.result())
+        except Exception:
+            pass
+
     raw_all: list[dict] = []
+    per_term: dict = {}
+    for term, page_raw in results:
+        per_term.setdefault(term, [])
+        per_term[term].extend(page_raw or [])
+        raw_all.extend(page_raw or [])
+
     yields: dict = {}
-    for term in queries:
-        term = (term or "").strip()
-        if not term:
-            continue
-        before_unique = len(_finalize_pool(raw_all, quality, cap=10**6))
-        q_raw = 0
-        for pg in range(1, max_pages + 1):
-            page_raw = await _scrape_page(page, category, marketplace, term, pg)
-            if not page_raw:
-                break                                    # no more pages for this term
-            raw_all.extend(page_raw)
-            q_raw += len(page_raw)
-        after_unique = len(_finalize_pool(raw_all, quality, cap=10**6))
-        yields[term] = {"raw": q_raw, "quality_unique": max(0, after_unique - before_unique)}
-        # Adaptive stopping — enough unique quality candidates pooled.
-        if after_unique >= target_pool:
-            log.info(f"[discovery] target pool {target_pool} reached after '{term}' — stopping early")
-            break
+    for term, rows in per_term.items():
+        uniq = len(_finalize_pool(rows, quality, cap=10**6))
+        yields[term] = {"raw": len(rows), "quality_unique": uniq}
 
     result = _finalize_pool(raw_all, quality, cap=max(target_pool, 40))
     log.success(
-        f"[discovery] {len(queries)} intents · {len(raw_all)} raw → {len(result)} unique quality products"
+        f"[discovery] {len(terms)} intents (parallel) · {len(raw_all)} raw → {len(result)} unique quality products"
     )
     return result, yields
 
