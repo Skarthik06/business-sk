@@ -385,7 +385,9 @@ async def scrape_products_multi(page: Page, category: str, marketplace: str,
     # yields ~40, we only need ~10), so a fast tab ends the run without waiting on the
     # slow ones. A hard deadline still caps the worst case.
     deadline = float(os.getenv("SCRAPER_DEADLINE_SEC", "45")) if cfg.scraper_proxy.enabled else 300
-    enough = max(40, int(target_pool) // 2)
+    # Exit after the first good tab: ~25 unique quality products is ample to pick 3-10 from,
+    # so we don't wait on extra tabs. (Tunable via SCRAPER_ENOUGH.)
+    enough = int(os.getenv("SCRAPER_ENOUGH", "24"))
     tasks = [asyncio.create_task(_fetch(t, pg)) for t, pg in combos]
     pending = set(tasks)
     raw_all: list[dict] = []
