@@ -19,6 +19,8 @@ const TAB_KICKER = {
 };
 const LS_FAV = 'sk_favorites';
 const LS_QUEUE = 'sk_queue';
+const CAPTION_STYLES = ['auto', 'DEAL_DROP', 'STORY', 'LISTICLE', 'PROBLEM_SOLUTION', 'QUESTION',
+  'TRANSFORMATION', 'GIFT_GUIDE', 'BUDGET', 'PREMIUM', 'VIRAL_FIND'];
 
 export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate', onNavigate }) {
   const tab = VIEW_TAB[view] || 'generate';
@@ -43,7 +45,9 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
 
   const shared = { cats, say, config, accounts };
   const queued = queue.reduce((n, g) => n + (g.products?.length || 0), 0);
+  const [sub, setSub] = useState('find');   // Affiliate sub-view: find | winners | trends | intel
   const show = (t) => ({ display: tab === t ? 'block' : 'none' });
+  const showSub = (s) => ({ display: tab === 'generate' && sub === s ? 'block' : 'none' });
   return (
     <div className="fade-up">
       <div className="flex items-end justify-between flex-wrap gap-4 mb-6">
@@ -62,7 +66,17 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
         </div>
       </div>
 
-      <div style={show('generate')}><GenerateTab {...shared} setQueue={setQueue} goPost={() => onNavigate?.('sk-post')} /></div>
+      {tab === 'generate' && (
+        <div className="sk-subnav">
+          {[['find', 'Find products', 'spark'], ['winners', 'Winners', 'trophy'], ['trends', 'Trends', 'bolt'], ['intel', 'Intelligence', 'brain']].map(([k, label]) => (
+            <button key={k} className={cx('sk-subtab', sub === k && 'on')} onClick={() => setSub(k)}>{label}</button>
+          ))}
+        </div>
+      )}
+      <div style={showSub('find')}><GenerateTab {...shared} setQueue={setQueue} goPost={() => onNavigate?.('sk-post')} /></div>
+      <div style={showSub('winners')}><WinnersPanel active={tab === 'generate' && sub === 'winners'} say={say} /></div>
+      <div style={showSub('trends')}><TrendsPanel active={tab === 'generate' && sub === 'trends'} cats={cats} /></div>
+      <div style={showSub('intel')}><IntelligencePanel active={tab === 'generate' && sub === 'intel'} /></div>
       <div style={show('post')}><PostTab {...shared} queue={queue} setQueue={setQueue} goAffiliate={() => onNavigate?.('sk-affiliate')} /></div>
       <div style={show('hub')}><HubTab {...shared} /></div>
       <div style={show('history')}><HistoryTab active={tab === 'history'} /></div>
@@ -81,6 +95,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   const [minRating, setMinRating] = useState(3.8);
   const [minReviews, setMinReviews] = useState(50);
   const [priceMax, setPriceMax] = useState(5000);
+  const [style, setStyle] = useState('auto');            // Phase 4 caption style (A/B)
   const [running, setRunning] = useState(false);
   const [prog, setProg] = useState([]);                  // per-post progress rows
   const [groups, setGroups] = useState(null);            // [{id,label,category,products}]
@@ -114,7 +129,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
     if (!selected.length) return say('Select at least one category', 'error');
     if (postCount > 10) return say('Instagram allows up to 10 posts — deselect a few subcategories', 'error');
     setRunning(true); setGroups(null);
-    const opts = { min_rating: minRating, min_reviews: minReviews, price_max: priceMax };
+    const opts = { min_rating: minRating, min_reviews: minReviews, price_max: priceMax, content: style };
     const out = [];
     setProg(jobs.map((j) => ({ id: j.label, phase: 'queued', n: 0 })));
     for (const j of jobs) {
@@ -124,7 +139,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
           ? await skApi.generate([], counts[j.cat] || 3, { ...opts, q: j.q })
           : await skApi.generate([j.cat], counts[j.cat] || 3, opts);
         const products = (r.items || []).map((it) => ({ ...it, category: j.cat }));  // keep base category
-        out.push({ id: j.label, label: j.label, category: j.cat, products, caption: r.caption || '', hashtags: r.hashtags || [] });
+        out.push({ id: j.label, label: j.label, category: j.cat, products, caption: r.caption || '', hashtags: r.hashtags || [], content_style: r.content_style || '', warnings: r.content_warnings || [] });
         setProg((p) => p.map((r2) => (r2.id === j.label ? { ...r2, phase: 'done', n: products.length } : r2)));
       } catch (e) {
         setProg((p) => p.map((r2) => (r2.id === j.label ? { ...r2, phase: 'error', n: 0 } : r2)));
@@ -182,7 +197,13 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
           <div className={cx('posts-meter', postCount > 10 && 'over')}>
             <b>{postCount}</b> / 10 post{postCount === 1 ? '' : 's'} <span>· Instagram allows up to 10</span>
           </div>
-          <button className="btn btn-sm btn-ghost" onClick={() => setShowOpts((v) => !v)}><Icon name="settings" size={13} /> Quality filters {showOpts ? '▾' : '▸'}</button>
+          <div className="flex items-center gap-2">
+            <label className="text-xs" style={{ color: 'var(--faint)' }}>Caption style</label>
+            <select className="sk-select" value={style} onChange={(e) => setStyle(e.target.value)} title="How the AI writes the caption (A/B)">
+              {CAPTION_STYLES.map((s) => <option key={s} value={s}>{s === 'auto' ? 'Auto (AI picks)' : s.replace(/_/g, ' ').toLowerCase()}</option>)}
+            </select>
+            <button className="btn btn-sm btn-ghost" onClick={() => setShowOpts((v) => !v)}><Icon name="settings" size={13} /> Quality filters {showOpts ? '▾' : '▸'}</button>
+          </div>
         </div>
         {showOpts && (
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3 p-3" style={{ background: 'var(--panel-2)', borderRadius: 10 }}>
@@ -229,7 +250,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
           {total === 0 ? <Empty text="No new products (deduped). Try other subcategories or lower the quality filters." /> : (
             (groups.filter((g) => g.products.length)).map((g) => (
               <div key={g.id} className="mb-6">
-                <div className="group-head"><span className="chip-sk on" style={{ textTransform: 'capitalize' }}>{g.label}</span><span className="text-xs" style={{ color: 'var(--faint)' }}>{g.products.length} products · 1 post · 1 caption</span></div>
+                <div className="group-head"><span className="chip-sk on" style={{ textTransform: 'capitalize' }}>{g.label}</span><span className="text-xs" style={{ color: 'var(--faint)' }}>{g.products.length} products · 1 post · 1 caption</span>{g.content_style && g.content_style !== 'UNKNOWN' && <span className="style-tag">{g.content_style.replace(/_/g, ' ').toLowerCase()}</span>}{(g.warnings || []).length > 0 && <span className="warn-tag" title={g.warnings.join('\n')}>⚠ {g.warnings.length}</span>}</div>
                 {g.caption && (
                   <div className="panel p-3 mb-3" style={{ background: 'var(--panel-2)' }}>
                     <div className="flex items-center gap-2 mb-1"><span className="eyebrow">Carousel caption</span><span className="flex-1" /><button className="btn btn-sm btn-ghost" onClick={() => copy(g.caption + '\n\n' + (g.hashtags || []).map((h) => '#' + h).join(' '), 'Caption')}><Icon name="quote" size={12} /> Copy</button></div>
@@ -795,13 +816,19 @@ function CategoryGrid({ cats, counts, onToggle, onCount, disabled }) {
 }
 
 function ProductCard({ it, copy, fav, onFav, say }) {
+  const [why, setWhy] = useState(false);
   const caption = `${it.summary || ''}\n\n${(it.hashtags || []).map((h) => '#' + h).join(' ')}`.trim();
   const sendToIG = () => { copy(`${caption}\n\nImage: ${it.image_url}`, 'Caption+image'); say('Copied — paste into Custom Poster', 'ok'); };
+  // Winner score is the master (intelligence × confidence, novelty/trend/performance-aware);
+  // fall back to the content score/tier for older responses.
+  const wTier = it.winner_tier || it.tier;
+  const wScore = it.winner_score != null ? it.winner_score : it.content_score;
+  const warns = it.content_warnings || [];
   return (
     <div className="panel p-0 overflow-hidden" style={{ display: 'flex', flexDirection: 'column' }}>
       <div style={{ position: 'relative' }}>
         {it.image_url ? <img src={hiRes(it.image_url)} alt="" loading="lazy" style={{ width: '100%', height: 160, objectFit: 'contain', background: '#fff' }} /> : <div style={{ height: 160, background: 'var(--panel-2)' }} />}
-        {it.tier && <span className={cx('tier-badge', 'tier-' + it.tier)} title={`Product Content Score ${it.content_score}/100`}>{it.tier} · {it.content_score}</span>}
+        {wTier && <span className={cx('tier-badge', 'tier-' + wTier)} title={`Winner score ${wScore}/100 · intelligence×confidence`}>🏆 {wTier} · {wScore}</span>}
         <button className="fav-btn" onClick={onFav} title="Favorite" style={{ color: fav ? 'var(--amber)' : '#fff' }}><Icon name="spark" size={16} /></button>
       </div>
       <div className="p-3.5" style={{ display: 'flex', flexDirection: 'column', gap: 7, flex: 1 }}>
@@ -819,18 +846,140 @@ function ProductCard({ it, copy, fav, onFav, say }) {
             <ScoreBar label="Cnt" v={it.content_potential_score} title="Content potential" />
           </div>
         )}
+        {/* Autopilot intelligence chips — novelty (freshness) + trend alignment */}
+        {(it.novelty_score != null || it.trend_score != null || it.performance_prior != null) && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {it.novelty_score != null && <span className="intel-chip" title="Novelty — how unlike already-posted products">✨ {it.novelty_score}</span>}
+            {it.trend_score != null && <span className="intel-chip" title="Trend alignment">📈 {it.trend_score}</span>}
+            {it.performance_prior != null && <span className="intel-chip" title="Measured category performance prior">🎯 {it.performance_prior}</span>}
+            {(it.evidence || []).length > 0 && <button className="intel-chip why" onClick={() => setWhy((v) => !v)}>Why {why ? '▾' : '▸'}</button>}
+          </div>
+        )}
+        {why && (it.evidence || []).length > 0 && (
+          <ul className="why-list">{it.evidence.map((e, i) => <li key={i}>✓ {e}</li>)}</ul>
+        )}
         <div className="flex items-center gap-3 text-xs font-mono" style={{ color: 'var(--muted)' }}>
           {it.rating != null && <span>★ {it.rating}</span>}
           {it.reviews != null && <span>{Number(it.reviews).toLocaleString()} rev</span>}
           {it.bought_past_month && <span>{it.bought_past_month} bought</span>}
           {it.badge && <span style={{ color: 'var(--accent)' }}>{it.badge}</span>}
         </div>
+        {warns.length > 0 && <div className="warn-tag" title={warns.join('\n')}>⚠ {warns.length} unverified claim{warns.length === 1 ? '' : 's'}</div>}
         <div style={{ fontWeight: 600, fontSize: 13.5, lineHeight: 1.25 }}>{it.product_title || it.title}</div>
         <div style={{ flex: 1 }} />
         <div className="flex gap-2 mt-1">
           <button className="btn btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => copy(it.affiliate_link, 'Link')}><Icon name="ext" size={12} /> Link</button>
           <button className="btn btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={() => copy(caption, 'Caption')}><Icon name="quote" size={12} /> Caption</button>
           <button className="btn btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={sendToIG} title="Copy for Custom Poster"><Icon name="pin" size={12} /> IG</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════ WINNERS (Phase 10) ════════════════════════
+function WinnersPanel({ active, say }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const copy = (t, l) => navigator.clipboard?.writeText(t).then(() => say?.(`${l} copied`));
+  const load2 = () => { setLoading(true); skApi.winners(24).then(setData).catch(() => setData({ winners: [] })).finally(() => setLoading(false)); };
+  useEffect(() => { if (active && !data) load2(); }, [active]);
+  const winners = data?.winners || [];
+  return (
+    <div className="mb-24">
+      <div className="panel p-4 mb-4 flex items-center justify-between flex-wrap gap-3">
+        <div><div className="eyebrow mb-1">Predicted winners</div>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>Ranked by winner score across your posted products. Method: <b>{data?.method || '—'}</b>{data?.has_model ? ' · model' : ''}.</p></div>
+        <button className="btn btn-sm" onClick={load2} disabled={loading}>{loading ? <Spinner size={13} /> : <Icon name="bolt" size={13} />} Refresh</button>
+      </div>
+      {winners.length === 0
+        ? <Empty text="No posted products yet — winners are ranked from what you've published. Post a few carousels, then check back." />
+        : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            {winners.map((it, i) => <ProductCard key={(it.asin || '') + i} it={it} copy={copy} fav={false} onFav={() => {}} say={say} />)}
+          </div>}
+    </div>
+  );
+}
+
+// ══════════════════════════════════ TRENDS (Phase 3) ══════════════════════════
+const DIR_COLOR = { EXPLODING: '#ff6b6b', RISING: '#3fb950', STABLE: 'var(--muted)', DECLINING: 'var(--faint)', UNKNOWN: 'var(--faint)' };
+function TrendsPanel({ active }) {
+  const [rows, setRows] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const load2 = () => { setLoading(true); skApi.trends().then((d) => setRows(d.trends || [])).catch(() => setRows([])).finally(() => setLoading(false)); };
+  useEffect(() => { if (active && rows === null) load2(); }, [active]);
+  return (
+    <div className="mb-24">
+      <div className="panel p-4 mb-4 flex items-center justify-between flex-wrap gap-3">
+        <div><div className="eyebrow mb-1">Trend intelligence</div>
+          <p className="text-xs" style={{ color: 'var(--muted)' }}>Keyword momentum + direction, learned from past runs. Momentum is an internal model score, not a market fact.</p></div>
+        <button className="btn btn-sm" onClick={load2} disabled={loading}>{loading ? <Spinner size={13} /> : <Icon name="bolt" size={13} />} Refresh</button>
+      </div>
+      {(rows || []).length === 0
+        ? <Empty text="No trend data yet — trends build as you run Find products (each run records keyword observations)." />
+        : <div className="panel p-4"><div className="flex flex-col gap-2.5">
+            {rows.map((t) => (
+              <div key={t.category + t.keyword} className="trend-row">
+                <span className="trend-kw">{t.keyword}</span>
+                <span className="trend-cat">{t.category}</span>
+                <div className="score-track" style={{ flex: 1, maxWidth: 220 }}><div className="score-fill" style={{ width: `${t.momentum}%`, background: DIR_COLOR[t.direction] || 'var(--accent)' }} /></div>
+                <span className="font-mono text-xs" style={{ width: 34, textAlign: 'right' }}>{t.momentum}</span>
+                <span className="dir-tag" style={{ color: DIR_COLOR[t.direction], borderColor: DIR_COLOR[t.direction] }}>{t.direction}</span>
+              </div>
+            ))}
+          </div></div>}
+    </div>
+  );
+}
+
+// ══════════════════════════════════ INTELLIGENCE (Phases 6-8) ═════════════════
+function IntelligencePanel({ active }) {
+  const [ins, setIns] = useState(null);
+  const [perf, setPerf] = useState(null);
+  const [ret, setRet] = useState(null);
+  const [q, setQ] = useState(null);
+  const load2 = () => {
+    skApi.insights().then(setIns).catch(() => setIns(null));
+    skApi.perfOverview().then(setPerf).catch(() => setPerf(null));
+    skApi.retailers().then(setRet).catch(() => setRet(null));
+    skApi.discoveryQueries().then((d) => setQ(d.queries || [])).catch(() => setQ([]));
+  };
+  useEffect(() => { if (active && !ins) load2(); }, [active]);
+  const connected = perf?.connected;
+  return (
+    <div className="mb-24 flex flex-col gap-4">
+      {/* Performance */}
+      <div className="panel p-4">
+        <div className="eyebrow mb-2">Performance</div>
+        {!connected
+          ? <p className="text-sm" style={{ color: 'var(--muted)' }}>Not connected — measured metrics (reach, clicks, orders, commission) appear here once a source feeds <span className="font-mono">/api/performance/ingest</span>. No numbers are ever guessed.</p>
+          : <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {Object.entries(perf.derived || {}).map(([k, v]) => (
+                <div key={k} className="stat-tile"><div className="stat-v">{v == null ? '—' : v}</div><div className="stat-k">{k.replace(/_/g, ' ')}</div></div>
+              ))}
+            </div>}
+      </div>
+      {/* Learned recommendations */}
+      <div className="panel p-4">
+        <div className="eyebrow mb-2">Learned recommendations</div>
+        {ins?.has_data
+          ? <div className="flex flex-col gap-2">
+              {(ins.categories || []).map((c) => <div key={c.category} className="reco-row"><b>{c.category}</b><span className="score-track" style={{ flex: 1, maxWidth: 200 }}><span className="score-fill" style={{ width: `${c.prior}%`, background: 'var(--accent)' }} /></span><span className="font-mono text-xs">{c.prior} · {c.samples} posts</span></div>)}
+            </div>
+          : <p className="text-sm" style={{ color: 'var(--muted)' }}>{ins?.note || 'No performance data yet — recommendations appear once posts have measured results.'}</p>}
+      </div>
+      {/* Discovery query yields */}
+      <div className="panel p-4">
+        <div className="eyebrow mb-2">Discovery query yields</div>
+        {(q || []).length === 0
+          ? <p className="text-sm" style={{ color: 'var(--muted)' }}>No data yet — the discovery planner learns which search intents produce the most fresh products as you run.</p>
+          : <div className="flex flex-wrap gap-2">{q.slice(0, 24).map((r) => <span key={r.category + r.query} className="q-chip" title={`${r.fresh_total} fresh / ${r.usage_count} runs`}>{r.query} · {r.priority}</span>)}</div>}
+      </div>
+      {/* Retailers */}
+      <div className="panel p-4">
+        <div className="eyebrow mb-2">Retailers</div>
+        <div className="flex flex-wrap gap-2">
+          {(ret?.adapters || []).map((a) => <span key={a.retailer} className="q-chip" style={{ opacity: a.implemented ? 1 : 0.5 }}>{a.healthy ? '🟢' : a.implemented ? '🟡' : '⚪'} {a.retailer}{a.implemented ? '' : ' (soon)'}</span>)}
         </div>
       </div>
     </div>
@@ -1040,4 +1189,24 @@ const CardStyles = () => <style>{`
   .score-cap{font:600 9px ui-monospace,monospace;color:var(--faint);text-transform:uppercase}
   .score-track{height:5px;border-radius:3px;background:var(--panel-2);overflow:hidden}
   .score-fill{height:100%;border-radius:3px;transition:width .3s}
+
+  /* Autopilot studio — sub-nav, intelligence chips, panels */
+  .sk-subnav{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:18px;border-bottom:1px solid var(--border);padding-bottom:2px}
+  .sk-subtab{border:none;background:none;color:var(--muted);font:600 13px system-ui;padding:8px 14px;border-radius:9px 9px 0 0;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
+  .sk-subtab:hover{color:var(--text)}
+  .sk-subtab.on{color:var(--accent);border-bottom-color:var(--accent)}
+  .sk-select{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:12px;padding:5px 8px;text-transform:capitalize}
+  .intel-chip{display:inline-flex;align-items:center;gap:3px;font:600 10.5px ui-monospace,monospace;color:var(--muted);background:var(--panel-2);border:1px solid var(--border);border-radius:20px;padding:2px 8px}
+  .intel-chip.why{cursor:pointer;color:var(--accent);border-color:var(--accent)}
+  .why-list{list-style:none;margin:0;padding:8px 10px;background:var(--panel-2);border:1px solid var(--border);border-radius:9px;display:flex;flex-direction:column;gap:3px;font-size:11px;color:var(--muted)}
+  .warn-tag{display:inline-flex;align-items:center;gap:4px;font:600 10.5px ui-monospace,monospace;color:var(--amber);border:1px solid var(--amber);border-radius:20px;padding:1px 8px;width:fit-content}
+  .style-tag{font:600 10px ui-monospace,monospace;color:var(--accent);border:1px solid var(--border);border-radius:20px;padding:1px 8px;text-transform:capitalize}
+  .trend-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .trend-kw{font-weight:600;font-size:13px;min-width:130px}
+  .trend-cat{font:600 10px ui-monospace,monospace;color:var(--faint);text-transform:capitalize}
+  .dir-tag{font:700 9.5px ui-monospace,monospace;border:1px solid;border-radius:20px;padding:1px 7px}
+  .stat-tile{border:1px solid var(--border);border-radius:11px;background:var(--panel-2);padding:11px}
+  .stat-v{font:700 18px system-ui;color:var(--text)} .stat-k{font-size:10px;color:var(--muted);text-transform:capitalize;margin-top:2px}
+  .reco-row{display:flex;align-items:center;gap:10px;font-size:13px;text-transform:capitalize}
+  .q-chip{font:600 11px ui-monospace,monospace;color:var(--muted);background:var(--panel-2);border:1px solid var(--border);border-radius:20px;padding:3px 9px}
 `}</style>;

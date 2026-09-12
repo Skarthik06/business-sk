@@ -15,7 +15,8 @@ export default {
   categories: () => sk.get('/categories').then(data),      // base categories + commission rates
   stats:      () => sk.get('/stats').then(data),           // RAG dedup flywheel (products remembered)
 
-  // Content service. opts may include: q, marketplace, min_rating, min_reviews, price_min, price_max.
+  // Content service. opts may include: q, marketplace, min_rating, min_reviews, price_min,
+  // price_max, content (caption style: auto|DEAL_DROP|LISTICLE|PROBLEM_SOLUTION|…).
   generate: (categories, productsPerRun, opts = {}) =>
     sk.get('/generate', {
       params: {
@@ -26,6 +27,7 @@ export default {
         ...(opts.min_reviews != null ? { min_reviews: opts.min_reviews } : {}),
         ...(opts.price_min != null ? { price_min: opts.price_min } : {}),
         ...(opts.price_max != null ? { price_max: opts.price_max } : {}),
+        ...(opts.content && opts.content !== 'auto' ? { content: opts.content } : {}),
       },
     }).then(data),
 
@@ -39,4 +41,12 @@ export default {
   // Discovery — taxonomy (families/subcategories/angles) + collections (price bands + bundles).
   taxonomy:    () => sk.get('/taxonomy').then(data),
   collections: (category) => sk.get('/collections', { params: category ? { category } : {} }).then(data),
+
+  // ── Autopilot intelligence (Phases 1-10) ──────────────────────────────────
+  trends:        (category) => sk.get('/trends', { params: category ? { category } : {} }).then(data),
+  discoveryQueries: (category) => sk.get('/discovery/queries', { params: category ? { category } : {} }).then(data),
+  winners:       (limit = 12) => sk.get('/intelligence/winners', { params: { limit } }).then(data),
+  insights:      () => sk.get('/intelligence/insights').then(data),
+  perfOverview:  () => sk.get('/performance/overview').then(data),
+  retailers:     () => sk.get('/retailers').then(data),
 };
