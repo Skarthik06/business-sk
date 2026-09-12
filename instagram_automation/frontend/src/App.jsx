@@ -82,7 +82,24 @@ const UNIVERSAL = [
 const NAV = [...NAV_GROUPS.flatMap(groupItems), ...UNIVERSAL];
 
 export default function App() {
-  const [view, setView] = useState('dashboard');
+  // Deep-linkable view: the URL hash reflects the current panel (e.g. #sk-affiliate),
+  // so links change per panel and are shareable / bookmarkable / back-forward aware.
+  const [view, setView] = useState(() => {
+    const h = (typeof location !== 'undefined' ? location.hash.replace('#', '') : '') || 'dashboard';
+    return h;
+  });
+  // Keep the URL in sync when the panel changes.
+  useEffect(() => {
+    if (location.hash.replace('#', '') !== view) {
+      try { history.replaceState(null, '', '#' + view); } catch { /* ignore */ }
+    }
+  }, [view]);
+  // React to back/forward or a manually edited hash.
+  useEffect(() => {
+    const onHash = () => { const h = location.hash.replace('#', ''); if (h && h !== view) setView(h); };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, [view]);
   const [openGroups, setOpenGroups] = useState({ jk: true, sk: true });
   const toggleGroup = (id) => setOpenGroups((g) => ({ ...g, [id]: !g[id] }));
   const [accounts, setAccounts] = useState([]);

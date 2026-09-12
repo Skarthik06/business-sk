@@ -53,7 +53,10 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
   const [cats, setCats] = useState(DEFAULT_CATS);
   const [queue, setQueueState] = useState(() => load(LS_QUEUE, []));   // [{category, products:[...]}]
   const say = useCallback((t, k = 'ok') => (notify ? notify(t, k) : null), [notify]);
-  const setQueue = useCallback((q) => { setQueueState(q); save(LS_QUEUE, q); }, []);
+  const setQueue = useCallback((q) => setQueueState((prev) => {
+    const next = typeof q === 'function' ? q(prev) : q;
+    save(LS_QUEUE, next); return next;
+  }), []);
 
   const [health, setHealth] = useState(null);
   const [stats, setStats] = useState(null);
@@ -349,6 +352,9 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   const [statuses, setStatuses] = useState({});   // {id: {phase, status, label, permalink, error}}
   const [busyId, setBusyId] = useState(null);      // group currently posting
   const [busyAll, setBusyAll] = useState(false);
+  const [posted, setPosted] = useState(() => load('sk_posted_cards', []));  // small "posted" cards
+  const addPosted = (card) => setPosted((p) => { const next = [card, ...p.filter((x) => x.id !== card.id)].slice(0, 30); save('sk_posted_cards', next); return next; });
+  const refresh = () => { setStatuses({}); skApi.posts(10).then((d) => { /* pulls latest recorded posts to confirm */ (d.posts || []).length; say('Refreshed'); }).catch(() => say('Refreshed')); };
 
   useEffect(() => { if (!account && accounts[0]) setAccount(accounts[0].id); }, [accounts, account]);
   const setSt = (id, patch) => setStatuses((s) => ({ ...s, [id]: { ...(s[id] || {}), ...patch } }));
@@ -371,9 +377,15 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
         const res = await api.skCarousel(account, images, caption, { category: g.category, products: pins });
         media_id = res.ig_media_id; permalink = res.permalink; status = 'posted';
       }
-      const rec = await skApi.recordPost({ category: g.category, products: pins, media_id, permalink, caption, status });
+      const rec = await skApi.recordPost({ category: g.category, products: pins, media_id, permalink, caption, status, content_style: g.content_style || '' });
       setSt(g.id, { phase: 'done', status, label: rec.post?.label, permalink });
       if (!dryRun && refresh) { try { await api.skPublishStorefront(); } catch { /* non-fatal */ } }
+      if (!dryRun && status === 'posted') {
+        // Move the posted carousel OUT of the queue into a compact "posted" card.
+        addPosted({ id: g.id, label: g.label, category: g.category, count: pins.length,
+                    permalink, postLabel: rec.post?.label, at: Date.now() });
+        setQueue((prev) => (prev || []).filter((x) => x.id !== g.id));
+      }
       return true;
     } catch (e) {
       const msg = e?.response?.data?.error?.message || e?.response?.data?.detail || e?.message || 'error';
@@ -414,7 +426,10 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       <div className="panel p-5 mb-5">
         <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
           <div className="step-head"><span className="step-n">1</span> Publish · {queue.length} post{queue.length === 1 ? '' : 's'}{doneCount ? ` · ${doneCount} done` : ''}</div>
-          <button className="btn btn-sm btn-ghost" onClick={goAffiliate}><Icon name="spark" size={13} /> {queue.length ? 'Edit in Affiliate' : 'Find products'}</button>
+          <div className="flex gap-2">
+            <button className="btn btn-sm btn-ghost" onClick={refresh} title="Clear posting state / refresh"><Icon name="bolt" size={13} /> Refresh</button>
+            <button className="btn btn-sm btn-ghost" onClick={goAffiliate}><Icon name="spark" size={13} /> {queue.length ? 'Edit in Affiliate' : 'Find products'}</button>
+          </div>
         </div>
         {queue.length === 0 ? (
           <div className="empty-cta">
@@ -447,6 +462,28 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
         )}
       </div>
 
+      {/* Posted — compact confirmation cards (moved out of the queue once live) */}
+      {posted.length > 0 && (
+        <div className="panel p-4 mb-5" style={{ borderColor: '#3fb95055' }}>
+          <div className="flex items-center justify-between mb-2">
+            <div className="eyebrow" style={{ color: '#3fb950' }}>✓ Posted ({posted.length})</div>
+            <button className="mini" onClick={() => { setPosted([]); save('sk_posted_cards', []); }}>Clear</button>
+          </div>
+          <div className="flex flex-col gap-2">
+            {posted.map((p) => (
+              <div key={p.id + p.at} className="posted-row">
+                <span className="mini on" style={{ minWidth: 60, textAlign: 'center' }}>posted</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 600, fontSize: 13, textTransform: 'capitalize' }}>{p.postLabel || p.label}</div>
+                  <div className="text-xs font-mono" style={{ color: 'var(--muted)' }}>{p.count} products · {new Date(p.at).toLocaleTimeString()}</div>
+                </div>
+                {p.permalink && <a className="btn btn-sm btn-ghost" href={p.permalink} target="_blank" rel="noreferrer"><Icon name="ext" size={12} /> View</a>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* per-post cards, each with its OWN real Post button + processing state */}
       {queue.length > 0 && (
         <div className="flex flex-col gap-4">
@@ -456,6 +493,9 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
               onPost={() => postOneReal(g)} onDry={() => publishOne(g, true)} />
           ))}
         </div>
+      )}
+      {queue.length === 0 && posted.length > 0 && (
+        <div className="empty-cta"><p className="text-sm" style={{ color: 'var(--muted)' }}>All queued posts published 🎉 — find more products in <b>Affiliate</b>.</p><button className="btn btn-sm mt-3" onClick={goAffiliate}><Icon name="spark" size={13} /> Go to Affiliate</button></div>
       )}
       </div>
 
@@ -1523,6 +1563,7 @@ const CardStyles = () => <style>{`
   .sk-input{background:var(--panel-2);border:1px solid var(--border);border-radius:9px;color:var(--text);font-size:13px;padding:7px 10px}
   .sk-input:focus{outline:none;border-color:var(--accent)}
   .acct-row{display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:12px;background:var(--panel-2)}
+  .posted-row{display:flex;align-items:center;gap:12px;padding:9px 11px;border:1px solid #3fb95033;border-radius:11px;background:var(--panel-2)}
   .prog-badge{font:700 10.5px ui-monospace,monospace;color:var(--accent);border:1px solid var(--accent);border-radius:8px;padding:3px 8px;white-space:nowrap}
   .mini.on{color:#3fb950;border-color:#3fb950}
   .mini.danger{color:var(--danger);border-color:var(--danger)}
