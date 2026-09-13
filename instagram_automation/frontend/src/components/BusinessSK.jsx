@@ -907,7 +907,6 @@ function CategoryGrid({ cats, counts, onToggle, onCount, tax, subs, onToggleSub,
                   <button onClick={() => onCount(c.name, 1)} aria-label="more">+</button>
                 </div>
               )}
-              {list.length > 0 && <span className="cat-chev">{on ? '▾' : '▸'}</span>}
             </div>
             {on && list.length > 0 && (
               <div className="cat-acc-body">
@@ -1465,21 +1464,24 @@ const CardStyles = () => <style>{`
   .cat-step button:hover{background:rgba(120,180,255,.15);color:var(--accent)}
   .cat-step span{min-width:22px;text-align:center;font:700 13px ui-monospace,monospace;color:var(--accent)}
 
-  /* Accordion category cards (subcategories live INSIDE each card) */
-  .cat-accordion{display:flex;flex-direction:column;gap:9px}
+  /* Category cards — a 3-per-row grid; a SELECTED card spans full width and reveals
+     its subcategories INSIDE (glowing when picked). No pop-ups / accordions. */
+  .cat-accordion{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;align-items:start}
   .cat-accordion.is-disabled{opacity:.4;pointer-events:none}
-  .cat-acc{border:1px solid var(--border);border-radius:13px;background:var(--panel-2);overflow:hidden;transition:border-color .15s}
-  .cat-acc.on{border-color:var(--accent)}
+  .cat-acc{border:1px solid var(--border);border-radius:13px;background:var(--panel-2);overflow:hidden;transition:border-color .15s,box-shadow .2s}
+  .cat-acc.on{border-color:var(--accent);grid-column:1/-1;box-shadow:0 0 0 1px var(--accent),0 6px 22px rgba(120,180,255,.12)}
   .cat-acc-head{display:flex;align-items:center;gap:12px;padding:13px 14px;cursor:pointer;user-select:none}
   .cat-acc.on .cat-acc-head{background:rgba(120,180,255,.08)}
   .cat-acc-head:hover{background:rgba(120,180,255,.05)}
   .cat-chev{color:var(--muted);font-size:13px;width:14px;text-align:center}
   .cat-acc-body{padding:0 14px 14px;border-top:1px solid var(--border)}
+  @media(max-width:900px){.cat-accordion{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:600px){.cat-accordion{grid-template-columns:1fr}}
   .cat-sub-hint{font-size:11.5px;color:var(--faint);margin:11px 0 9px}
   .sub-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px}
   .sub-card{display:flex;align-items:center;justify-content:center;gap:5px;text-align:center;padding:9px 10px;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--muted);font:600 12px system-ui;cursor:pointer;text-transform:capitalize;transition:all .12s;min-height:38px}
   .sub-card:hover{border-color:var(--accent);color:var(--text)}
-  .sub-card.on{background:rgba(120,180,255,.14);border-color:var(--accent);color:var(--accent)}
+  .sub-card.on{background:rgba(120,180,255,.16);border-color:var(--accent);color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 0 14px rgba(120,180,255,.35)}
 
   /* Seasonal / festival banner */
   .season-banner{border:1px solid var(--accent);border-radius:14px;padding:14px 16px;margin-bottom:18px;background:linear-gradient(120deg,rgba(255,157,47,.10),rgba(120,180,255,.08))}
