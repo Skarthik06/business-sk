@@ -588,45 +588,243 @@ def _closer_html(tint: str, handle: str, idx: int, total: int) -> str:
     return _page(tint, inner, idx=idx, total=total)
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# TEMPLATE SYSTEM v2 — carousel-first, palette-driven, bold prices, teaser cover.
+# One product per slide (no cramped grids); every slide shows a big, unmissable
+# price lockup; per-product template auto-chosen by the data; selectable palette.
+# ══════════════════════════════════════════════════════════════════════════════
+_PALETTES = {
+    "warm": {"g1": "#FBF8F2", "g2": "#EFE9E1", "g3": "#E7DFD2", "text": "#221E18",
+             "muted": "#8B8171", "border": "#CFC5B2", "chip": "#F6F2EB", "stage": "#E4DBCC"},
+    "sky":  {"g1": "#F4F9FD", "g2": "#E7F0F8", "g3": "#DCE8F3", "text": "#16273A",
+             "muted": "#6E8296", "border": "#C4D6E6", "chip": "#EEF5FB", "stage": "#DCE8F3"},
+}
+
+
+def _palette(name: str, category: str) -> Dict[str, str]:
+    """Resolve a palette. 'warm' keeps the per-category tint (fashion/tech/home…);
+    'sky' is the cool blue identity. Anything else → warm."""
+    key = (name or "warm").strip().lower()
+    if key == "sky":
+        P = dict(_PALETTES["sky"]); P["tint"] = "#2E7DC4"; P["name"] = "sky"
+    else:
+        P = dict(_PALETTES["warm"]); P["tint"] = _tint(category); P["name"] = "warm"
+    return P
+
+
+def _css2(P: Dict[str, str]) -> str:
+    t = P["tint"]
+    return f"""
+*{{margin:0;padding:0;box-sizing:border-box}}
+html,body{{width:{W}px;height:{H}px}}
+body{{font-family:{_SANS};background:{P['g2']};color:{P['text']};overflow:hidden;-webkit-font-smoothing:antialiased}}
+.slide{{width:{W}px;height:{H}px;position:relative;padding:60px;background:
+   radial-gradient(140% 100% at 50% -6%, {P['g1']} 0%, {P['g2']} 46%, {P['g3']} 100%)}}
+.frame{{position:absolute;inset:34px;border:1.5px solid {P['border']};border-radius:6px;pointer-events:none}}
+.corner{{position:absolute;width:26px;height:26px;border:1.5px solid {t};opacity:.75}}
+.c1{{top:34px;left:34px;border-right:none;border-bottom:none}}.c2{{top:34px;right:34px;border-left:none;border-bottom:none}}
+.c3{{bottom:34px;left:34px;border-right:none;border-top:none}}.c4{{bottom:34px;right:34px;border-left:none;border-top:none}}
+.kick{{font-family:{_MONO};font-size:22px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:{t}}}
+.code{{font-family:{_MONO};font-size:19px;letter-spacing:.14em;color:{P['muted']}}}
+.placard{{position:relative;z-index:2;display:flex;justify-content:space-between;align-items:flex-start}}
+.serif{{font-family:{_SERIF}}}
+.pname{{font-family:{_SERIF};line-height:1.02;color:{P['text']};letter-spacing:-.01em}}
+.stage{{position:relative;border-radius:12px;overflow:hidden;display:flex;align-items:center;justify-content:center;background:
+   radial-gradient(120% 92% at 50% 16%, {t}22 0%, {t}0D 55%, {P['stage']} 100%)}}
+.stage img{{width:94%;height:94%;object-fit:contain;filter:drop-shadow(0 30px 36px {t}4D) drop-shadow(0 10px 14px rgba(20,30,45,.16))}}
+.foot{{position:absolute;left:60px;right:60px;bottom:56px;z-index:2;display:flex;justify-content:space-between;align-items:center;
+   font-family:{_MONO};font-size:19px;letter-spacing:.14em;text-transform:uppercase;color:{P['muted']}}}
+.badge{{display:inline-flex;align-items:center;gap:8px;font-family:{_MONO};font-size:21px;font-weight:700;color:#fff;background:{t};
+   padding:9px 18px;border-radius:100px;letter-spacing:.02em}}
+.chip{{display:inline-flex;align-items:center;gap:9px;border:1.5px solid {P['border']};background:{P['chip']};border-radius:100px;
+   padding:10px 20px;font-family:{_MONO};font-size:21px;color:{P['muted']}}}
+.chip b{{color:{P['text']};font-weight:700}}
+.pricecard{{display:inline-flex;flex-direction:column;gap:8px;background:#FFFFFFEE;border:1.5px solid {P['border']};
+   border-radius:16px;padding:18px 24px;box-shadow:0 18px 40px rgba(20,30,45,.14)}}
+.prow{{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}}
+.big-price{{font-family:{_SANS};font-weight:800;font-size:88px;letter-spacing:-.02em;color:{P['text']};font-variant-numeric:tabular-nums;line-height:.9}}
+.big-mrp{{font-family:{_SANS};font-size:38px;color:{P['muted']};text-decoration:line-through;font-weight:600}}
+.off-pill{{font-family:{_MONO};font-weight:700;font-size:28px;color:#fff;background:{t};padding:8px 16px;border-radius:10px}}
+.save-line{{font-family:{_MONO};font-weight:700;font-size:24px;color:{t}}}
+.spark{{position:absolute;color:{t};font-size:40px;opacity:.5;z-index:1}}
+.saletag{{position:absolute;transform:rotate(-8deg);font-family:{_MONO};font-weight:700;letter-spacing:.06em;color:#fff;background:{t};
+   padding:10px 20px;border-radius:8px;font-size:26px;box-shadow:0 10px 24px {t}59;z-index:3}}
+.megaoff{{font-family:{_SERIF};color:{t};line-height:.82;letter-spacing:-.02em}}
+.swipe{{display:inline-flex;align-items:center;gap:10px;font-family:{_MONO};font-weight:700;font-size:24px;color:{t};letter-spacing:.08em;text-transform:uppercase}}
+.thumbs{{display:flex;gap:18px}}.thumb{{flex:1;aspect-ratio:1;border-radius:14px;border:1.5px solid {P['border']}}}
+.cta{{display:inline-flex;align-items:center;gap:12px;font-family:{_MONO};font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+   border-radius:100px;padding:18px 34px;font-size:26px;background:{t};color:#fff}}
+"""
+
+
+def _page2(P: Dict[str, str], inner: str, *, foot_right: str = "SWIPE →", handle: str = "@business.sk") -> str:
+    return f"""<!doctype html><html><head><meta charset="utf-8">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>{_css2(P)}</style></head><body><div class="slide">
+  <div class="frame"></div><span class="corner c1"></span><span class="corner c2"></span><span class="corner c3"></span><span class="corner c4"></span>
+  {inner}
+  <div class="foot"><span>{_esc(handle)}</span><span>{_esc(foot_right)}</span></div>
+</div></body></html>"""
+
+
+def _pricecard(p: Dict[str, Any]) -> str:
+    price = _money(p.get("price")); mrp = _money(p.get("orig_price") or p.get("mrp")); off = _discount_pct(p)
+    pr = _num(p.get("price")); mr = _num(p.get("orig_price") or p.get("mrp"))
+    save = f'<div class="save-line">You save ₹{_indian_group(int(round(mr - pr)))}</div>' if (pr and mr and mr > pr) else ""
+    row = f'<span class="big-price">{price}</span>' if price else ""
+    if mrp and mrp != price:
+        row += f'<span class="big-mrp">{mrp}</span>'
+    if off:
+        row += f'<span class="off-pill">↓ {off}% OFF</span>'
+    return f'<div class="pricecard"><div class="prow">{row}</div>{save}</div>' if row else ""
+
+
+def _chips2(p: Dict[str, Any]) -> str:
+    out = ""
+    b = _badge_text(p)
+    if b:
+        out += f'<span class="badge">✓ {_esc(b)}</span>'
+    rating = str(p.get("rating") or "").strip()
+    if rating:
+        revs = _fmt_count(p.get("reviews"))
+        out += f'<span class="chip">★ {rating}{f" · <b>{revs}</b> ratings" if revs else ""}</span>'
+    dem = _clean_count(p.get("bought_past_month"))
+    if dem and (any(c in dem for c in "+KkMm") or (dem.replace(",", "").isdigit() and int(dem.replace(",", "")) >= 50)):
+        out += f'<span class="chip"><b>{_fmt_count(dem)}</b> bought recently</span>'
+    return out
+
+
+def _badges_strip(products: List[Dict[str, Any]]) -> str:
+    """Truthful Amazon badges present across the picks + a 'Live on Amazon.in' pill.
+    Uses the real badge TEXT only (never Amazon's logo) — trademark-safe."""
+    seen, pills = set(), []
+    for p in products:
+        b = _badge_text(p)
+        if b and b not in seen:
+            seen.add(b); pills.append(f'<span class="badge">✓ {_esc(b)}</span>')
+    pills.append('<span class="chip">🛒 Live on <b>Amazon.in</b></span>')
+    return '<div style="display:flex;gap:12px;flex-wrap:wrap">' + "".join(pills[:3]) + "</div>"
+
+
+def _cover2(products, imgs, P, *, title, subtitle, handle):
+    n = len(products)
+    maxoff = max((_discount_pct(p) or 0) for p in products) if products else 0
+    thumbs = "".join(f'<div class="thumb stage"><img src="{u}" style="width:88%;height:88%"></div>' for u in imgs[:3] if u)
+    tag = f'<div class="saletag" style="top:196px;right:70px">UP TO {maxoff}% OFF</div>' if maxoff else ""
+    inner = f"""
+  <div class="placard"><span class="kick">The Drop</span><span class="code">SK · EDIT</span></div>
+  <span class="spark" style="top:150px;right:120px">✦</span><span class="spark" style="top:236px;left:90px;font-size:28px">✧</span>
+  {tag}
+  <div style="position:relative;z-index:2;margin-top:120px">
+    <div class="serif" style="font-size:120px;line-height:.88;letter-spacing:-.02em;max-width:920px">{_esc(title)}</div>
+    <div class="serif" style="font-size:46px;font-style:italic;color:{P['tint']};margin-top:14px">{_esc(subtitle)}</div>
+  </div>
+  <div style="position:absolute;left:60px;right:60px;bottom:300px;z-index:2;display:flex;flex-direction:column;gap:22px">
+    {_badges_strip(products)}
+    <div class="thumbs">{thumbs}</div>
+  </div>
+  <div style="position:absolute;left:60px;bottom:206px;z-index:2"><span class="swipe">Swipe → {n} deals inside</span></div>
+"""
+    return _page2(P, inner, foot_right="SWIPE →", handle=handle)
+
+
+def _spotlight2(p, img, P, handle):
+    off = _discount_pct(p) or 0
+    inner = f"""
+  <div class="placard"><span class="kick">Price Drop</span><span class="code">SK · DEAL</span></div>
+  <span class="spark" style="top:150px;right:110px">✦</span>
+  <div class="stage" style="position:absolute;left:56px;right:56px;top:120px;height:600px;z-index:1"><img src="{img}"></div>
+  <div style="position:absolute;left:60px;right:60px;bottom:130px;z-index:2;display:flex;flex-direction:column;gap:18px">
+    <div style="display:flex;align-items:flex-end;gap:22px">
+      <div class="megaoff" style="font-size:150px">{off}%</div><div class="megaoff" style="font-size:50px;padding-bottom:20px">OFF<br>TODAY</div>
+    </div>
+    <div class="pname" style="font-size:52px">{_esc(_name(p))[:52]}</div>
+    {_pricecard(p)}
+  </div>
+"""
+    return _page2(P, inner, handle=handle)
+
+
+def _editorial2(p, img, P, handle):
+    chips = _chips2(p)
+    inner = f"""
+  <div class="placard"><span class="kick">Editor's Pick</span><span class="code">SK · HERO</span></div>
+  <span class="spark" style="top:150px;right:110px">✦</span>
+  <div class="stage" style="position:absolute;left:56px;right:56px;top:120px;height:720px;z-index:1"><img src="{img}"></div>
+  <div style="position:absolute;left:60px;right:60px;bottom:130px;z-index:2;display:flex;flex-direction:column;gap:16px">
+    {f'<div style="display:flex;gap:12px;flex-wrap:wrap">{chips}</div>' if chips else ''}
+    <div class="pname" style="font-size:56px">{_esc(_name(p))[:52]}</div>
+    {_pricecard(p)}
+  </div>
+"""
+    return _page2(P, inner, handle=handle)
+
+
+def _proof2(p, img, P, handle):
+    chips = _chips2(p)
+    inner = f"""
+  <div class="placard"><span class="kick">Loved by shoppers</span><span class="code">SK · PROOF</span></div>
+  <div style="position:absolute;left:60px;right:60px;top:150px;bottom:150px;z-index:2;display:flex;flex-direction:column;gap:28px;justify-content:center">
+    <div class="stage" style="height:560px"><img src="{img}"></div>
+    <div style="display:flex;flex-direction:column;gap:15px">
+      <div style="display:flex;gap:12px;flex-wrap:wrap">{chips or '<span class="chip">Verified pick</span>'}</div>
+      <div class="pname" style="font-size:46px">{_esc(_name(p))[:52]}</div>
+      {_pricecard(p)}
+    </div>
+  </div>
+"""
+    return _page2(P, inner, handle=handle)
+
+
+def _closer2(P, handle):
+    inner = f"""
+  <div class="placard"><span class="kick">Shop the set</span><span class="code">SK · LINK</span></div>
+  <span class="spark" style="top:400px;left:120px">✦</span><span class="spark" style="bottom:420px;right:140px;font-size:30px">✧</span>
+  <div style="position:absolute;inset:150px 60px;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:40px;text-align:center">
+    <div class="serif" style="font-size:104px;line-height:1.02">Everything here,<br>one link.</div>
+    <span class="cta">Link in bio →</span>
+    <span class="chip">{_esc(handle)} · new picks weekly</span>
+  </div>
+"""
+    return _page2(P, inner, foot_right="TAP LINK", handle=handle)
+
+
+def _pick_tmpl(p: Dict[str, Any]) -> str:
+    """Auto-choose a per-product template from its real data."""
+    off = _discount_pct(p) or 0
+    reviews = _num(p.get("reviews")) or 0
+    if off >= 50:
+        return "spotlight"
+    if _badge_text(p) or reviews >= 500:
+        return "proof"
+    return "editorial"
+
+
 # ── the planner: product count + arc → slide specs ────────────────────────────
 def plan_slides(products: List[Dict[str, Any]], *, category: str = "", arc: str = "auto",
                 handle: str = "@business.sk", theme: str = "") -> List[Dict[str, Any]]:
-    """Decide the slide sequence from the products. Returns a list of specs the renderer
-    consumes. Implements the multi-product logic: never shrink to fit — change structure,
-    and split into a carousel with per-product slides once there are enough items."""
+    """Carousel-FIRST plan: every product gets its OWN full slide (no cramped grids).
+    2–8 products → teaser Cover → one auto-chosen template per product → CTA closer.
+    The per-product template is picked from the product's own data (deep discount →
+    Spotlight, strong reviews/badge → Social-Proof, else Editorial Hero)."""
     n = len(products)
-    tintk = category or "fashion"
     kick = (category or "The Edit").strip().title()
     specs: List[Dict[str, Any]] = []
-
     if n == 0:
         return specs
-    if n == 1:
+    if n == 1:                                      # single product → just its own hero
         p = products[0]
-        tmpl = "deal" if (_discount_pct(p) or 0) >= 50 else ("value" if p.get("rating") else "hero")
-        specs.append({"tmpl": tmpl, "products": [p], "kick": kick})
+        specs.append({"tmpl": _pick_tmpl(p), "products": [p], "kick": kick})
         return specs
-    if n == 2:
-        specs.append({"tmpl": "duo", "products": products[:2], "kick": kick})
-        return specs
-    if n == 3:
-        specs.append({"tmpl": "grid3", "products": products[:3], "kick": kick, "theme_line": theme})
-        return specs
-    if n == 4:
-        specs.append({"tmpl": "grid4", "products": products[:4], "kick": kick, "theme_line": theme})
-        return specs
-
-    # 5+ → a carousel that tells a story: cover → features → (rank/value) → closer
-    title = theme or f"{kick}"
+    # teaser cover → one slide per product → closer (Instagram hard-caps at 10 slides)
     specs.append({"tmpl": "cover", "products": products[:3], "kick": kick,
-                  "title": _cover_title(theme, category, n), "subtitle": _cover_sub(products)})
-    if arc == "ranking":
-        specs.append({"tmpl": "rank", "products": products[:5], "kick": kick})
-    for p in products[: min(n, 7)]:
-        tmpl = "value" if p.get("rating") else "hero"
-        specs.append({"tmpl": tmpl, "products": [p], "kick": kick})
+                  "title": _cover_title(theme, category, n), "subtitle": _cover_sub(products),
+                  "all": products[:10]})
+    for p in products[:8]:
+        specs.append({"tmpl": _pick_tmpl(p), "products": [p], "kick": kick})
     specs.append({"tmpl": "closer", "products": [], "kick": kick, "handle": handle})
-    return specs[:10]                       # Instagram carousel hard cap
+    return specs[:10]
 
 
 def _cover_title(theme: str, category: str, n: int) -> str:
@@ -682,12 +880,17 @@ def _render_htmls(htmls: List[str], out_dir: Path, cdn_prefix: str, slug: str) -
             "count": len(images_cdn), "dir": str(dest), "error": error}
 
 
+_TMPL_LABEL = {"cover": "Teaser cover", "spotlight": "Price-Drop Spotlight",
+               "editorial": "Editorial Hero", "proof": "Social-Proof", "closer": "Shop-the-set CTA"}
+
+
 def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_dir: Path,
                     cdn_prefix: str, slug: str, arc: str = "auto", handle: str = "@business.sk",
-                    theme: str = "", isolate: bool = True) -> Dict[str, Any]:
-    """Full pipeline: plan slides → prep each product image (staged, product-true) →
-    render designed PNGs. Returns cdn urls + local paths + the plan (for auditing)."""
-    tint = _tint(category)
+                    theme: str = "", isolate: bool = True, palette: str = "warm") -> Dict[str, Any]:
+    """Full pipeline (Template System v2): plan a carousel-first sequence → prep each
+    product image (staged, product-true) → render designed PNGs in the chosen palette
+    (warm | sky). Returns cdn urls + local paths + the plan (with human labels)."""
+    P = _palette(palette, category)
     specs = plan_slides(products, category=category, arc=arc, handle=handle, theme=theme)
     if not specs:
         return {"rendered": False, "images": [], "local": [], "count": 0, "error": "no products"}
@@ -703,37 +906,29 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
             img_cache[src] = _prep_image(src, isolate=isolate) or ""
         return img_cache[src]
 
-    total = len(specs)
     htmls: List[str] = []
-    for i, sp in enumerate(specs, 1):
+    for sp in specs:
         ps = sp["products"]
         imgs = [prep(p) for p in ps]
-        code = f"SK—{slug[:4].upper()}"
         t = sp["tmpl"]
         if t == "cover":
-            htmls.append(_cover_html(sp.get("title", ""), sp.get("subtitle", ""), tint, sp["kick"], imgs, i, total))
-        elif t == "hero":
-            htmls.append(_hero_html(ps[0], imgs[0], tint, sp["kick"], code, i, total))
-        elif t == "deal":
-            htmls.append(_deal_html(ps[0], imgs[0], tint, i, total))
-        elif t == "value":
-            htmls.append(_value_html(ps[0], imgs[0], tint, i, total))
-        elif t == "duo":
-            htmls.append(_duo_html(ps, imgs, tint, i, total))
-        elif t == "rank":
-            htmls.append(_rank_html(ps, imgs, tint, i, total))
-        elif t == "grid3":
-            htmls.append(_grid_html(ps, imgs, tint, 3, sp["kick"], i, total, sp.get("theme_line", "")))
-        elif t == "grid4":
-            htmls.append(_grid_html(ps, imgs, tint, 2, sp["kick"], i, total, sp.get("theme_line", "")))
-        elif t == "lead_rail":
-            htmls.append(_lead_rail_html(ps, imgs, tint, i, total))
+            cov_imgs = [prep(p) for p in sp.get("all", ps)[:3]]
+            htmls.append(_cover2(sp.get("all", ps), cov_imgs, P,
+                                 title=sp.get("title", ""), subtitle=sp.get("subtitle", ""), handle=handle))
+        elif t == "spotlight":
+            htmls.append(_spotlight2(ps[0], imgs[0], P, handle))
+        elif t == "proof":
+            htmls.append(_proof2(ps[0], imgs[0], P, handle))
         elif t == "closer":
-            htmls.append(_closer_html(tint, sp.get("handle", handle), i, total))
-        else:
-            htmls.append(_hero_html(ps[0], imgs[0], tint, sp["kick"], code, i, total))
+            htmls.append(_closer2(P, sp.get("handle", handle)))
+        else:                                          # "editorial" + any fallback
+            htmls.append(_editorial2(ps[0], imgs[0], P, handle))
 
     result = _render_htmls(htmls, out_dir, cdn_prefix, slug)
-    result["plan"] = [{"tmpl": s["tmpl"], "n": len(s["products"])} for s in specs]
+    result["plan"] = [{"tmpl": s["tmpl"], "label": _TMPL_LABEL.get(s["tmpl"], s["tmpl"]),
+                       "n": len(s["products"]),
+                       "product": (s["products"][0].get("product_title") if s["products"] else None)}
+                      for s in specs]
+    result["palette"] = P["name"]
     result["isolated"] = isolate and _REMBG_SESSION is not None
     return result

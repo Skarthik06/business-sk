@@ -398,6 +398,24 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   const [account, setAccount] = useState(accounts[0]?.id || '');
   const [statuses, setStatuses] = useState({});   // {id: {phase, status, label, permalink, error}}
   const [busyId, setBusyId] = useState(null);      // group currently posting
+  const [palette, setPalette] = useState(() => load('sk_palette', 'warm'));   // slide palette: warm | sky
+  const [preview, setPreview] = useState(null);    // { id, images, plan, palette } from render-preview
+  const [previewing, setPreviewing] = useState(null);
+  useEffect(() => { save('sk_palette', palette); }, [palette]);
+
+  // Render the designed slides for a staged post WITHOUT publishing — shows the exact
+  // slides + the recommended template per product (from the backend planner).
+  const previewSlides = async (g) => {
+    const pins = (g.products || []).slice(0, 10);
+    if (!pins.length) { say('No products to preview', 'error'); return; }
+    setPreviewing(g.id); setPreview(null);
+    try {
+      const res = await api.skRenderPreview(pins, { category: g.category, palette });
+      setPreview({ id: g.id, images: res.images || [], plan: res.plan || [], palette: res.palette });
+    } catch (e) {
+      say(e?.response?.data?.detail || e?.message || 'Preview failed', 'error');
+    } finally { setPreviewing(null); }
+  };
   const [busyAll, setBusyAll] = useState(false);
   const [posted, setPosted] = useState(() => load('sk_posted_cards', []));  // small "posted" cards
   const addPosted = (card) => setPosted((p) => { const next = [card, ...p.filter((x) => x.id !== card.id)].slice(0, 30); save('sk_posted_cards', next); return next; });
@@ -426,7 +444,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       const images = pins.map((p) => hiRes(p.image_url)).filter(Boolean);        // full-resolution images
       let media_id = null, permalink = null, status = 'dry';
       if (!dryRun) {
-        const res = await api.skCarousel(account, images, caption, { category: g.category, products: pins });
+        const res = await api.skCarousel(account, images, caption, { category: g.category, products: pins, palette });
         media_id = res.ig_media_id; permalink = res.permalink; status = 'posted';
       }
       const rec = await skApi.recordPost({ category: g.category, products: pins, media_id, permalink, caption, status, content_style: g.content_style || '' });
@@ -499,13 +517,46 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                   {accounts.map((a) => <option key={a.id} value={a.id}>{a.label} {a.handle ? `(@${a.handle})` : ''}</option>)}
                 </select>
               </div>
+              <div>
+                <label className="text-xs" style={{ color: 'var(--muted)' }}>Slide palette</label>
+                <div className="ctrl-chips" style={{ marginTop: 6 }}>
+                  {[{ k: 'warm', label: '🟤 Warm' }, { k: 'sky', label: '🔵 Sky blue' }].map((o) => (
+                    <button key={o.k} type="button" className={cx('opt-card', palette === o.k && 'on')} onClick={() => setPalette(o.k)}>{o.label}</button>
+                  ))}
+                </div>
+              </div>
               <button className="btn btn-lg btn-post" onClick={() => publishAll(false)} disabled={busyAll || !!busyId || accounts.length === 0} style={{ minWidth: 210, justifyContent: 'center' }}>
                 {busyAll ? <><Spinner size={16} /> Posting…</> : <><Icon name="pin" size={17} /> Post all {queue.length} to Instagram</>}
               </button>
               <button className="btn btn-ghost" onClick={() => publishAll(true)} disabled={busyAll || !!busyId} title="Record without posting (test)">
                 <Icon name="settings" size={13} /> Dry run (test)
               </button>
+              <button className="btn btn-ghost" onClick={() => previewSlides(queue[0])} disabled={!!previewing || !queue.length} title="See the designed slides + recommended template per product (no posting)">
+                {previewing ? <><Spinner size={14} /> Rendering…</> : <><Icon name="quote" size={13} /> Preview & layout</>}
+              </button>
             </div>
+            {preview && (
+              <div className="panel p-4 mt-3" style={{ background: 'var(--panel-2)' }}>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="eyebrow">Recommended layout · {preview.palette} palette · {preview.plan.length} slides</div>
+                  <button className="btn btn-sm btn-ghost" onClick={() => setPreview(null)}><Icon name="x" size={12} /> Close</button>
+                </div>
+                <div className="flex flex-col gap-1 mb-3">
+                  {preview.plan.map((s, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      <span className="prog-badge" style={{ minWidth: 26, textAlign: 'center' }}>{i + 1}</span>
+                      <b style={{ color: 'var(--accent)' }}>{s.label}</b>
+                      {s.product && <span style={{ color: 'var(--faint)' }}>· {String(s.product).slice(0, 40)}</span>}
+                    </div>
+                  ))}
+                </div>
+                <div className="flex gap-2 overflow-x-auto" style={{ paddingBottom: 6 }}>
+                  {preview.images.map((u, i) => (
+                    <img key={i} src={u} alt={`slide ${i + 1}`} style={{ height: 200, borderRadius: 8, border: '1px solid var(--border)', flex: 'none' }} />
+                  ))}
+                </div>
+              </div>
+            )}
             <p className="text-xs" style={{ color: 'var(--faint)' }}>
               <b style={{ color: '#3fb950' }}>Post all to Instagram</b> publishes for real to {acctHandle} — each post is one carousel (≤10 products), labelled <code>post_N#category</code>, with a comment→DM automation attached, sent one after another. Or post cards individually below.
               {accounts.length === 0 && ' Add an Instagram account in the Accounts panel first.'}

@@ -91,8 +91,8 @@ STYLES = ["DEAL_DROP", "STORY", "LISTICLE", "PROBLEM_SOLUTION", "QUESTION",
 class PinBatch(BaseModel):
     """ONE universal caption for the whole carousel — NOT one per product (saves tokens)."""
     picks:    list[int] = Field(description="0-based indices of the chosen products from CANDIDATES, best first, exactly the requested count")
-    caption:  str       = Field(description="ONE catchy Instagram carousel caption covering ALL chosen products together: a scroll-stopping hook, then why they're worth it (weave in a couple of REAL prices/discounts/ratings from the rows — never invent), a 'shop via the link in bio' nudge. Do NOT add any 'As an Amazon Associate' disclosure sentence. Under 1500 chars.")
-    hashtags: list[str] = Field(description="15-25 relevant hashtags (no '#' prefix), mixing broad and niche; include 'ad' as one of them")
+    caption:  str       = Field(description="ONE SHORT, catchy Instagram carousel caption (the CAROUSEL SLIDES already show each product's photo, price and discount, so DON'T list products or repeat prices). 2-3 short lines max, UNDER 300 characters: an emoji-led hook matched to the category, one line on why they're worth it, then 'Shop via the link in bio 👆'. Emojis must MATCH the category (👗 fashion, 🏠 home, 💄 beauty, 🎧 tech, 🍳 kitchen) — never random. Do NOT add any 'As an Amazon Associate' disclosure sentence.")
+    hashtags: list[str] = Field(description="8-12 relevant hashtags (no '#' prefix), mixing broad and niche; include 'ad' as one of them")
     style:    str       = Field(default="", description="the caption STYLE you used, exactly one of: DEAL_DROP, STORY, LISTICLE, PROBLEM_SOLUTION, QUESTION, TRANSFORMATION, GIFT_GUIDE, BUDGET, PREMIUM, VIRAL_FIND")
 
 
@@ -107,18 +107,17 @@ SYSTEM = (
     "(Fashion 9% > Home 8% > Kitchen 7% > Beauty 6% > Electronics 2-5%), the "
     "₹200-5000 impulse-buy range, and similarity to the PROVEN winners. Return their "
     "indices in `picks`, best first, exactly the requested count.\n\n"
-    "WRITE ONE `caption`, themed on the CATEGORY, SHORT and SKIMMABLE (people don't read "
-    "long paragraphs), in this exact structure with real line breaks:\n"
-    "Line 1: an emoji-led HOOK about the category (e.g. '🍔👕 Graphic Tees under ₹1K!').\n"
-    "Line 2: '🔥 Top picks you can't miss:'\n"
-    "Then ONE LINE PER PRODUCT (each on its OWN new line, up to 5), formatted exactly as: "
-    "'- <Brand or short product name> — ₹<price> (<X>% off)'. Lead with the BRAND name, "
-    "especially popular brands. Use ONLY the exact numbers from the rows; NEVER invent.\n"
-    "Then ONE short line on why they're worth it.\n"
-    "Then the CTA line: '🛒 Shop all via the link in bio 👆'.\n"
-    "Do NOT add any 'As an Amazon Associate' disclosure sentence anywhere in the caption.\n"
-    "Use a tasteful EMOJI PACK throughout — relevant and catchy, not spammy.\n\n"
-    "Then 15-25 `hashtags` (no # symbol), category-relevant, mixing broad and niche; "
+    "WRITE ONE `caption` that is SHORT and catchy. The CAROUSEL SLIDES already show every "
+    "product's photo, price and % off — so the caption must NOT list the products or repeat "
+    "any prices (that's wasted space + tokens). Keep it UNDER 300 characters, 2-3 short lines "
+    "with real line breaks:\n"
+    "Line 1: an emoji-led HOOK about the category (e.g. '👗 The fashion drop is here').\n"
+    "Line 2: ONE punchy line on why these picks are worth it (the vibe/benefit, no prices).\n"
+    "Line 3: the CTA: '🛒 Shop all via the link in bio 👆'.\n"
+    "EMOJIS MUST MATCH the category — 👗👕 fashion, 🏠🛋️ home, 💄 beauty, 🎧📱 tech, 🍳 kitchen, "
+    "💪 fitness — never random or mismatched. Tasteful, not spammy.\n"
+    "Do NOT add any 'As an Amazon Associate' disclosure sentence anywhere in the caption.\n\n"
+    "Then 8-12 `hashtags` (no # symbol), category-relevant, mixing broad and niche; "
     "include 'ad' as one hashtag (that is the only disclosure needed).\n"
     "If an OCCASION is given (a festival or season), tie the hook and ONE or two hashtags "
     "to it naturally (e.g. Diwali gifting, winter essentials) — never force it or invent a sale."
@@ -127,8 +126,8 @@ SYSTEM = (
 HUMAN = (
     "CATEGORY: {category}\n"
     "Pick the {count} best {category} products for one carousel and write ONE "
-    "emoji-rich, {category}-themed caption that LISTS them with their real prices + "
-    "discounts, then hashtags.\n"
+    "SHORT {category}-themed caption (the slides already show each price/discount — do "
+    "NOT list products or prices in the caption), then a few hashtags.\n"
     "STYLE: {style}\n"
     "OCCASION: {occasion}\n\n"
     "CANDIDATES (id | title | price | social proof):\n{candidates}\n\n"
