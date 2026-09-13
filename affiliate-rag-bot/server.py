@@ -427,6 +427,7 @@ async def api_generate(
     goal: Optional[str] = Query(default=None, description="ranking goal: balanced|viral|intent|value|trending|fresh|commission"),
     deals: bool = Query(default=False, description="Deals mode: keep only products with a real current offer (discount % or deal badge)."),
     deals_min: Optional[int] = Query(default=None, ge=0, le=90, description="Deals mode: minimum discount percent to qualify (overrides DEALS_MIN_DISCOUNT)."),
+    audience: Optional[str] = Query(default=None, description="Audience/gender targeting: men|women|kids (prefixes the search terms). Blank = everyone."),
     combo_budget: Optional[int] = Query(default=None, ge=0, le=1_000_000, description="if set, also return a combo (products from distinct categories summing <= this budget)"),
     combo_size: int = Query(default=3, ge=2, le=5),
 ) -> JSONResponse:
@@ -462,6 +463,13 @@ async def api_generate(
         options["deals"] = True     # keep only products carrying a real current offer
         if deals_min is not None:
             options["deals_min"] = deals_min
+    if audience:
+        aud = audience.strip().lower()
+        _AUD_MAP = {"men": "men", "male": "men", "women": "women", "female": "women",
+                    "kids": "kids", "children": "kids", "child": "kids", "everyone": "", "all": ""}
+        aud = _AUD_MAP.get(aud, "")
+        if aud:
+            options["audience"] = aud
 
     ppr = int(products_per_run or cfg.bot.products_per_run)
 

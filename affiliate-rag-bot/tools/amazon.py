@@ -281,7 +281,9 @@ async def _scrape_page(page: Page, category: str, marketplace: str,
     # rather than waiting on a slow proxy IP.
     goto_timeout = 30000 if proxied else 30000
     sel_timeout = 20000 if proxied else 15000
-    attempts = 2 if proxied else 1
+    # A single-subcategory pick runs just ONE query, so a flaky proxy IP there means
+    # an empty result with no redundancy. Give the proxied path 3 fresh-IP attempts.
+    attempts = 3 if proxied else 1
 
     for attempt in range(1, attempts + 1):
         log.step(f"Scraping Amazon: {category} ('{term}' p{page_num}) [try {attempt}/{attempts}]...")

@@ -48,6 +48,11 @@ async def scrape_amazon(state: BotState, config: RunnableConfig) -> dict:
         marketplace = opts.get("marketplace") or cfg.amazon.marketplace
         category    = state["category"]
         keyword     = opts.get("q")
+        # Audience/gender targeting: prefix every search term (e.g. "men shirt",
+        # "women kurta", "kids shoes") so results are gender-appropriate. Blank =
+        # everyone (unchanged). Never double-prefixes if the term already says it.
+        audience    = (opts.get("audience") or "").strip().lower()
+        _aud = lambda t: (f"{audience} {t}".strip() if audience and audience not in (t or "").lower() else (t or ""))
 
         # Amazon login is only needed for the legacy SiteStripe link method.
         # The default "deeplink" method builds official ?tag= URLs with no login,
@@ -62,8 +67,8 @@ async def scrape_amazon(state: BotState, config: RunnableConfig) -> dict:
         log_line = ""
         if keyword and keyword.strip():
             products = await scrape_products(amazon_page, category, marketplace,
-                                             query=keyword, quality=opts)
-            log_line = f"scraped {len(products)} products for keyword '{keyword.strip()}'"
+                                             query=_aud(keyword), quality=opts)
+            log_line = f"scraped {len(products)} products for keyword '{_aud(keyword)}'"
         elif cfg.discovery.enabled:
             from rag.discovery_stats import discovery_stats
             candidates = _discovery.category_queries(category)
@@ -85,6 +90,7 @@ async def scrape_amazon(state: BotState, config: RunnableConfig) -> dict:
             mp = runtime.get("DISCOVERY_MAX_PAGES", cfg.discovery.max_pages, "int")
             tp = runtime.get("DISCOVERY_TARGET_POOL", cfg.discovery.target_pool, "int")
             queries = discovery_stats.pick_queries(category, candidates, mq)
+            queries = [_aud(q) for q in queries]     # gender-target each mined intent
             products, yields = await scrape_products_multi(
                 amazon_page, category, marketplace, queries, quality=opts,
                 max_pages=mp, target_pool=tp)
@@ -92,8 +98,9 @@ async def scrape_amazon(state: BotState, config: RunnableConfig) -> dict:
             log_line = (f"discovery mined {len(queries)} intents "
                         f"({', '.join(queries)}) → {len(products)} unique products")
         else:
-            products = await scrape_products(amazon_page, category, marketplace, quality=opts)
-            log_line = f"scraped {len(products)} products for '{category}'"
+            products = await scrape_products(amazon_page, category, marketplace,
+                                             query=_aud(category), quality=opts)
+            log_line = f"scraped {len(products)} products for '{_aud(category)}'"
 
         if not products:
             return {"errors": ["scrape_amazon: no products found — Amazon DOM may have changed"]}

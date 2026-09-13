@@ -45,6 +45,11 @@ const GOALS = [
   { k: 'trending', label: 'Trending' }, { k: 'fresh', label: 'Fresh / novel' },
   { k: 'commission', label: 'High commission' },
 ];
+// Audience / gender targeting — prefixes the product search (e.g. "men shirt").
+const AUDIENCE = [
+  { k: '', label: '👥 Everyone' }, { k: 'men', label: '👨 Men' },
+  { k: 'women', label: '👩 Women' }, { k: 'kids', label: '🧒 Kids' },
+];
 
 export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate', onNavigate }) {
   const tab = VIEW_TAB[view] || 'generate';
@@ -130,6 +135,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   const [comboBudget, setComboBudget] = useState(3000);
   const [dealsOn, setDealsOn] = useState(false);         // deals mode (only discounted/offer products)
   const [dealsMin, setDealsMin] = useState(25);          // deals mode: minimum discount %
+  const [audience, setAudience] = useState('');          // '' everyone | men | women | kids
   const [combo, setCombo] = useState(null);              // returned combo bundle
   const [running, setRunning] = useState(false);
   const [prog, setProg] = useState([]);                  // per-post progress rows
@@ -166,6 +172,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
     setRunning(true); setGroups(null); setCombo(null);
     const opts = { min_rating: minRating, min_reviews: minReviews, price_max: priceMax, content: style, goal,
                    ...(dealsOn ? { deals: 1, deals_min: dealsMin } : {}),
+                   ...(audience ? { audience } : {}),
                    ...(comboOn ? { combo_budget: comboBudget } : {}) };
     const out = [];
     const errs = [];
@@ -249,6 +256,12 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
                 const label = s === 'auto' ? 'Auto' : s.replace(/_/g, ' ').replace(/\b\w/g, (x) => x.toUpperCase());
                 return <button key={s} type="button" className={cx('opt-card', style === s && 'on')} onClick={() => setStyle(s)}>{label}</button>;
               })}
+            </div>
+          </div>
+          <div className="ctrl-card">
+            <div className="ctrl-card-label">Audience</div>
+            <div className="ctrl-chips">
+              {AUDIENCE.map((o) => <button key={o.k || 'all'} type="button" className={cx('opt-card', audience === o.k && 'on')} onClick={() => setAudience(o.k)}>{o.label}</button>)}
             </div>
           </div>
           <div className={cx('ctrl-card', dealsOn && 'ctrl-card-wide')}>
