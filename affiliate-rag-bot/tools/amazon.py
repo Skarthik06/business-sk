@@ -188,6 +188,15 @@ def _passes_quality(p: dict, overrides: Optional[dict] = None) -> bool:
     reviews = p.get("reviews")
     if reviews is not None and reviews < min_reviews:
         return False
+    # Deals mode: keep ONLY products that carry a real current offer — a discount at
+    # or above DEALS_MIN_DISCOUNT (%), or a time-limited deal badge. The relaxed
+    # fallback in _finalize_pool prevents a category from ever emptying entirely.
+    if o.get("deals"):
+        min_disc = int(o.get("deals_min") or runtime.get("DEALS_MIN_DISCOUNT", 10, "int"))
+        disc = int(p.get("discount_pct") or 0)
+        badge = (p.get("badge") or "").lower()
+        if disc < min_disc and "deal" not in badge:
+            return False
     return True
 
 
@@ -488,6 +497,13 @@ def _deep_link(asin: str, associate_tag: str, marketplace: str) -> str:
     return f"https://www.{marketplace}/dp/{asin}?tag={associate_tag}"
 
 
+# Stores that monetise via their OWN direct affiliate tag and therefore BYPASS the
+# Cuelinks aggregator template (we keep the full commission there). Add a store's
+# domain here the day you wire that store's own direct affiliate link/tag — until
+# then a new store auto-monetises through Cuelinks. Amazon is direct by default.
+DIRECT_STORES = ("amazon.",)
+
+
 def _from_template(template: str, product_url: str, asin: str, associate_tag: str) -> str:
     """Build a link via a network-agnostic template (aggregator redirect, etc.)."""
     from urllib.parse import quote
@@ -517,16 +533,27 @@ async def get_affiliate_link(
     associate_tag = resolve_associate_tag(associate_tag)
     product_url = product.get("url") or _deep_link(asin, associate_tag, marketplace)
 
-    # 1) Network-agnostic template (EarnKaro / Cuelinks / INRDeals, etc.) — wins if set.
-    if cfg.affiliate_link_template:
+    # SMART SPLIT ───────────────────────────────────────────────────────────
+    # Amazon keeps our OWN direct Associates tag (full commission, builds the
+    # Associates sales history, no aggregator cut). Every OTHER store routes
+    # through the network-agnostic aggregator template (Cuelinks / EarnKaro) so
+    # we still earn on stores we have no direct deal with. This is the extensible
+    # hook for "adding other affiliates": a new store with no direct tag auto-
+    # monetises via the template; a store we later add a DIRECT tag for is added
+    # to DIRECT_STORES below to bypass the aggregator (like Amazon).
+    dest = (product_url or "").lower()
+    is_direct_store = any(s in dest for s in DIRECT_STORES) or "amazon" in (marketplace or "")
+
+    # 1) Non-direct store → aggregator template (Cuelinks) when configured.
+    if cfg.affiliate_link_template and not is_direct_store:
         link = _from_template(cfg.affiliate_link_template, product_url, asin, associate_tag)
-        log.info(f"Affiliate link via template: {link}")
+        log.info(f"Aggregator affiliate link (non-Amazon): {link}")
         return link
 
-    # 2) Official Amazon deep link (default) — no login, no browser, tracks correctly.
+    # 2) Amazon (and any direct store) → official Amazon deep link on our own tag.
     if cfg.amazon.link_method != "sitestripe":
         link = _deep_link(asin, associate_tag, marketplace)
-        log.info(f"Affiliate deep link: {link}")
+        log.info(f"Amazon direct affiliate link: {link}")
         return link
 
     # 3) Legacy SiteStripe method (requires a logged-in Amazon session) ───────

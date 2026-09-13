@@ -128,6 +128,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   const [goal, setGoal] = useState('balanced');          // ranking goal (Find Winners)
   const [comboOn, setComboOn] = useState(false);         // combo/bundle mode
   const [comboBudget, setComboBudget] = useState(3000);
+  const [dealsOn, setDealsOn] = useState(false);         // deals mode (only discounted/offer products)
   const [combo, setCombo] = useState(null);              // returned combo bundle
   const [running, setRunning] = useState(false);
   const [prog, setProg] = useState([]);                  // per-post progress rows
@@ -163,6 +164,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
     if (postCount > 10) return say('Instagram allows up to 10 posts — deselect a few subcategories', 'error');
     setRunning(true); setGroups(null); setCombo(null);
     const opts = { min_rating: minRating, min_reviews: minReviews, price_max: priceMax, content: style, goal,
+                   ...(dealsOn ? { deals: 1 } : {}),
                    ...(comboOn ? { combo_budget: comboBudget } : {}) };
     const out = [];
     const errs = [];
@@ -246,6 +248,13 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
                 const label = s === 'auto' ? 'Auto' : s.replace(/_/g, ' ').replace(/\b\w/g, (x) => x.toUpperCase());
                 return <button key={s} type="button" className={cx('opt-card', style === s && 'on')} onClick={() => setStyle(s)}>{label}</button>;
               })}
+            </div>
+          </div>
+          <div className="ctrl-card">
+            <div className="ctrl-card-label">Deals only</div>
+            <div className="ctrl-chips" style={{ alignItems: 'center' }}>
+              <button type="button" className={cx('opt-card', dealsOn && 'on')} onClick={() => setDealsOn((v) => !v)}>🔥 {dealsOn ? 'On' : 'Off'}</button>
+              <span className="text-xs" style={{ color: 'var(--faint)' }}>{dealsOn ? 'only discounted / offer products' : 'all products'}</span>
             </div>
           </div>
           <div className="ctrl-card">

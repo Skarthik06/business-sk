@@ -425,6 +425,7 @@ async def api_generate(
     price_max: Optional[int] = Query(default=None, ge=0, le=1_000_000),
     content: Optional[str] = Query(default=None, description="caption style: auto|DEAL_DROP|STORY|LISTICLE|PROBLEM_SOLUTION|QUESTION|TRANSFORMATION|GIFT_GUIDE|BUDGET|PREMIUM|VIRAL_FIND"),
     goal: Optional[str] = Query(default=None, description="ranking goal: balanced|viral|intent|value|trending|fresh|commission"),
+    deals: bool = Query(default=False, description="Deals mode: keep only products with a real current offer (discount % or deal badge)."),
     combo_budget: Optional[int] = Query(default=None, ge=0, le=1_000_000, description="if set, also return a combo (products from distinct categories summing <= this budget)"),
     combo_size: int = Query(default=3, ge=2, le=5),
 ) -> JSONResponse:
@@ -456,6 +457,8 @@ async def api_generate(
             options[k] = v
     if content and content.strip():
         options["content_style"] = content.strip()
+    if deals:
+        options["deals"] = True     # keep only products carrying a real current offer
 
     ppr = int(products_per_run or cfg.bot.products_per_run)
 

@@ -42,6 +42,7 @@ TUNABLE: dict[str, dict] = {
     "QUALITY_MIN_RATING":    {"type": "float", "min": 0, "max": 5, "agent": "product-scout", "label": "Min rating"},
     "QUALITY_MIN_REVIEWS":   {"type": "int", "min": 0, "max": 5000, "agent": "product-scout", "label": "Min reviews"},
     "QUALITY_PRICE_MAX":     {"type": "int", "min": 200, "max": 100000, "agent": "product-scout", "label": "Max price ₹"},
+    "DEALS_MIN_DISCOUNT":    {"type": "int", "min": 0, "max": 90, "agent": "product-scout", "label": "Deals mode: min discount %"},
     "CONTENT_DEFAULT_STYLE": {"type": "str", "min": None, "max": None, "agent": "content-intelligence", "label": "Default caption style"},
 }
 
