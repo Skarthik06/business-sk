@@ -303,9 +303,8 @@ async def compose_pins(
 
     results: list[dict] = []
     seen_ids: set = set()
-    for pid in (batch.picks or [])[:count]:
-        if not (0 <= pid < len(products)) or pid in seen_ids:
-            continue
+
+    def _add(pid: int) -> None:
         seen_ids.add(pid)
         p = products[pid]
         results.append({
@@ -317,4 +316,22 @@ async def compose_pins(
             "content_style":   style,           # Phase 4 A/B tag
             "content_warnings": warnings,        # Phase 4 fact-check (empty = all grounded)
         })
+
+    # 1) honour the model's ranked picks (best first), skipping invalid/duplicate indices.
+    for pid in (batch.picks or [])[:count]:
+        if len(results) >= count:
+            break
+        if (0 <= pid < len(products)) and pid not in seen_ids:
+            _add(pid)
+    # 2) TOP-UP: the model sometimes returns fewer picks than asked. Fill the shortfall
+    #    from the remaining candidates (already attractiveness-ranked, best first) so the
+    #    post NEVER comes back short of the requested count when enough products exist.
+    if len(results) < count:
+        short_from = len(results)
+        for pid in range(len(products)):
+            if len(results) >= count:
+                break
+            if pid not in seen_ids:
+                _add(pid)
+        log.info(f"[compose] model returned {short_from} valid picks — topped up to {len(results)}/{count} from the ranked pool")
     return results
