@@ -29,7 +29,7 @@ export default {
         ...(opts.price_max != null ? { price_max: opts.price_max } : {}),
         ...(opts.content && opts.content !== 'auto' ? { content: opts.content } : {}),
         ...(opts.goal && opts.goal !== 'balanced' ? { goal: opts.goal } : {}),
-        ...(opts.deals ? { deals: 1 } : {}),
+        ...(opts.deals ? { deals: 1, ...(opts.deals_min != null ? { deals_min: opts.deals_min } : {}) } : {}),
         ...(opts.combo_budget ? { combo_budget: opts.combo_budget, combo_size: opts.combo_size || 3 } : {}),
       },
     }).then(data),

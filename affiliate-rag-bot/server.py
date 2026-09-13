@@ -426,6 +426,7 @@ async def api_generate(
     content: Optional[str] = Query(default=None, description="caption style: auto|DEAL_DROP|STORY|LISTICLE|PROBLEM_SOLUTION|QUESTION|TRANSFORMATION|GIFT_GUIDE|BUDGET|PREMIUM|VIRAL_FIND"),
     goal: Optional[str] = Query(default=None, description="ranking goal: balanced|viral|intent|value|trending|fresh|commission"),
     deals: bool = Query(default=False, description="Deals mode: keep only products with a real current offer (discount % or deal badge)."),
+    deals_min: Optional[int] = Query(default=None, ge=0, le=90, description="Deals mode: minimum discount percent to qualify (overrides DEALS_MIN_DISCOUNT)."),
     combo_budget: Optional[int] = Query(default=None, ge=0, le=1_000_000, description="if set, also return a combo (products from distinct categories summing <= this budget)"),
     combo_size: int = Query(default=3, ge=2, le=5),
 ) -> JSONResponse:
@@ -459,6 +460,8 @@ async def api_generate(
         options["content_style"] = content.strip()
     if deals:
         options["deals"] = True     # keep only products carrying a real current offer
+        if deals_min is not None:
+            options["deals_min"] = deals_min
 
     ppr = int(products_per_run or cfg.bot.products_per_run)
 
@@ -527,6 +530,16 @@ async def api_generate(
     elif g in _GOAL_KEY:
         k = _GOAL_KEY[g]
         items.sort(key=lambda it: (it.get(k) or 0, it.get("winner_score", 0)), reverse=True)
+    elif deals:
+        # Deals mode + balanced goal: surface the best-PAYING, deepest deals automatically —
+        # commission rate × discount depth, tie-broken by Winner Score — so "finest products
+        # at the greatest commission" needs no extra goal pick. An explicit goal above wins.
+        rate = _discovery.COMMISSION
+        def _deal_value(it):
+            comm = rate.get((it.get("category") or "").lower(), 0.04) or 0.04
+            disc = float(it.get("discount_pct") or 0)
+            return (comm * max(disc, 1.0), it.get("winner_score", 0))
+        items.sort(key=_deal_value, reverse=True)
     else:
         # balanced (default): Winner Score (intelligence × confidence, novelty/trend/perf-aware).
         items.sort(key=lambda it: it.get("winner_score", it.get("content_score", 0)), reverse=True)

@@ -129,6 +129,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   const [comboOn, setComboOn] = useState(false);         // combo/bundle mode
   const [comboBudget, setComboBudget] = useState(3000);
   const [dealsOn, setDealsOn] = useState(false);         // deals mode (only discounted/offer products)
+  const [dealsMin, setDealsMin] = useState(25);          // deals mode: minimum discount %
   const [combo, setCombo] = useState(null);              // returned combo bundle
   const [running, setRunning] = useState(false);
   const [prog, setProg] = useState([]);                  // per-post progress rows
@@ -164,7 +165,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
     if (postCount > 10) return say('Instagram allows up to 10 posts — deselect a few subcategories', 'error');
     setRunning(true); setGroups(null); setCombo(null);
     const opts = { min_rating: minRating, min_reviews: minReviews, price_max: priceMax, content: style, goal,
-                   ...(dealsOn ? { deals: 1 } : {}),
+                   ...(dealsOn ? { deals: 1, deals_min: dealsMin } : {}),
                    ...(comboOn ? { combo_budget: comboBudget } : {}) };
     const out = [];
     const errs = [];
@@ -250,12 +251,25 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
               })}
             </div>
           </div>
-          <div className="ctrl-card">
+          <div className={cx('ctrl-card', dealsOn && 'ctrl-card-wide')}>
             <div className="ctrl-card-label">Deals only</div>
             <div className="ctrl-chips" style={{ alignItems: 'center' }}>
               <button type="button" className={cx('opt-card', dealsOn && 'on')} onClick={() => setDealsOn((v) => !v)}>🔥 {dealsOn ? 'On' : 'Off'}</button>
-              <span className="text-xs" style={{ color: 'var(--faint)' }}>{dealsOn ? 'only discounted / offer products' : 'all products'}</span>
+              <span className="text-xs" style={{ color: 'var(--faint)' }}>{dealsOn ? 'only real offers' : 'all products'}</span>
             </div>
+            {dealsOn && (
+              <div style={{ marginTop: 11 }}>
+                <div className="ctrl-card-label" style={{ marginBottom: 7 }}>Minimum discount</div>
+                <div className="ctrl-chips">
+                  {[10, 25, 40, 50].map((d) => (
+                    <button key={d} type="button" className={cx('opt-card', dealsMin === d && 'on')} onClick={() => setDealsMin(d)}>{d}%+</button>
+                  ))}
+                </div>
+                <p className="text-xs" style={{ color: 'var(--faint)', marginTop: 9 }}>
+                  💰 For the best-paying deals, also set <b style={{ color: 'var(--muted)' }}>Goal → High commission</b>. In Deals mode the picks are already ranked by commission × discount.
+                </p>
+              </div>
+            )}
           </div>
           <div className="ctrl-card">
             <div className="ctrl-card-label">Combo bundle</div>
