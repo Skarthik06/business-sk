@@ -119,7 +119,9 @@ SYSTEM = (
     "Do NOT add any 'As an Amazon Associate' disclosure sentence anywhere in the caption.\n"
     "Use a tasteful EMOJI PACK throughout — relevant and catchy, not spammy.\n\n"
     "Then 15-25 `hashtags` (no # symbol), category-relevant, mixing broad and niche; "
-    "include 'ad' as one hashtag (that is the only disclosure needed)."
+    "include 'ad' as one hashtag (that is the only disclosure needed).\n"
+    "If an OCCASION is given (a festival or season), tie the hook and ONE or two hashtags "
+    "to it naturally (e.g. Diwali gifting, winter essentials) — never force it or invent a sale."
 )
 
 HUMAN = (
@@ -127,7 +129,8 @@ HUMAN = (
     "Pick the {count} best {category} products for one carousel and write ONE "
     "emoji-rich, {category}-themed caption that LISTS them with their real prices + "
     "discounts, then hashtags.\n"
-    "STYLE: {style}\n\n"
+    "STYLE: {style}\n"
+    "OCCASION: {occasion}\n\n"
     "CANDIDATES (id | title | price | social proof):\n{candidates}\n\n"
     "TRENDS: {trends}\n\n"
     "PROVEN winners: {winners}"
@@ -233,6 +236,7 @@ async def compose_pins(
     count:          int = 3,
     trend_signals:  Optional[list[dict]] = None,
     content_style:  str = "auto",
+    seasonal:       str = "",
 ) -> list[dict]:
     """Rank + write `count` pins in ONE structured LLM call. Returns PinContent dicts."""
     if not products:
@@ -268,6 +272,7 @@ async def compose_pins(
         "trends":     _trends_block(trend_keywords, trend_signals),
         "winners":    _winners_block(rag_context, product_ideas),
         "style":      _style_directive(content_style),
+        "occasion":   (seasonal.strip() or "none"),
     }
 
     log.ai(f"Composing ONE caption for {count} products from {min(len(products), MAX_CANDIDATES)} candidates in ONE structured call...")

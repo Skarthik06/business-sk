@@ -113,7 +113,13 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   const [counts, setCounts] = useState({ home: 3 });     // {category: n} — products PER POST (IG carousel, 1-10)
   const [subs, setSubs] = useState({});                  // {category: [subcategory,...]} — multi-select; each = 1 post
   const [tax, setTax] = useState(null);
-  useEffect(() => { skApi.taxonomy().then(setTax).catch(() => setTax(null)); }, []);
+  const [season, setSeason] = useState(null);
+  useEffect(() => { skApi.taxonomy().then(setTax).catch(() => setTax(null)); skApi.seasons().then(setSeason).catch(() => setSeason(null)); }, []);
+  const pushSeasonal = () => setCounts((c) => {
+    const next = { ...c };
+    (season?.suggested_categories || []).forEach((cat) => { if (cats.some((x) => x.name === cat)) next[cat] = next[cat] || 3; });
+    return next;
+  });
   const [showOpts, setShowOpts] = useState(false);
   const [minRating, setMinRating] = useState(3.8);
   const [minReviews, setMinReviews] = useState(50);
@@ -194,6 +200,21 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
 
   return (
     <>
+      {/* Seasonal / festival banner — what's coming up + what to push */}
+      {season && (season.nearest_festival || season.season) && (
+        <div className="season-banner">
+          <div className="season-headline">{season.headline}</div>
+          {season.angle && <div className="season-angle">{season.angle} — captions will lean into it automatically.</div>}
+          {(season.suggested_categories || []).length > 0 && (
+            <div className="season-cats">
+              <span className="text-xs" style={{ color: 'var(--faint)' }}>Push:</span>
+              {season.suggested_categories.map((c) => <span key={c} className="season-cat">{c}</span>)}
+              <button className="btn btn-sm" style={{ marginLeft: 'auto' }} onClick={pushSeasonal}><Icon name="spark" size={12} /> Select these</button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Step 1 — categories, per-post product counts, multi-select subcategories */}
       <div className="panel p-5 mb-5">
         <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
@@ -203,44 +224,20 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
             <button className="mini" onClick={clearAll}>Clear</button>
           </div>
         </div>
-        <CategoryGrid cats={cats} counts={counts} onToggle={toggle} onCount={setCount} />
-
-        {/* Subcategory refine — MULTI-SELECT. Each picked subcategory becomes its own post. */}
-        {tax?.by_category && selected.some((c) => tax.by_category[c]?.subcategories?.length) && (
-          <div className="subcat-wrap">
-            {selected.map((c) => {
-              const list = tax.by_category[c]?.subcategories || [];
-              if (!list.length) return null;
-              const picked = subs[c] || [];
-              return (
-                <div key={c} className="subcat-block">
-                  <div className="subcat-head">{c} <span>refine — pick any (each = 1 post)</span></div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {list.map((s) => (
-                      <span key={s} className={cx('subchip', picked.includes(s) && 'on')} onClick={() => toggleSub(c, s)}>{s}</span>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-            <p className="text-xs mt-1" style={{ color: 'var(--faint)' }}>Select multiple subcategories — each makes a separate post. Every result is scored (Instagram · Buy · Value · Content) and tiered S→D.</p>
-          </div>
-        )}
+        <CategoryGrid cats={cats} counts={counts} onToggle={toggle} onCount={setCount}
+          tax={tax} subs={subs} onToggleSub={toggleSub} />
+        <p className="text-xs mt-3" style={{ color: 'var(--faint)' }}>Each subcategory you tap becomes its own post. Every result is scored (Instagram · Buy · Value · Content) and tiered S→D.</p>
 
         <div className="divider" />
-        <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="run-controls">
           <div className={cx('posts-meter', postCount > 10 && 'over')}>
             <b>{postCount}</b> / 10 post{postCount === 1 ? '' : 's'} <span>· Instagram allows up to 10</span>
           </div>
+          <ChipSelect label="Goal" value={goal} options={GOALS} onChange={setGoal} title="What to optimise this run for" />
+          <ChipSelect label="Style" value={style}
+            options={CAPTION_STYLES.map((s) => ({ k: s, label: s === 'auto' ? 'Auto' : s.replace(/_/g, ' ').replace(/\b\w/g, (x) => x.toUpperCase()) }))}
+            onChange={setStyle} title="How the AI writes the caption" />
           <div className="flex items-center gap-2 flex-wrap">
-            <label className="text-xs" style={{ color: 'var(--faint)' }}>Goal</label>
-            <select className="sk-select" value={goal} onChange={(e) => setGoal(e.target.value)} title="What to optimise this run for (Find Winners)">
-              {GOALS.map((gopt) => <option key={gopt.k} value={gopt.k}>{gopt.label}</option>)}
-            </select>
-            <label className="text-xs" style={{ color: 'var(--faint)' }}>Style</label>
-            <select className="sk-select" value={style} onChange={(e) => setStyle(e.target.value)} title="How the AI writes the caption (A/B)">
-              {CAPTION_STYLES.map((s) => <option key={s} value={s}>{s === 'auto' ? 'Auto' : s.replace(/_/g, ' ').toLowerCase()}</option>)}
-            </select>
             <button className={cx('mini', comboOn && 'on')} onClick={() => setComboOn((v) => !v)} title="Build a combo: complementary products summing under a budget">🎁 Combo {comboOn ? 'on' : 'off'}</button>
             {comboOn && <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--faint)' }}>under ₹<input className="sk-input" style={{ width: 74 }} value={comboBudget} onChange={(e) => setComboBudget(Number(e.target.value) || 0)} inputMode="numeric" /></span>}
             <button className="btn btn-sm btn-ghost" onClick={() => setShowOpts((v) => !v)}><Icon name="settings" size={13} /> Filters {showOpts ? '▾' : '▸'}</button>
@@ -886,28 +883,60 @@ function HubTab({ cats, say }) {
 // ── shared bits ──────────────────────────────────────────────────────────────
 // Professional category selector: checkbox cards, each with a per-category product
 // stepper that appears once selected. Clicking the card toggles; the stepper controls count.
-function CategoryGrid({ cats, counts, onToggle, onCount, disabled }) {
+// Accordion category cards — selecting a category expands it to reveal its
+// subcategories as aligned selectable cards INSIDE the card. Fully responsive.
+function CategoryGrid({ cats, counts, onToggle, onCount, tax, subs, onToggleSub, disabled }) {
   return (
-    <div className={cx('cat-grid', disabled && 'is-disabled')}>
+    <div className={cx('cat-accordion', disabled && 'is-disabled')}>
       {cats.map((c) => {
         const on = c.name in counts;
+        const list = tax?.by_category?.[c.name]?.subcategories || [];
+        const picked = subs?.[c.name] || [];
         return (
-          <div key={c.name} className={cx('cat-card', on && 'on')} onClick={() => onToggle(c.name)}>
-            <span className={cx('cat-check', on && 'on')}>{on && <Icon name="check" size={12} />}</span>
-            <div className="cat-main">
-              <div className="cat-name">{c.name}</div>
-              <div className="cat-rate">~{c.rate}% commission</div>
+          <div key={c.name} className={cx('cat-acc', on && 'on')}>
+            <div className="cat-acc-head" onClick={() => onToggle(c.name)}>
+              <span className={cx('cat-check', on && 'on')}>{on && <Icon name="check" size={12} />}</span>
+              <div className="cat-main">
+                <div className="cat-name">{c.name}</div>
+                <div className="cat-rate">~{c.rate}% commission{on && list.length ? (picked.length ? ` · ${picked.length} picked` : ' · whole category') : ''}</div>
+              </div>
+              {on && (
+                <div className="cat-step" onClick={(e) => e.stopPropagation()}>
+                  <button onClick={() => onCount(c.name, -1)} aria-label="less">−</button>
+                  <span>{counts[c.name] || 3}</span>
+                  <button onClick={() => onCount(c.name, 1)} aria-label="more">+</button>
+                </div>
+              )}
+              {list.length > 0 && <span className="cat-chev">{on ? '▾' : '▸'}</span>}
             </div>
-            {on && (
-              <div className="cat-step" onClick={(e) => e.stopPropagation()}>
-                <button onClick={() => onCount(c.name, -1)} aria-label="less">−</button>
-                <span>{counts[c.name] || 3}</span>
-                <button onClick={() => onCount(c.name, 1)} aria-label="more">+</button>
+            {on && list.length > 0 && (
+              <div className="cat-acc-body">
+                <div className="cat-sub-hint">Tap subcategories — each becomes its own post. Pick none to post the whole “{c.name}” category.</div>
+                <div className="sub-grid">
+                  {list.map((s) => (
+                    <button key={s} className={cx('sub-card', picked.includes(s) && 'on')} onClick={() => onToggleSub(c.name, s)}>
+                      {picked.includes(s) && <Icon name="check" size={11} />}<span>{s}</span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
         );
       })}
+    </div>
+  );
+}
+// Card/chip selector (replaces the dropdowns for Goal + Style).
+function ChipSelect({ label, value, options, onChange, title }) {
+  return (
+    <div className="chip-select" title={title}>
+      <span className="chip-select-label">{label}</span>
+      <div className="chip-row">
+        {options.map((o) => (
+          <button key={o.k} type="button" className={cx('sel-chip', value === o.k && 'on')} onClick={() => onChange(o.k)}>{o.label}</button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1435,6 +1464,44 @@ const CardStyles = () => <style>{`
   .cat-step button{width:26px;height:28px;border:none;background:transparent;color:var(--text);font-size:16px;cursor:pointer;display:grid;place-items:center}
   .cat-step button:hover{background:rgba(120,180,255,.15);color:var(--accent)}
   .cat-step span{min-width:22px;text-align:center;font:700 13px ui-monospace,monospace;color:var(--accent)}
+
+  /* Accordion category cards (subcategories live INSIDE each card) */
+  .cat-accordion{display:flex;flex-direction:column;gap:9px}
+  .cat-accordion.is-disabled{opacity:.4;pointer-events:none}
+  .cat-acc{border:1px solid var(--border);border-radius:13px;background:var(--panel-2);overflow:hidden;transition:border-color .15s}
+  .cat-acc.on{border-color:var(--accent)}
+  .cat-acc-head{display:flex;align-items:center;gap:12px;padding:13px 14px;cursor:pointer;user-select:none}
+  .cat-acc.on .cat-acc-head{background:rgba(120,180,255,.08)}
+  .cat-acc-head:hover{background:rgba(120,180,255,.05)}
+  .cat-chev{color:var(--muted);font-size:13px;width:14px;text-align:center}
+  .cat-acc-body{padding:0 14px 14px;border-top:1px solid var(--border)}
+  .cat-sub-hint{font-size:11.5px;color:var(--faint);margin:11px 0 9px}
+  .sub-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:8px}
+  .sub-card{display:flex;align-items:center;justify-content:center;gap:5px;text-align:center;padding:9px 10px;border:1px solid var(--border);border-radius:10px;background:var(--panel);color:var(--muted);font:600 12px system-ui;cursor:pointer;text-transform:capitalize;transition:all .12s;min-height:38px}
+  .sub-card:hover{border-color:var(--accent);color:var(--text)}
+  .sub-card.on{background:rgba(120,180,255,.14);border-color:var(--accent);color:var(--accent)}
+
+  /* Seasonal / festival banner */
+  .season-banner{border:1px solid var(--accent);border-radius:14px;padding:14px 16px;margin-bottom:18px;background:linear-gradient(120deg,rgba(255,157,47,.10),rgba(120,180,255,.08))}
+  .season-headline{font:700 15px system-ui;color:var(--text)}
+  .season-angle{font-size:12.5px;color:var(--muted);margin-top:3px}
+  .season-cats{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px}
+  .season-cat{font:600 11px ui-monospace,monospace;color:var(--accent);border:1px solid var(--accent);border-radius:20px;padding:2px 9px;text-transform:capitalize}
+
+  /* Run controls (goal/style as chip cards, not dropdowns) + responsive layout */
+  .run-controls{display:flex;flex-wrap:wrap;align-items:center;gap:14px}
+  .chip-select{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .chip-select-label{font:600 11px ui-monospace,monospace;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
+  .chip-row{display:flex;flex-wrap:wrap;gap:5px}
+  .sel-chip{border:1px solid var(--border);background:var(--panel-2);color:var(--muted);font:600 12px system-ui;padding:5px 11px;border-radius:20px;cursor:pointer;text-transform:capitalize;transition:all .12s}
+  .sel-chip:hover{border-color:var(--accent);color:var(--text)}
+  .sel-chip.on{background:rgba(120,180,255,.14);border-color:var(--accent);color:var(--accent)}
+  @media(max-width:720px){
+    .run-controls{flex-direction:column;align-items:stretch}
+    .chip-select{flex-direction:column;align-items:flex-start;gap:5px}
+    .sub-grid{grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
+    .cat-step{margin-left:auto}
+  }
 
   /* Post to IG — two-column layout + account side panel */
   .post-layout{display:grid;grid-template-columns:1fr;gap:20px}

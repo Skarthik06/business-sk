@@ -290,6 +290,12 @@ async def compose_pins(state: BotState, config: RunnableConfig) -> dict:
         from chains.compose import compose_pins as _compose
 
         opts = config.get("configurable", {}).get("options", {}) or {}
+        # Seasonal/festival angle so captions lean into the occasion (Diwali, winter, …).
+        try:
+            import seasons as _seasons
+            seasonal_angle = _seasons.context().get("angle", "")
+        except Exception:
+            seasonal_angle = ""
         pins = await _compose(
             products=       fresh,
             trend_keywords= state.get("trend_keywords", []),
@@ -298,6 +304,7 @@ async def compose_pins(state: BotState, config: RunnableConfig) -> dict:
             count=          state["products_per_run"],
             trend_signals=  state.get("trend_signals", []),
             content_style=  opts.get("content_style") or __import__("runtime").get("CONTENT_DEFAULT_STYLE", cfg.content.default_style, "str"),
+            seasonal=       seasonal_angle,
         )
 
         if not pins:

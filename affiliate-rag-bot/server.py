@@ -640,6 +640,15 @@ def get_trends_for_category(category: str, limit: int = 20) -> dict:
     return {"ok": True, "category": category, "count": len(rows), "trends": rows}
 
 
+@app.get("/api/seasons")
+def get_seasons() -> dict:
+    """Festival & seasonal-deal calendar (India) — what's coming up + which categories,
+    keywords and caption angle sell best around it. Powers the Discover seasonal banner
+    and steers captions toward the occasion."""
+    import seasons
+    return {"ok": True, **seasons.context()}
+
+
 @app.get("/api/collections")
 def get_collections(category: Optional[str] = None) -> dict:
     """Build truthful collections from ALREADY-POSTED products (real prices): price-band

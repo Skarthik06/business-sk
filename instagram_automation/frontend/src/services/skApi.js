@@ -42,6 +42,7 @@ export default {
 
   // Discovery — taxonomy (families/subcategories/angles) + collections (price bands + bundles).
   taxonomy:    () => sk.get('/taxonomy').then(data),
+  seasons:     () => sk.get('/seasons').then(data),   // festival + seasonal deal calendar
   collections: (category) => sk.get('/collections', { params: category ? { category } : {} }).then(data),
 
   // ── Autopilot intelligence (Phases 1-10) ──────────────────────────────────

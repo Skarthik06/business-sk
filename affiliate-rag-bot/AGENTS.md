@@ -85,6 +85,7 @@ explains the base engine.
 | Retailer Adapter | [retailer-adapter.agents.md](agents/retailer-adapter.agents.md) | Multi-retailer interface + affiliate-link service (Amazon live, others gated) | `tools/retailers/*`, `tools/affiliate.py`, `server.py` (`/api/retailers`), `config.RetailerConfig` |
 | Competitor Intelligence | [competitor-intel.agents.md](agents/competitor-intel.agents.md) | Opt-in watchlist as a market-pattern discovery signal (never cloning) | `competitor/store.py`, `server.py` (`/api/competitors`), `config.CompetitorConfig` |
 | Winner Prediction | [winner-prediction.agents.md](agents/winner-prediction.agents.md) | Predicted-winner shortlist; deterministic→historical-average, graceful fallback | `prediction/model.py`, `server.py` (`/api/intelligence/winners`) |
+| Seasonal Planner | [seasonal-planner.agents.md](agents/seasonal-planner.agents.md) | Festival + seasonal deal calendar → categories, keywords, caption angle | `seasons.py`, `server.py` (`/api/seasons`), `chains/compose.py` |
 
 Funnel this layer optimises: **Instagram → attention → website/storefront → discovery →
 product → click → Amazon → purchase → commission.**
