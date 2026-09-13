@@ -778,16 +778,27 @@ def _proof2(p, img, P, handle):
 
 
 def _closer2(P, handle):
+    """Elegant final CTA: comment→auto-DM (any comment triggers the DM link), link in
+    bio, and a follow nudge for the account."""
+    def row(icon, big, sub):
+        return (f'<div style="display:flex;align-items:center;gap:22px;background:#FFFFFFF0;'
+                f'border:1.5px solid {P["border"]};border-radius:20px;padding:22px 28px;'
+                f'box-shadow:0 14px 34px rgba(20,30,45,.10)">'
+                f'<div style="font-size:46px;line-height:1">{icon}</div>'
+                f'<div style="display:flex;flex-direction:column;gap:3px">'
+                f'<div style="font-family:{_SANS};font-weight:800;font-size:34px;color:{P["text"]}">{big}</div>'
+                f'<div style="font-family:{_MONO};font-size:21px;color:{P["muted"]}">{sub}</div></div></div>')
     inner = f"""
-  <div class="placard"><span class="kick">Shop the set</span><span class="code">SK · LINK</span></div>
-  <span class="spark" style="top:400px;left:120px">✦</span><span class="spark" style="bottom:420px;right:140px;font-size:30px">✧</span>
-  <div style="position:absolute;inset:150px 60px;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:40px;text-align:center">
-    <div class="serif" style="font-size:104px;line-height:1.02">Everything here,<br>one link.</div>
-    <span class="cta">Link in bio →</span>
-    <span class="chip">{_esc(handle)} · new picks weekly</span>
+  <div class="placard"><span class="kick">Get the links</span><span class="code">SK · SHOP</span></div>
+  <span class="spark" style="top:150px;right:120px">✦</span><span class="spark" style="bottom:170px;left:110px;font-size:30px">✧</span>
+  <div style="position:absolute;inset:140px 60px;z-index:2;display:flex;flex-direction:column;justify-content:center;gap:24px">
+    <div class="serif" style="font-size:92px;line-height:.96;text-align:center;margin-bottom:6px">Want these deals?</div>
+    {row('💬', 'Comment “LINK”', "we’ll DM you every product link")}
+    {row('🔗', 'Tap the link in bio', 'shop all picks in one place')}
+    {row('➕', f'Follow {_esc(handle)}', 'daily deals · new drops · great finds')}
   </div>
 """
-    return _page2(P, inner, foot_right="TAP LINK", handle=handle)
+    return _page2(P, inner, foot_right="COMMENT → DM", handle=handle)
 
 
 def _pick_tmpl(p: Dict[str, Any]) -> str:
