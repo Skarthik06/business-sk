@@ -113,7 +113,7 @@ SYSTEM = (
     "with real line breaks:\n"
     "Line 1: an emoji-led HOOK about the category (e.g. '👗 The fashion drop is here').\n"
     "Line 2: ONE punchy line on why these picks are worth it (the vibe/benefit, no prices).\n"
-    "Line 3: the CTA: '🛒 Shop all via the link in bio 👆'.\n"
+    "Line 3: the CTA: '💬 Comment for the link — or shop via the link in bio 👆'.\n"
     "EMOJIS MUST MATCH the category — 👗👕 fashion, 🏠🛋️ home, 💄 beauty, 🎧📱 tech, 🍳 kitchen, "
     "💪 fitness — never random or mismatched. Tasteful, not spammy.\n"
     "Do NOT add any 'As an Amazon Associate' disclosure sentence anywhere in the caption.\n\n"
