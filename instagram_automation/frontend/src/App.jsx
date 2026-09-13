@@ -102,6 +102,15 @@ export default function App() {
   }, [view]);
   const [openGroups, setOpenGroups] = useState({ jk: true, sk: true });
   const toggleGroup = (id) => setOpenGroups((g) => ({ ...g, [id]: !g[id] }));
+  const [drawerOpen, setDrawerOpen] = useState(false);   // mobile nav drawer
+  // Lock body scroll while the mobile drawer is open.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    if (drawerOpen) document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [drawerOpen]);
+  // Close the drawer whenever the panel changes (e.g. after picking an item).
+  useEffect(() => { setDrawerOpen(false); }, [view]);
   const [accounts, setAccounts] = useState([]);
   const [settings, setSettings] = useState(null);
   const [health, setHealth] = useState(null);
@@ -149,100 +158,135 @@ export default function App() {
     return <Login onAuthed={() => setAuthed(true)} />;
   }
 
-  return (
-    <div className="min-h-screen flex">
-      {/* nav rail */}
-      <aside className="hidden md:flex flex-col w-64 shrink-0 p-5 sticky top-0 h-screen"
-        style={{ borderRight: '1px solid var(--border)' }}>
-        <div className="flex items-center gap-2.5 px-1 mb-9">
-          <div className="w-9 h-9 rounded-xl grid place-items-center"
-            style={{ background: 'linear-gradient(135deg, var(--amber-2), var(--amber))', color: '#1a1206' }}>
-            <Icon name="spark" size={20} />
-          </div>
-          <div>
-            <div className="font-display text-xl leading-none" style={{ fontWeight: 600 }}>Studio</div>
-            <div className="eyebrow" style={{ fontSize: '0.56rem' }}>Instagram autopilot</div>
-          </div>
-        </div>
+  // Brand header — shared by the desktop rail and the mobile drawer.
+  const navHeader = (
+    <div className="flex items-center gap-2.5 px-1 mb-9">
+      <div className="w-9 h-9 rounded-xl grid place-items-center"
+        style={{ background: 'linear-gradient(135deg, var(--amber-2), var(--amber))', color: '#1a1206' }}>
+        <Icon name="spark" size={20} />
+      </div>
+      <div>
+        <div className="font-display text-xl leading-none" style={{ fontWeight: 600 }}>Studio</div>
+        <div className="eyebrow" style={{ fontSize: '0.56rem' }}>Instagram autopilot</div>
+      </div>
+    </div>
+  );
 
-        <nav className="space-y-2 flex-1 overflow-y-auto">
-          {NAV_GROUPS.map((group) => (
-            <div key={group.id}>
-              <div onClick={() => toggleGroup(group.id)}
-                style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 10px',
-                         cursor: 'pointer', userSelect: 'none', borderRadius: 10, fontWeight: 600,
-                         letterSpacing: '.01em', color: 'var(--text)' }}>
-                <Icon name={group.icon} size={18} />
-                <span style={{ flex: 1 }}>{group.label}</span>
-                <span style={{ display: 'inline-flex', color: 'var(--muted)', transition: 'transform .15s',
-                               transform: openGroups[group.id] ? 'rotate(90deg)' : 'none' }}>
-                  <Icon name="chevR" size={14} />
-                </span>
+  // The full grouped navigation (Business-JK / Business-SK / Universal) + footer.
+  // Rendered identically in the desktop rail AND the mobile slide-in drawer so the
+  // structured dashboard is never lost on small screens.
+  const navBody = (
+    <>
+      <nav className="space-y-2 flex-1 overflow-y-auto">
+        {NAV_GROUPS.map((group) => (
+          <div key={group.id}>
+            <div onClick={() => toggleGroup(group.id)}
+              style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '9px 10px',
+                       cursor: 'pointer', userSelect: 'none', borderRadius: 10, fontWeight: 600,
+                       letterSpacing: '.01em', color: 'var(--text)' }}>
+              <Icon name={group.icon} size={18} />
+              <span style={{ flex: 1 }}>{group.label}</span>
+              <span style={{ display: 'inline-flex', color: 'var(--muted)', transition: 'transform .15s',
+                             transform: openGroups[group.id] ? 'rotate(90deg)' : 'none' }}>
+                <Icon name="chevR" size={14} />
+              </span>
+            </div>
+            {openGroups[group.id] && (
+              <div className="space-y-1 mt-1" style={{ marginLeft: 11, paddingLeft: 9,
+                   borderLeft: '1px solid var(--border)' }}>
+                {(group.sections || [{ items: group.items }]).map((sec, si) => (
+                  <div key={sec.label || si} className={si > 0 ? 'mt-2' : ''}>
+                    {sec.label && (
+                      <div className="eyebrow" style={{ padding: '4px 10px 2px', fontSize: '0.52rem', color: 'var(--faint)' }}>{sec.label}</div>
+                    )}
+                    {sec.items.map((n) => (
+                      <div key={n.id} className={cx('nav-item', view === n.id && 'active')}
+                        onClick={() => setView(n.id)}>
+                        <Icon name={n.icon} size={16} /> {n.label}
+                        <span className="nav-dot" />
+                      </div>
+                    ))}
+                  </div>
+                ))}
               </div>
-              {openGroups[group.id] && (
-                <div className="space-y-1 mt-1" style={{ marginLeft: 11, paddingLeft: 9,
-                     borderLeft: '1px solid var(--border)' }}>
-                  {(group.sections || [{ items: group.items }]).map((sec, si) => (
-                    <div key={sec.label || si} className={si > 0 ? 'mt-2' : ''}>
-                      {sec.label && (
-                        <div className="eyebrow" style={{ padding: '4px 10px 2px', fontSize: '0.52rem', color: 'var(--faint)' }}>{sec.label}</div>
-                      )}
-                      {sec.items.map((n) => (
-                        <div key={n.id} className={cx('nav-item', view === n.id && 'active')}
-                          onClick={() => setView(n.id)}>
-                          <Icon name={n.icon} size={16} /> {n.label}
-                          <span className="nav-dot" />
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
+            )}
+          </div>
+        ))}
+
+        {/* Universal — shared across both businesses (tokens / API / personal) */}
+        <div className="space-y-1" style={{ marginTop: 12, paddingTop: 12,
+             borderTop: '1px solid var(--border)' }}>
+          <div className="eyebrow" style={{ padding: '0 10px 4px', fontSize: '0.52rem',
+               color: 'var(--faint)' }}>Universal</div>
+          {UNIVERSAL.map((n) => (
+            <div key={n.id} className={cx('nav-item', view === n.id && 'active')}
+              onClick={() => setView(n.id)}>
+              <Icon name={n.icon} size={18} /> {n.label}
+              <span className="nav-dot" />
             </div>
           ))}
-
-          {/* Universal — shared across both businesses (tokens / API / personal) */}
-          <div className="space-y-1" style={{ marginTop: 12, paddingTop: 12,
-               borderTop: '1px solid var(--border)' }}>
-            <div className="eyebrow" style={{ padding: '0 10px 4px', fontSize: '0.52rem',
-                 color: 'var(--faint)' }}>Universal</div>
-            {UNIVERSAL.map((n) => (
-              <div key={n.id} className={cx('nav-item', view === n.id && 'active')}
-                onClick={() => setView(n.id)}>
-                <Icon name={n.icon} size={18} /> {n.label}
-                <span className="nav-dot" />
-              </div>
-            ))}
-          </div>
-        </nav>
-
-        <div className="panel p-3.5 mt-4 text-xs space-y-2 font-mono" style={{ color: 'var(--muted)' }}>
-          <div className="flex items-center gap-2">
-            <span className={health?.openai_key_set ? 'live-dot' : ''}
-              style={!health?.openai_key_set ? { width: 7, height: 7, borderRadius: 99, background: 'var(--danger)' } : {}} />
-            {health?.openai_key_set ? 'OpenAI connected' : 'OpenAI key missing'}
-          </div>
-          <div style={{ color: 'var(--faint)' }}>{health?.model || 'gpt-4o-mini'}</div>
-          <div style={{ color: 'var(--faint)' }}>{accounts.length} account{accounts.length !== 1 ? 's' : ''} linked</div>
         </div>
-        <button className="btn btn-sm btn-ghost mt-3 justify-center" onClick={logout}>
-          <Icon name="x" size={14} /> Sign out
-        </button>
+      </nav>
+
+      <div className="panel p-3.5 mt-4 text-xs space-y-2 font-mono" style={{ color: 'var(--muted)' }}>
+        <div className="flex items-center gap-2">
+          <span className={health?.openai_key_set ? 'live-dot' : ''}
+            style={!health?.openai_key_set ? { width: 7, height: 7, borderRadius: 99, background: 'var(--danger)' } : {}} />
+          {health?.openai_key_set ? 'OpenAI connected' : 'OpenAI key missing'}
+        </div>
+        <div style={{ color: 'var(--faint)' }}>{health?.model || 'gpt-4o-mini'}</div>
+        <div style={{ color: 'var(--faint)' }}>{accounts.length} account{accounts.length !== 1 ? 's' : ''} linked</div>
+      </div>
+      <button className="btn btn-sm btn-ghost mt-3 justify-center" onClick={logout}>
+        <Icon name="x" size={14} /> Sign out
+      </button>
+    </>
+  );
+
+  return (
+    <div className="min-h-screen flex">
+      {/* desktop nav rail */}
+      <aside className="hidden md:flex flex-col w-64 shrink-0 p-5 sticky top-0 h-screen"
+        style={{ borderRight: '1px solid var(--border)' }}>
+        {navHeader}
+        {navBody}
       </aside>
 
-      {/* mobile top bar */}
-      <div className="md:hidden fixed top-0 inset-x-0 z-40 flex gap-1 p-2"
+      {/* mobile top bar — hamburger opens the full grouped drawer */}
+      <div className="md:hidden fixed top-0 inset-x-0 z-40 flex items-center gap-3 px-4 h-14"
         style={{ background: 'var(--bg-2)', borderBottom: '1px solid var(--border)' }}>
-        {NAV.map((n) => (
-          <button key={n.id} className={cx('nav-item flex-1 justify-center', view === n.id && 'active')} onClick={() => setView(n.id)}>
-            <Icon name={n.icon} size={18} />
-          </button>
-        ))}
+        <button className="nav-item" style={{ padding: '8px 9px' }} onClick={() => setDrawerOpen(true)} aria-label="Open menu">
+          <Icon name="menu" size={20} />
+        </button>
+        <div className="w-7 h-7 rounded-lg grid place-items-center"
+          style={{ background: 'linear-gradient(135deg, var(--amber-2), var(--amber))', color: '#1a1206' }}>
+          <Icon name="spark" size={16} />
+        </div>
+        <div className="font-display text-base leading-none" style={{ fontWeight: 600 }}>Studio</div>
+        <span className="ml-auto eyebrow" style={{ fontSize: '0.55rem', color: 'var(--faint)' }}>
+          {(NAV.find((n) => n.id === view) || {}).label || ''}
+        </span>
       </div>
+
+      {/* mobile slide-in drawer (same grouped nav as desktop) */}
+      {drawerOpen && (
+        <div className="md:hidden fixed inset-0 z-50" role="dialog" aria-modal="true">
+          <div className="absolute inset-0" style={{ background: 'rgba(0,0,0,.55)' }} onClick={() => setDrawerOpen(false)} />
+          <aside className="absolute top-0 left-0 h-full w-[82vw] max-w-xs flex flex-col p-5 drawer-in"
+            style={{ background: 'var(--bg-2)', borderRight: '1px solid var(--border)' }}>
+            <button className="nav-item" style={{ position: 'absolute', top: 14, right: 12, padding: '6px 8px' }}
+              onClick={() => setDrawerOpen(false)} aria-label="Close menu">
+              <Icon name="x" size={18} />
+            </button>
+            {navHeader}
+            {navBody}
+          </aside>
+        </div>
+      )}
 
       {/* main */}
       <main className="flex-1 min-w-0 px-5 md:px-10 py-8 md:py-10 mt-14 md:mt-0">
-        <div className="max-w-6xl mx-auto">
+        <div className="w-full mx-auto" style={{ maxWidth: 1600 }}>
           {/* Business stays MOUNTED (hidden when inactive) so an in-progress
               extraction / generated campaign / blueprint edits persist when you
               switch panels and come back — "leave it where I left it". */}

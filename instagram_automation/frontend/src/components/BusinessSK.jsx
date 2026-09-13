@@ -229,27 +229,41 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
         <p className="text-xs mt-3" style={{ color: 'var(--faint)' }}>Each subcategory you tap becomes its own post. Every result is scored (Instagram · Buy · Value · Content) and tiered S→D.</p>
 
         <div className="divider" />
-        <div className="run-controls">
-          <div className={cx('posts-meter', postCount > 10 && 'over')}>
-            <b>{postCount}</b> / 10 post{postCount === 1 ? '' : 's'} <span>· Instagram allows up to 10</span>
+        <div className={cx('posts-meter', postCount > 10 && 'over')} style={{ marginBottom: 13 }}>
+          <b>{postCount}</b> / 10 post{postCount === 1 ? '' : 's'} <span>· Instagram allows up to 10</span>
+        </div>
+        <div className="control-cards">
+          <div className="ctrl-card">
+            <div className="ctrl-card-label">Goal</div>
+            <div className="ctrl-chips">
+              {GOALS.map((o) => <button key={o.k} type="button" className={cx('opt-card', goal === o.k && 'on')} onClick={() => setGoal(o.k)}>{o.label}</button>)}
+            </div>
           </div>
-          <ChipSelect label="Goal" value={goal} options={GOALS} onChange={setGoal} title="What to optimise this run for" />
-          <ChipSelect label="Style" value={style}
-            options={CAPTION_STYLES.map((s) => ({ k: s, label: s === 'auto' ? 'Auto' : s.replace(/_/g, ' ').replace(/\b\w/g, (x) => x.toUpperCase()) }))}
-            onChange={setStyle} title="How the AI writes the caption" />
-          <div className="flex items-center gap-2 flex-wrap">
-            <button className={cx('mini', comboOn && 'on')} onClick={() => setComboOn((v) => !v)} title="Build a combo: complementary products summing under a budget">🎁 Combo {comboOn ? 'on' : 'off'}</button>
-            {comboOn && <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--faint)' }}>under ₹<input className="sk-input" style={{ width: 74 }} value={comboBudget} onChange={(e) => setComboBudget(Number(e.target.value) || 0)} inputMode="numeric" /></span>}
-            <button className="btn btn-sm btn-ghost" onClick={() => setShowOpts((v) => !v)}><Icon name="settings" size={13} /> Filters {showOpts ? '▾' : '▸'}</button>
+          <div className="ctrl-card">
+            <div className="ctrl-card-label">Caption style</div>
+            <div className="ctrl-chips">
+              {CAPTION_STYLES.map((s) => {
+                const label = s === 'auto' ? 'Auto' : s.replace(/_/g, ' ').replace(/\b\w/g, (x) => x.toUpperCase());
+                return <button key={s} type="button" className={cx('opt-card', style === s && 'on')} onClick={() => setStyle(s)}>{label}</button>;
+              })}
+            </div>
+          </div>
+          <div className="ctrl-card">
+            <div className="ctrl-card-label">Combo bundle</div>
+            <div className="ctrl-chips" style={{ alignItems: 'center' }}>
+              <button type="button" className={cx('opt-card', comboOn && 'on')} onClick={() => setComboOn((v) => !v)}>🎁 {comboOn ? 'On' : 'Off'}</button>
+              {comboOn && <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--muted)' }}>under ₹<input className="sk-input" style={{ width: 78 }} value={comboBudget} onChange={(e) => setComboBudget(Number(e.target.value) || 0)} inputMode="numeric" /></span>}
+            </div>
+          </div>
+          <div className="ctrl-card ctrl-card-wide">
+            <div className="ctrl-card-label">Quality filters</div>
+            <div className="filter-sliders">
+              <Slider label={`Min rating: ${minRating}★`} min={0} max={5} step={0.1} value={minRating} onChange={setMinRating} full />
+              <Slider label={`Min reviews: ${minReviews}`} min={0} max={2000} step={10} value={minReviews} onChange={setMinReviews} full />
+              <Slider label={`Max price: ₹${priceMax}`} min={200} max={20000} step={100} value={priceMax} onChange={setPriceMax} full />
+            </div>
           </div>
         </div>
-        {showOpts && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3 p-3" style={{ background: 'var(--panel-2)', borderRadius: 10 }}>
-            <Slider label={`Min rating: ${minRating}★`} min={0} max={5} step={0.1} value={minRating} onChange={setMinRating} />
-            <Slider label={`Min reviews: ${minReviews}`} min={0} max={2000} step={10} value={minReviews} onChange={setMinReviews} />
-            <Slider label={`Max price: ₹${priceMax}`} min={200} max={20000} step={100} value={priceMax} onChange={setPriceMax} />
-          </div>
-        )}
 
         <div className="flex items-center gap-4 flex-wrap mt-5">
           <button className="btn btn-lg" onClick={run} disabled={running || !postCount || postCount > 10} style={{ minWidth: 180, justifyContent: 'center' }}>
@@ -1387,9 +1401,9 @@ function PhasePill({ r }) {
 }
 const Empty = ({ text }) => <div className="panel p-6 text-center text-sm" style={{ color: 'var(--muted)' }}>{text}</div>;
 const Field = ({ label, children }) => <div className="mt-3"><label className="text-xs" style={{ color: 'var(--muted)', display: 'block', marginBottom: 5 }}>{label}</label>{children}</div>;
-function Slider({ label, min, max, step = 1, value, onChange, width = 200 }) {
-  return <div><label className="text-xs" style={{ color: 'var(--muted)' }}>{label}</label>
-    <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ display: 'block', width, accentColor: 'var(--accent)', marginTop: 6 }} /></div>;
+function Slider({ label, min, max, step = 1, value, onChange, width = 200, full = false }) {
+  return <div style={full ? { width: '100%' } : undefined}><label className="text-xs" style={{ color: 'var(--muted)' }}>{label}</label>
+    <input type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} style={{ display: 'block', width: full ? '100%' : width, accentColor: 'var(--accent)', marginTop: 6 }} /></div>;
 }
 function NotReachable({ onRetry }) {
   return <div className="fade-up"><p className="eyebrow mb-2">Business-SK</p><h1 className="font-display text-4xl mb-6" style={{ fontWeight: 600 }}>Affiliate</h1>
@@ -1490,8 +1504,18 @@ const CardStyles = () => <style>{`
   .season-cats{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:10px}
   .season-cat{font:600 11px ui-monospace,monospace;color:var(--accent);border:1px solid var(--accent);border-radius:20px;padding:2px 9px;text-transform:capitalize}
 
-  /* Run controls (goal/style as chip cards, not dropdowns) + responsive layout */
-  .run-controls{display:flex;flex-wrap:wrap;align-items:center;gap:14px}
+  /* Run controls (goal/style/combo/filters as CARD boxes, no dropdowns) */
+  .control-cards{display:grid;grid-template-columns:repeat(2,1fr);gap:13px}
+  .ctrl-card{border:1px solid var(--border);border-radius:13px;background:var(--panel-2);padding:13px 14px}
+  .ctrl-card-wide{grid-column:1/-1}
+  .ctrl-card-label{font:700 10.5px ui-monospace,monospace;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+  .ctrl-chips{display:flex;flex-wrap:wrap;gap:7px}
+  .opt-card{border:1px solid var(--border);background:var(--panel);color:var(--muted);font:600 12.5px system-ui;padding:8px 13px;border-radius:10px;cursor:pointer;text-transform:capitalize;transition:all .13s;white-space:nowrap}
+  .opt-card:hover{border-color:var(--accent);color:var(--text)}
+  .opt-card.on{background:rgba(120,180,255,.16);border-color:var(--accent);color:var(--accent);box-shadow:0 0 0 1px var(--accent),0 0 12px rgba(120,180,255,.25)}
+  .filter-sliders{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  @media(max-width:900px){.control-cards{grid-template-columns:1fr}.filter-sliders{grid-template-columns:1fr}}
+  /* legacy chip-select (still used elsewhere) */
   .chip-select{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .chip-select-label{font:600 11px ui-monospace,monospace;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
   .chip-row{display:flex;flex-wrap:wrap;gap:5px}
@@ -1499,7 +1523,6 @@ const CardStyles = () => <style>{`
   .sel-chip:hover{border-color:var(--accent);color:var(--text)}
   .sel-chip.on{background:rgba(120,180,255,.14);border-color:var(--accent);color:var(--accent)}
   @media(max-width:720px){
-    .run-controls{flex-direction:column;align-items:stretch}
     .chip-select{flex-direction:column;align-items:flex-start;gap:5px}
     .sub-grid{grid-template-columns:repeat(auto-fill,minmax(104px,1fr))}
     .cat-step{margin-left:auto}

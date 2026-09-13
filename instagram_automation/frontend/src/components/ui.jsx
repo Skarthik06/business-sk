@@ -21,6 +21,7 @@ const paths = {
   pin: 'M12 21s-6-5.686-6-10a6 6 0 1112 0c0 4.314-6 10-6 10zM12 11a2 2 0 100-4 2 2 0 000 4z',
   doc: 'M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8zM14 3v5h5M9 13h6M9 17h4',
   shield: 'M12 3l7 3v6c0 4-3 7-7 8-4-1-7-4-7-8V6z',
+  menu: 'M4 6h16M4 12h16M4 18h16',
 };
 
 export function Icon({ name, size = 20, className = '', stroke = 2 }) {

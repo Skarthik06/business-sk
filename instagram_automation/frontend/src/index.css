@@ -210,6 +210,9 @@ body::after {
 @keyframes spin { to { transform: rotate(360deg); } }
 .spin { animation: spin .8s linear infinite; }
 
+@keyframes drawerIn { from { transform: translateX(-100%); } to { transform: none; } }
+.drawer-in { animation: drawerIn .22s cubic-bezier(.2,.7,.2,1) both; }
+
 @keyframes pulseGlow { 0%,100% { opacity:.5 } 50% { opacity:1 } }
 .live-dot { width:7px;height:7px;border-radius:99px;background:var(--ok);animation:pulseGlow 2s ease-in-out infinite; }
 
