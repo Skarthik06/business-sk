@@ -21,6 +21,7 @@ Token discipline:
 """
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from langchain_openai import ChatOpenAI
@@ -288,6 +289,12 @@ async def compose_pins(
     caption = (batch.caption or "").strip()
     for _bad in ("As an Amazon Associate I earn from qualifying purchases.", FTC, "#Ad |"):
         caption = caption.replace(_bad, "").strip()      # strip any disclosure the model still added
+    # ENFORCE our canonical CTA — small models won't reproduce it reliably, so drop whatever
+    # shop/link/comment CTA the model wrote and append the one comment→DM CTA ourselves.
+    _cta_re = re.compile(r"(link in bio|comment for|shop (via|now|all|the link|it)|swipe|\bdm (us|me|for)\b|tap the link|👆)", re.I)
+    _body = [ln for ln in caption.splitlines() if ln.strip() and not _cta_re.search(ln)]
+    caption = "\n".join(_body).strip()
+    caption = f"{caption}\n\n💬 Comment for the link · shop in bio 👆"
     caption = _bold_caption(caption)                     # bold names/prices/discounts for IG
 
     # Phase 4: curated hashtag bank merge (consistent reach spine) + #ad disclosure.
