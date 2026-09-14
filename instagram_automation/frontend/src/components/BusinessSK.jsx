@@ -458,7 +458,12 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       }
       return true;
     } catch (e) {
-      const msg = e?.response?.data?.error?.message || e?.response?.data?.detail || e?.message || 'error';
+      let msg = e?.response?.data?.error?.message || e?.response?.data?.detail || e?.message || 'error';
+      // Instagram anti-spam / app rate limit — the post did NOT go live (if it had, the server
+      // recovers it and returns success). Show a friendly, actionable message, not the raw error.
+      if (/2207051|request limit|restrict certain activity/i.test(String(msg))) {
+        msg = 'Instagram is cooling down (posts sent too fast). Wait a few minutes, then post once — don’t retry repeatedly.';
+      }
       setSt(g.id, { phase: 'failed', error: String(msg) });
       return false;
     } finally { setBusyId(null); }

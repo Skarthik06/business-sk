@@ -316,32 +316,36 @@ def _rehost_for_ig(image_urls: list[str]) -> list[str]:
     return out
 
 
-def _recover_recent_media(account: dict, within_seconds: int = 150) -> Optional[dict]:
-    """Instagram sometimes publishes a post but returns a rate-limit error. Check the
-    account's NEWEST media; if it was created within `within_seconds`, return it as a
-    successful publish result so the caller can still record it + set up the automation.
-    Returns None if nothing recent is found (then the real error stands)."""
+def _recover_recent_media(account: dict, within_seconds: int = 180, tries: int = 4) -> Optional[dict]:
+    """Instagram sometimes publishes a post but returns a rate-limit error (eventual
+    consistency). VERIFY whether it actually went live by checking the account's NEWEST
+    media; if one appeared within `within_seconds`, return it as a successful publish so the
+    caller can still record it + set up the automation. Retries a few times because the media
+    list can lag a few seconds after publishing. Returns None only if nothing recent is found
+    (then the error was real — the post genuinely did not publish)."""
     from datetime import datetime, timezone
+    import time as _t
     import requests as _rq
     from app.services.instagram import GRAPH
-    try:
-        ig_id = account.get("ig_business_id"); token = account.get("ig_access_token")
-        if not (ig_id and token):
-            return None
-        r = _rq.get(f"{GRAPH}/{ig_id}/media",
-                    params={"fields": "id,permalink,timestamp", "access_token": token, "limit": "1"},
-                    timeout=20)
-        items = (r.json() or {}).get("data") or []
-        if not items:
-            return None
-        m = items[0]
-        ts = m.get("timestamp")            # e.g. 2026-09-14T05:02:24+0000
-        dt = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S%z")
-        age = (datetime.now(timezone.utc) - dt).total_seconds()
-        if 0 <= age <= within_seconds:
-            return {"ig_media_id": m["id"], "permalink": m.get("permalink"), "media_type": "carousel"}
-    except Exception:
+    ig_id = account.get("ig_business_id"); token = account.get("ig_access_token")
+    if not (ig_id and token):
         return None
+    for attempt in range(max(1, tries)):
+        try:
+            r = _rq.get(f"{GRAPH}/{ig_id}/media",
+                        params={"fields": "id,permalink,timestamp", "access_token": token, "limit": "1"},
+                        timeout=20)
+            items = (r.json() or {}).get("data") or []
+            if items and items[0].get("timestamp"):
+                m = items[0]
+                dt = datetime.strptime(m["timestamp"], "%Y-%m-%dT%H:%M:%S%z")
+                age = (datetime.now(timezone.utc) - dt).total_seconds()
+                if 0 <= age <= within_seconds:
+                    return {"ig_media_id": m["id"], "permalink": m.get("permalink"), "media_type": "carousel"}
+        except Exception:
+            pass
+        if attempt < tries - 1:
+            _t.sleep(4)                    # give IG's media list a moment to show the new post
     return None
 
 
