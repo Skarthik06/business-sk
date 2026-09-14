@@ -289,17 +289,17 @@ async def compose_pins(
     caption = (batch.caption or "").strip()
     for _bad in ("As an Amazon Associate I earn from qualifying purchases.", FTC, "#Ad |"):
         caption = caption.replace(_bad, "").strip()      # strip any disclosure the model still added
-    # ENFORCE our canonical CTA — small models won't reproduce it reliably. Trim only the
-    # TRAILING CTA/empty line(s) the model wrote (keep the hook + value), then append ours.
-    _cta_re = re.compile(r"(link in bio|comment for|shop (via|now|all|the|it|in bio)|swipe|tap the link|👆)", re.I)
-    _lines = caption.splitlines()
-    while _lines and (not _lines[-1].strip() or _cta_re.search(_lines[-1])):
-        _lines.pop()
-    caption = "\n".join(_lines).strip()
-    if not caption:                                      # model wrote only a CTA → keep its first line
-        _first = (batch.caption or "").strip().splitlines()
-        caption = _first[0].strip() if _first else ""
-    caption = f"{caption}\n\n💬 Comment for the link · shop in bio 👆".strip()
+    # ENFORCE our canonical CTA — small models won't reproduce it reliably and often paste
+    # their own "shop via the link in bio 👆" (inline OR on its own line). Strip ANY such CTA
+    # phrase wherever it appears, tidy whitespace, then append the ONE canonical comment→DM CTA.
+    caption = re.sub(
+        r"(?:💬|🛒|👉|👆)?\s*(?:shop\s+(?:all\s+|now\s+|it\s+|via\s+)?(?:the\s+)?(?:link\s+)?(?:in\s+)?bio"
+        r"|link in bio|comment\s+(?:below|for(?:\s+the)?\s+link)|swipe up|tap the link)\s*👆?",
+        " ", caption, flags=re.I)
+    caption = caption.replace("👆", " ")
+    caption = re.sub(r"[ \t]+", " ", caption)
+    caption = re.sub(r"\n{3,}", "\n\n", caption).strip(" .-•\n")
+    caption = f"{caption}\n\n💬 Comment for the link · shop in bio 👆" if caption else "💬 Comment for the link · shop in bio 👆"
     caption = _bold_caption(caption)                     # bold names/prices/discounts for IG
 
     # Phase 4: curated hashtag bank merge (consistent reach spine) + #ad disclosure.
