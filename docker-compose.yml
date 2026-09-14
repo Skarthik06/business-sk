@@ -64,7 +64,8 @@ services:
               "--reload", "--reload-dir", "/app/app"]
     environment:
       # Shared DB: Supabase (set SUPABASE_DB_URL in the git-ignored root .env). Falls back to
-      # the local db container if unset. The phone engagement service uses the SAME Supabase URL.
+      # the local db container if unset. Engagement (comment→DM automation) runs here on the
+      # server via the built-in 30s poller — no separate phone/mobile service any more.
       DATABASE_URL: ${SUPABASE_DB_URL:-postgresql://instagram:instagram@db:5432/instagram_business}
       LEGACY_SQLITE_DB: /app/legacy/posts.db
       BUSINESS_USE_DOCLING: "1"
