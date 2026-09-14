@@ -22,11 +22,47 @@ from __future__ import annotations
 import base64
 import html
 import io
+import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
+
+# ── Cutout / render knobs — env defaults, overlaid LIVE from the Agents panel ──────
+# The "still-set-renderer" agent (affiliate backend /api/render-config) can tune these
+# from the studio without a restart. Fetched with a short cache; falls back to env/defaults
+# so rendering never depends on that call succeeding.
+_RENDER_DEFAULTS = {
+    "isolate": os.getenv("SK_ISOLATE", "1") not in ("0", "false", ""),
+    "alpha_matting": os.getenv("SK_ALPHA_MATTING", "1") not in ("0", "false", ""),
+    "fg_threshold": int(os.getenv("SK_ALPHA_FG", "240") or 240),   # keep this-and-brighter as product
+    "bg_threshold": int(os.getenv("SK_ALPHA_BG", "12") or 12),     # treat this-and-darker as background
+    "erode": int(os.getenv("SK_ALPHA_ERODE", "0") or 0),           # 0 = don't eat the product edge
+    "model": os.getenv("SK_ISOLATE_MODEL", "u2net"),
+    "knockout_thresh": int(os.getenv("SK_KNOCKOUT_THRESH", "30") or 30),
+}
+_RCFG_CACHE: Dict[str, Any] = {"at": 0.0, "val": None}
+
+
+def _render_cfg() -> Dict[str, Any]:
+    """Current cutout knobs (env defaults + live overlay from the affiliate Agents panel).
+    Cached ~60s so we don't fetch per slide; any failure → defaults (rendering never breaks)."""
+    now = time.time()
+    if _RCFG_CACHE["val"] is not None and (now - _RCFG_CACHE["at"]) < 60:
+        return _RCFG_CACHE["val"]
+    cfg = dict(_RENDER_DEFAULTS)
+    try:
+        r = requests.get("http://affiliate_backend:8100/api/render-config", timeout=4)
+        if r.ok:
+            for k, v in (r.json() or {}).items():
+                if k in cfg and v is not None:
+                    cfg[k] = type(cfg[k])(v) if not isinstance(cfg[k], bool) else bool(v)
+    except Exception:
+        pass
+    _RCFG_CACHE.update({"at": now, "val": cfg})
+    return cfg
 
 W, H = 1080, 1350
 
@@ -130,14 +166,36 @@ def _brand(p: Dict[str, Any]) -> str:
 _REMBG_SESSION = None
 
 
+_REMBG_MODEL = None
+
+
 def _rembg_cut(img_bytes: bytes) -> Optional[bytes]:
     """Isolate the product (transparent PNG) IF rembg is installed. Returns None when
-    unavailable so the caller stages the source image as-is. Never alters product pixels."""
-    global _REMBG_SESSION
+    unavailable so the caller stages the source image as-is.
+
+    Edge quality: ALPHA MATTING is enabled by default — instead of a hard binary mask (which
+    leaves jagged / brushed-out edges), it feathers the boundary using foreground/background
+    thresholds, and erode=0 means we don't shave pixels off the product. All tunable live from
+    the Agents panel. Never alters the product's own pixels — only the cutout mask."""
+    global _REMBG_SESSION, _REMBG_MODEL
     try:
         from rembg import remove, new_session  # type: ignore
-        if _REMBG_SESSION is None:
-            _REMBG_SESSION = new_session("u2net")
+        rc = _render_cfg()
+        model = rc.get("model") or "u2net"
+        if _REMBG_SESSION is None or _REMBG_MODEL != model:
+            try:
+                _REMBG_SESSION = new_session(model)
+            except Exception:                       # unknown/undownloadable model → safe default
+                _REMBG_SESSION = new_session("u2net"); model = "u2net"
+            _REMBG_MODEL = model
+        if rc.get("alpha_matting"):
+            return remove(
+                img_bytes, session=_REMBG_SESSION,
+                alpha_matting=True,
+                alpha_matting_foreground_threshold=int(rc.get("fg_threshold", 240)),
+                alpha_matting_background_threshold=int(rc.get("bg_threshold", 12)),
+                alpha_matting_erode_size=int(rc.get("erode", 0)),
+            )
         return remove(img_bytes, session=_REMBG_SESSION)
     except Exception:
         return None
@@ -157,9 +215,10 @@ def _knockout_white_bg(im):
     if not all(min(rgb.getpixel(c)) > 232 for c in corners):
         return im                                   # not a white-bg catalog shot → leave alone
     sentinel = (255, 0, 255)
+    _kt = int(_render_cfg().get("knockout_thresh", 30))   # lower = safer (won't eat light product edges)
     for c in corners:
         try:
-            ImageDraw.floodfill(rgb, c, sentinel, thresh=34)
+            ImageDraw.floodfill(rgb, c, sentinel, thresh=_kt)
         except Exception:
             return im
     try:
@@ -195,7 +254,7 @@ def _prep_image(src: str, *, isolate: bool = True, box: int = 1000) -> Optional[
     if not raw:
         return None
     isolated = False
-    if isolate:
+    if isolate and _render_cfg().get("isolate", True):   # panel can disable cutout entirely
         cut = _rembg_cut(raw)
         if cut:
             raw = cut

@@ -919,7 +919,22 @@ AGENT_ROSTER = [
     {"name": "winner-prediction", "role": "Predicted winners (deterministic → historical)"},
     {"name": "product-scout", "role": "Category-taxonomy retrieval + quality gate"},
     {"name": "product-scorer", "role": "Multi-score ranking + tiers"},
+    {"name": "still-set-renderer", "role": "Carousel slide design + product cutout quality"},
 ]
+
+
+@app.get("/api/render-config")
+def render_config() -> dict:
+    """Product-cutout / render knobs for the Still-Set renderer, read live by the IG backend.
+    Values come from the runtime overlay (Agents panel → still-set-renderer), else defaults."""
+    import runtime as _rt
+    return {
+        "isolate":         bool(_rt.get("RENDER_ISOLATE", 1, "int")),
+        "alpha_matting":   bool(_rt.get("RENDER_ALPHA_MATTING", 1, "int")),
+        "erode":           _rt.get("RENDER_ALPHA_ERODE", 0, "int"),
+        "knockout_thresh": _rt.get("RENDER_KNOCKOUT_THRESH", 30, "int"),
+        "model":           (_rt.get("RENDER_ISOLATE_MODEL", "u2net", "str") or "u2net"),
+    }
 
 
 class AgentSettingRequest(BaseModel):

@@ -44,6 +44,12 @@ TUNABLE: dict[str, dict] = {
     "QUALITY_PRICE_MAX":     {"type": "int", "min": 200, "max": 100000, "agent": "product-scout", "label": "Max price ₹"},
     "DEALS_MIN_DISCOUNT":    {"type": "int", "min": 0, "max": 90, "agent": "product-scout", "label": "Deals mode: min discount %"},
     "CONTENT_DEFAULT_STYLE": {"type": "str", "min": None, "max": None, "agent": "content-intelligence", "label": "Default caption style"},
+    # Still-Set renderer — product cutout quality (read live by the IG backend via /api/render-config).
+    "RENDER_ISOLATE":        {"type": "int", "min": 0, "max": 1, "agent": "still-set-renderer", "label": "Cut out product (0/1)"},
+    "RENDER_ALPHA_MATTING":  {"type": "int", "min": 0, "max": 1, "agent": "still-set-renderer", "label": "Smooth edges / alpha matting (0/1)"},
+    "RENDER_ALPHA_ERODE":    {"type": "int", "min": 0, "max": 20, "agent": "still-set-renderer", "label": "Edge erode (0 = keep full edge)"},
+    "RENDER_KNOCKOUT_THRESH": {"type": "int", "min": 5, "max": 80, "agent": "still-set-renderer", "label": "White-bg cutout strength"},
+    "RENDER_ISOLATE_MODEL":  {"type": "str", "min": None, "max": None, "agent": "still-set-renderer", "label": "Cutout model (u2net / isnet-general-use)"},
 }
 
 _cache: dict = {}
