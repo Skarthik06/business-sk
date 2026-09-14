@@ -316,6 +316,35 @@ def _rehost_for_ig(image_urls: list[str]) -> list[str]:
     return out
 
 
+def _recover_recent_media(account: dict, within_seconds: int = 150) -> Optional[dict]:
+    """Instagram sometimes publishes a post but returns a rate-limit error. Check the
+    account's NEWEST media; if it was created within `within_seconds`, return it as a
+    successful publish result so the caller can still record it + set up the automation.
+    Returns None if nothing recent is found (then the real error stands)."""
+    from datetime import datetime, timezone
+    import requests as _rq
+    from app.services.instagram import GRAPH
+    try:
+        ig_id = account.get("ig_business_id"); token = account.get("ig_access_token")
+        if not (ig_id and token):
+            return None
+        r = _rq.get(f"{GRAPH}/{ig_id}/media",
+                    params={"fields": "id,permalink,timestamp", "access_token": token, "limit": "1"},
+                    timeout=20)
+        items = (r.json() or {}).get("data") or []
+        if not items:
+            return None
+        m = items[0]
+        ts = m.get("timestamp")            # e.g. 2026-09-14T05:02:24+0000
+        dt = datetime.strptime(ts, "%Y-%m-%dT%H:%M:%S%z")
+        age = (datetime.now(timezone.utc) - dt).total_seconds()
+        if 0 <= age <= within_seconds:
+            return {"ig_media_id": m["id"], "permalink": m.get("permalink"), "media_type": "carousel"}
+    except Exception:
+        return None
+    return None
+
+
 @app.post("/api/sk/carousel")
 def sk_carousel(body: SkCarouselReq):
     """Publish an affiliate product carousel via a SELECTED rags account. The
@@ -370,7 +399,17 @@ def sk_carousel(body: SkCarouselReq):
     try:
         result = ig_publish(account, images, body.caption)
     except InstagramError as e:
-        raise HTTPException(400, str(e))
+        # Instagram QUIRK: under the anti-spam / app rate limit, media_publish can return an
+        # error while the carousel STILL goes live (eventual consistency). If so, the post is
+        # published but we'd otherwise 400 and skip recording + the comment→DM automation.
+        # Recover by checking the account's newest media — if one appeared in the last ~2 min,
+        # treat the publish as succeeded so recording + automation still run.
+        recovered = _recover_recent_media(account)
+        if recovered:
+            result = {**recovered, "recovered_after_error": str(e)}
+            design_meta = {**(design_meta or {}), "publish_recovered": True, "publish_error": str(e)}
+        else:
+            raise HTTPException(400, str(e))
     automation = None
     media_id = result.get("ig_media_id")
     if media_id:
