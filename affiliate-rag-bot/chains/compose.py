@@ -140,8 +140,9 @@ SYSTEM = (
     "SLIDE COPY (rendered ONTO the images — must look premium, so keep it clean):\n"
     "• `cover_title`: the big headline on the FIRST slide. Elegant, magazine-cover style, "
     "2-5 words, Title Case, split into two balanced lines with one '\\n'. NO price, %, emoji "
-    "or hashtag. Make it specific to THESE products — never a bland 'Fashion Edit'. Vary it "
-    "every time (tease the set, hint at the vibe).\n"
+    "or hashtag, and NEVER a season/holiday/festival word (no 'Season', 'Winter', 'Summer', "
+    "'Diwali', 'Festive', etc.) — keep it timeless. Make it specific to THESE products — never "
+    "a bland 'Fashion Edit'. Vary it every time (tease the set, hint at the vibe).\n"
     "• `cover_subtitle`: one short line under it, max ~6 words, no price/emoji.\n"
     "• `slide_titles`: for EACH pick (same order as `picks`) a short, human product name — "
     "2-5 clean words (e.g. 'Oversized Cotton Hoodie'), NOT the keyword-stuffed Amazon title, "
@@ -347,6 +348,14 @@ async def compose_pins(
 
     cover_title    = _clean_slide(batch.cover_title, lines=2, limit=22)
     cover_subtitle = _clean_slide(batch.cover_subtitle, lines=1, limit=48)
+    # timeless guard: if the model slipped a season/festival word into the cover copy, drop it
+    # so the renderer falls back to its own festival-free headline.
+    _seasony = re.compile(r"\b(season'?s?|winter|summer|spring|autumn|monsoon|festive|festivals?|"
+                          r"diwali|holi|navratri|christmas|new\s?year|valentine)\b", re.I)
+    if _seasony.search(cover_title):
+        cover_title = ""
+    if _seasony.search(cover_subtitle):
+        cover_subtitle = ""
     # map each picked product index → its AI slide name (aligned to `picks` order)
     slide_name_by_pid: dict[int, str] = {}
     for k, pid in enumerate(batch.picks or []):
