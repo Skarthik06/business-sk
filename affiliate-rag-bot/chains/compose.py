@@ -95,6 +95,10 @@ class PinBatch(BaseModel):
     caption:  str       = Field(description="ONE SHORT, catchy Instagram carousel caption (the CAROUSEL SLIDES already show each product's photo, price and discount, so DON'T list products or repeat prices). 2-3 short lines max, UNDER 300 characters: an emoji-led hook matched to the category, one line on why they're worth it, then 'Shop via the link in bio 👆'. Emojis must MATCH the category (👗 fashion, 🏠 home, 💄 beauty, 🎧 tech, 🍳 kitchen) — never random. Do NOT add any 'As an Amazon Associate' disclosure sentence.")
     hashtags: list[str] = Field(description="8-12 relevant hashtags (no '#' prefix), mixing broad and niche; include 'ad' as one of them")
     style:    str       = Field(default="", description="the caption STYLE you used, exactly one of: DEAL_DROP, STORY, LISTICLE, PROBLEM_SOLUTION, QUESTION, TRANSFORMATION, GIFT_GUIDE, BUDGET, PREMIUM, VIRAL_FIND")
+    # ── AI-written slide copy (rendered ONTO the images, so keep it tight & clean) ──
+    cover_title: str = Field(default="", description="The FIRST slide's big cover HEADLINE — an elegant, magazine-style title for this carousel of picks. 2 to 5 words, Title Case, NO price/%/emoji/hashtag. Split into two balanced lines with a single '\\n' (e.g. 'Cosy Layers\\nWorth It' or 'The Weekend\\nEdit'). Make it feel unique to THESE products — never a generic 'Fashion Edit'.")
+    cover_subtitle: str = Field(default="", description="One short supporting line under the cover headline — max ~6 words, no price/emoji (e.g. 'Hand-picked comfort staples' or 'Five finds we keep reaching for').")
+    slide_titles: list[str] = Field(default_factory=list, description="One SHORT clean display name per pick, SAME ORDER as `picks` — a human, elegant 2-5 word product name for the slide (e.g. 'Oversized Cotton Hoodie', NOT the keyword-stuffed Amazon title). No brand-spam, no specs dump, no price. Exactly as many entries as `picks`.")
 
 
 # ─── Prompts (system is fully static → cache-friendly) ───────────────────────
@@ -107,7 +111,12 @@ SYSTEM = (
     "real discount, a badge), scroll-stopping visual appeal, commission rate "
     "(Fashion 9% > Home 8% > Kitchen 7% > Beauty 6% > Electronics 2-5%), the "
     "₹200-5000 impulse-buy range, and similarity to the PROVEN winners. Return their "
-    "indices in `picks`, best first, exactly the requested count.\n\n"
+    "indices in `picks`, best first, exactly the requested count.\n"
+    "BRAND MIX — ENFORCE THIS: make ABOUT 60% of your picks RECOGNISABLE BRANDED products "
+    "(a real brand name in the title — e.g. Nike, boAt, Levi's, Allen Solly, Puma, Wildcraft, "
+    "Prestige, Pigeon — NOT 'Generic' or an unbranded/no-name seller). The remaining ~40% pick "
+    "purely on the strongest reviews, ratings, value and quality. When two products are close, "
+    "prefer the BRANDED one. Never fill the set with unbranded generic items.\n\n"
     "WRITE ONE `caption` that is SHORT, ELEGANT and genuinely catchy — sound like a tasteful "
     "lifestyle editor, NOT an ad. The CAROUSEL SLIDES already show each product's photo, price "
     "and % off, so the caption must NOT list products or repeat prices. Keep it UNDER 200 "
@@ -127,7 +136,16 @@ SYSTEM = (
     "Do NOT add any 'As an Amazon Associate' disclosure sentence anywhere in the caption.\n\n"
     "Then 8-12 `hashtags` (no # symbol), category-relevant, mixing broad and niche; "
     "include 'ad' as one hashtag (that is the only disclosure needed). Do NOT put a festival "
-    "hashtag."
+    "hashtag.\n\n"
+    "SLIDE COPY (rendered ONTO the images — must look premium, so keep it clean):\n"
+    "• `cover_title`: the big headline on the FIRST slide. Elegant, magazine-cover style, "
+    "2-5 words, Title Case, split into two balanced lines with one '\\n'. NO price, %, emoji "
+    "or hashtag. Make it specific to THESE products — never a bland 'Fashion Edit'. Vary it "
+    "every time (tease the set, hint at the vibe).\n"
+    "• `cover_subtitle`: one short line under it, max ~6 words, no price/emoji.\n"
+    "• `slide_titles`: for EACH pick (same order as `picks`) a short, human product name — "
+    "2-5 clean words (e.g. 'Oversized Cotton Hoodie'), NOT the keyword-stuffed Amazon title, "
+    "no brand-spam, no specs, no price. Give exactly as many as there are picks."
 )
 
 HUMAN = (
@@ -317,6 +335,26 @@ async def compose_pins(
     if warnings:
         log.warning(f"[content-validate] {len(warnings)} unverified numeric claim(s): {warnings[:2]}")
 
+    # ── AI slide copy (rendered onto images) — sanitise lightly, keep it clean ──
+    def _clean_slide(s: str, *, lines: int = 1, limit: int = 42) -> str:
+        s = (s or "").strip()
+        s = re.sub(r"[#*_`]", "", s)                       # no markdown/hashtag chars
+        s = re.sub(r"₹\s?[\d,]+", "", s)                   # never bake a price in
+        s = re.sub(r"\d+\s?%\s?off", "", s, flags=re.I)    # never bake a discount in
+        keep = [ln.strip(" -·,") for ln in s.split("\n") if ln.strip(" -·,")][:lines]
+        out = "\n".join(keep)[: limit * lines]
+        return out.strip()
+
+    cover_title    = _clean_slide(batch.cover_title, lines=2, limit=22)
+    cover_subtitle = _clean_slide(batch.cover_subtitle, lines=1, limit=48)
+    # map each picked product index → its AI slide name (aligned to `picks` order)
+    slide_name_by_pid: dict[int, str] = {}
+    for k, pid in enumerate(batch.picks or []):
+        if 0 <= pid < len(products) and k < len(batch.slide_titles or []):
+            nm = _clean_slide(batch.slide_titles[k], lines=1, limit=48)
+            if nm:
+                slide_name_by_pid[pid] = nm
+
     results: list[dict] = []
     seen_ids: set = set()
 
@@ -331,6 +369,9 @@ async def compose_pins(
             "affiliate_link":  "",        # filled by get_affiliate_links node
             "content_style":   style,           # Phase 4 A/B tag
             "content_warnings": warnings,        # Phase 4 fact-check (empty = all grounded)
+            "display_title":   slide_name_by_pid.get(pid, ""),   # AI slide name (renderer falls back to a cleaned Amazon title)
+            "cover_title":     cover_title,      # SHARED — AI cover headline (first slide)
+            "cover_subtitle":  cover_subtitle,   # SHARED — AI cover subline
         })
 
     # 1) honour the model's ranked picks (best first), skipping invalid/duplicate indices.

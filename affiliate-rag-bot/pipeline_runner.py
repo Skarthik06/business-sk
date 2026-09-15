@@ -245,6 +245,9 @@ def _pin_to_json(pin: dict, posted_map: dict) -> dict:
         "trend_score":       pin.get("trend_score"),            # Phase 3 (None if no trend data)
         "content_style":     pin.get("content_style", ""),      # Phase 4 A/B style
         "content_warnings":  pin.get("content_warnings", []),   # Phase 4 fact-check
+        "display_title":     pin.get("display_title", ""),      # AI slide name (rendered onto the image)
+        "cover_title":       pin.get("cover_title", ""),        # AI cover headline (first slide)
+        "cover_subtitle":    pin.get("cover_subtitle", ""),     # AI cover subline
         "posted":            bool(result.get("success")),
         "post_error":        result.get("error"),
     }

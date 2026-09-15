@@ -22,6 +22,7 @@ from __future__ import annotations
 import base64
 import html
 import io
+import json
 import os
 import re
 import time
@@ -154,12 +155,90 @@ def _name(p: Dict[str, Any]) -> str:
     return (p.get("product_title") or p.get("title") or p.get("name") or "Product").strip()
 
 
+def _clean_title(p: Dict[str, Any], limit: int = 88) -> str:
+    """A READABLE product name for the slide. Prefers the AI-written `display_title` (a short,
+    elegant, human name from the composer); falls back to the FULL Amazon name (brand + product +
+    key attributes), only tidying the keyword-stuffing punctuation and capping at a word boundary
+    so nothing is chopped mid-word."""
+    ai = " ".join((p.get("display_title") or "").split())
+    if ai:                                  # trust the composer's clean name; just cap length
+        return ai if len(ai) <= limit else ai[:limit].rsplit(" ", 1)[0].rstrip(" ,-·") + "…"
+    t = " ".join(_name(p).split())
+    t = t.replace(" | ", " · ").replace("|", " · ").replace(" - ", " · ")   # de-clutter separators, keep content
+    t = re.sub(r"\s*·\s*·\s*", " · ", t).strip(" ·-,")
+    if len(t) > limit:                      # cap at a word boundary, no mid-word chop
+        cut = t[:limit].rsplit(" ", 1)[0].rstrip(" ,-·")
+        t = (cut or t[:limit]) + "…"
+    return t
+
+
 def _brand(p: Dict[str, Any]) -> str:
     b = (p.get("brand") or "").strip()
     if b:
         return b
-    # first token of the title as a fallback brand cue (kept short, never fabricated)
-    return _name(p).split()[0][:22]
+    # first token of the REAL Amazon title as a fallback brand cue (never the AI display name,
+    # which is intentionally brand-free) — kept short, never fabricated.
+    raw = (p.get("product_title") or p.get("title") or p.get("name") or "").strip()
+    return (raw.split()[0][:22] if raw else "")
+
+
+# ── brand marks: real logos for known brands (Clearbit), elegant wordmark otherwise ──────
+# Fills the cover's empty space with the brands featured — recognisable names pull the click.
+# Curated domains only, so Clearbit reliably has the logo; everything else shows a clean wordmark.
+_BRAND_DOMAINS = {
+    "nike": "nike.com", "adidas": "adidas.com", "puma": "puma.com", "reebok": "reebok.com",
+    "boat": "boat-lifestyle.com", "boult": "boultaudio.com", "noise": "gonoise.com",
+    "realme": "realme.com", "mi": "mi.com", "xiaomi": "mi.com", "samsung": "samsung.com",
+    "oneplus": "oneplus.in", "sony": "sony.co.in", "jbl": "jbl.com", "philips": "philips.co.in",
+    "levis": "levi.com", "allensolly": "allensolly.com", "peterengland": "peterengland.com",
+    "hrx": "hrx.co.in", "campus": "campusshoes.com", "wildcraft": "wildcraft.com",
+    "fastrack": "fastrack.in", "titan": "titan.co.in", "fossil": "fossil.com",
+    "prestige": "ttkprestige.com", "pigeon": "stovekraft.com", "bajaj": "bajajelectricals.com",
+    "usha": "usha.com", "havells": "havells.com", "milton": "miltonindia.com",
+    "cello": "celloworld.com", "borosil": "borosil.com", "wow": "buywow.in",
+    "mamaearth": "mamaearth.in", "lakme": "lakmeindia.com", "nivea": "nivea.in",
+    "boldfit": "boldfit.in", "wakefit": "wakefit.co", "sparx": "sparxfootwear.com",
+    "redtape": "redtape.com", "bata": "bata.in", "wrogn": "wrogn.com", "roadster": "myntra.com",
+}
+
+
+def _brand_key(b: str) -> str:
+    return re.sub(r"[^a-z0-9]", "", (b or "").lower())
+
+
+def _brand_logo_url(brand: str) -> str:
+    d = _BRAND_DOMAINS.get(_brand_key(brand))
+    return f"https://logo.clearbit.com/{d}?size=160&format=png" if d else ""
+
+
+def _uniq_brands(products: List[Dict[str, Any]], limit: int = 4) -> List[str]:
+    out, seen = [], set()
+    for p in products or []:
+        b = _brand(p).strip()
+        k = _brand_key(b)
+        # skip empty, pure-number, generic or over-long tokens (not a real brand cue)
+        if b and k and k not in seen and len(b) <= 18 and not b.isdigit() and k not in ("generic", "the", "mens", "women"):
+            seen.add(k); out.append(b)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _brand_marks(products: List[Dict[str, Any]], P: Dict[str, str], *, limit: int = 4) -> str:
+    """A 'Featuring' row of brand marks for the cover's empty space. Known brands render a real
+    logo (Clearbit); the rest render a tasteful serif wordmark. Never fabricates a brand."""
+    brands = _uniq_brands(products, limit)
+    if not brands:
+        return ""
+    cells = []
+    for b in brands:
+        url = _brand_logo_url(b)
+        # wordmark sits behind; when a real logo exists it renders on top (opaque white cell)
+        logo = f'<img src="{url}" loading="eager">' if url else ""
+        cells.append(f'<div class="brandmark"><span class="wm">{_esc(b)}</span>{logo}</div>')
+    return (f'<div style="display:flex;flex-direction:column;gap:14px">'
+            f'<span class="brandeyebrow">Featuring</span>'
+            f'<div class="brandrow">{"".join(cells)}</div></div>')
 
 
 # ── product image prep: stage the environment, keep the product true ──────────
@@ -539,7 +618,7 @@ def _deal_html(p: Dict[str, Any], img: str, tint: str, idx: int, total: int) -> 
   <div class="stage big" style="position:absolute;left:56px;right:56px;top:126px;height:660px;z-index:1"><img src="{img}"></div>
   <div style="position:absolute;left:60px;right:60px;bottom:140px;z-index:2;display:flex;flex-direction:column;align-items:flex-start;gap:18px">
     {f'<div class="chips">{_badge_pill(p, tint)}{_rating_chip(p)}{_demand_chip(p)}</div>' if (_badge_pill(p, tint) or _rating_chip(p) or _demand_chip(p)) else ''}
-    <div class="pname" style="font-size:46px">{_esc(_name(p))[:52]}</div>
+    <div class="pname" style="font-size:40px;max-width:940px">{_esc(_clean_title(p))}</div>
     <div class="plock"><span class="price" style="font-size:92px">{price}</span>{f'<span class="mrp" style="font-size:42px">{mrp}</span>' if mrp and mrp!=price else ''}</div>
     <div style="display:flex;align-items:center;gap:18px">{tag}{_savings_line(p)}</div>
   </div>
@@ -711,6 +790,12 @@ body{{font-family:{_SANS};background:{P['g2']};color:{P['text']};overflow:hidden
 .megaoff{{font-family:{_SERIF};color:{t};line-height:.82;letter-spacing:-.02em}}
 .swipe{{display:inline-flex;align-items:center;gap:10px;font-family:{_MONO};font-weight:700;font-size:24px;color:{t};letter-spacing:.08em;text-transform:uppercase}}
 .thumbs{{display:flex;gap:18px}}.thumb{{flex:1;aspect-ratio:1;border-radius:14px;border:1.5px solid {P['border']}}}
+.brandeyebrow{{font-family:{_MONO};font-size:20px;letter-spacing:.22em;text-transform:uppercase;color:{P['muted']}}}
+.brandrow{{display:flex;gap:16px;flex-wrap:wrap;align-items:center}}
+.brandmark{{position:relative;display:inline-flex;align-items:center;justify-content:center;height:76px;min-width:132px;
+   padding:0 24px;background:#FFFFFFF7;border:1.5px solid {P['border']};border-radius:16px;box-shadow:0 12px 28px rgba(20,30,45,.10)}}
+.brandmark .wm{{font-family:{_SERIF};font-size:34px;font-weight:600;color:{P['text']};letter-spacing:.01em;white-space:nowrap;line-height:1}}
+.brandmark img{{position:absolute;left:14px;top:12px;width:calc(100% - 28px);height:calc(100% - 24px);object-fit:contain;background:#fff;border-radius:8px}}
 .cta{{display:inline-flex;align-items:center;gap:12px;font-family:{_MONO};font-weight:700;letter-spacing:.16em;text-transform:uppercase;
    border-radius:100px;padding:18px 34px;font-size:26px;background:{t};color:#fff}}
 """
@@ -778,6 +863,7 @@ def _cover2(products, imgs, P, *, title, subtitle, handle):
   <div style="position:relative;z-index:2;margin-top:120px">
     <div class="serif" style="font-size:120px;line-height:.88;letter-spacing:-.02em;max-width:920px">{_esc(title)}</div>
     <div class="serif" style="font-size:46px;font-style:italic;color:{P['tint']};margin-top:14px">{_esc(subtitle)}</div>
+    <div style="margin-top:44px">{_brand_marks(products, P)}</div>
   </div>
   <div style="position:absolute;left:60px;right:60px;bottom:300px;z-index:2;display:flex;flex-direction:column;gap:22px">
     {_badges_strip(products)}
@@ -798,7 +884,7 @@ def _spotlight2(p, img, P, handle):
     <div style="display:flex;align-items:flex-end;gap:22px">
       <div class="megaoff" style="font-size:150px">{off}%</div><div class="megaoff" style="font-size:50px;padding-bottom:20px">OFF<br>TODAY</div>
     </div>
-    <div class="pname" style="font-size:52px">{_esc(_name(p))[:52]}</div>
+    <div class="pname" style="font-size:40px;max-width:940px">{_esc(_clean_title(p))}</div>
     {_pricecard(p)}
   </div>
 """
@@ -813,7 +899,7 @@ def _editorial2(p, img, P, handle):
   <div class="stage" style="position:absolute;left:56px;right:56px;top:120px;height:720px;z-index:1"><img src="{img}"></div>
   <div style="position:absolute;left:60px;right:60px;bottom:130px;z-index:2;display:flex;flex-direction:column;gap:16px">
     {f'<div style="display:flex;gap:12px;flex-wrap:wrap">{chips}</div>' if chips else ''}
-    <div class="pname" style="font-size:56px">{_esc(_name(p))[:52]}</div>
+    <div class="pname" style="font-size:42px;max-width:940px">{_esc(_clean_title(p))}</div>
     {_pricecard(p)}
   </div>
 """
@@ -828,7 +914,7 @@ def _proof2(p, img, P, handle):
     <div class="stage" style="height:560px"><img src="{img}"></div>
     <div style="display:flex;flex-direction:column;gap:15px">
       <div style="display:flex;gap:12px;flex-wrap:wrap">{chips or '<span class="chip">Verified pick</span>'}</div>
-      <div class="pname" style="font-size:46px">{_esc(_name(p))[:52]}</div>
+      <div class="pname" style="font-size:40px;max-width:940px">{_esc(_clean_title(p))}</div>
       {_pricecard(p)}
     </div>
   </div>
@@ -888,8 +974,14 @@ def plan_slides(products: List[Dict[str, Any]], *, category: str = "", arc: str 
         specs.append({"tmpl": _pick_tmpl(p), "products": [p], "kick": kick})
         return specs
     # teaser cover → one slide per product → closer (Instagram hard-caps at 10 slides)
+    # Cover copy priority: explicit theme (user override) → AI-written cover_title from the
+    # composer → deterministic fallback. Same for the subtitle.
+    ai_ct = next((c for c in ((p.get("cover_title") or "").strip() for p in products) if c), "")
+    ai_cs = next((c for c in ((p.get("cover_subtitle") or "").strip() for p in products) if c), "")
+    cover_title = theme or ai_ct or _cover_title("", category, n, products)
+    cover_sub   = ai_cs or _cover_sub(products)
     specs.append({"tmpl": "cover", "products": products[:3], "kick": kick,
-                  "title": _cover_title(theme, category, n), "subtitle": _cover_sub(products),
+                  "title": cover_title, "subtitle": cover_sub,
                   "all": products[:10]})
     for p in products[:8]:
         specs.append({"tmpl": _pick_tmpl(p), "products": [p], "kick": kick})
@@ -897,21 +989,93 @@ def plan_slides(products: List[Dict[str, Any]], *, category: str = "", arc: str 
     return specs[:10]
 
 
-def _cover_title(theme: str, category: str, n: int) -> str:
+def _cover_seed(products: List[Dict[str, Any]], n: int) -> int:
+    """Deterministic seed from the actual products, so the cover copy is STABLE for a given
+    set of picks but VARIES across different runs (no more identical 'Fashion Edit' every time)."""
+    s = "".join((p.get("asin") or p.get("product_title") or "")[:8] for p in (products or []))
+    return (sum(ord(c) for c in s) + n) if s else n
+
+
+def _cover_variants(category: str, n: int, products: Optional[List[Dict[str, Any]]] = None) -> List[str]:
+    """The deterministic cover-headline pool (fallback when the composer sends no AI title,
+    and the rotation source that guarantees a NON-REPEATING front slide)."""
+    products = products or []
+    cat = (category or "Picks").strip().title()
+    maxoff = max((_discount_pct(p) or 0) for p in products) if products else 0
+    variants = [
+        f"The {cat}\nEdit", f"{n} {cat}\nPicks", f"Best {cat}\nThis Week",
+        f"{cat} Worth\nBuying", f"Top {cat}\nFinds", f"{cat} We're\nLoving",
+        f"The {cat}\nShortlist", f"{cat}, Sorted", f"{cat}\nWorth It",
+        f"This Week's\n{cat}", f"{cat} on\nRepeat", f"Editor's {cat}\nEdit",
+    ]
+    if maxoff >= 50:                       # lead with the deal when there's a strong one
+        variants = [f"Up to {maxoff}%\nOff {cat}", f"{cat} Deals\nWorth Grabbing"] + variants
+    return variants
+
+
+def _cover_title(theme: str, category: str, n: int, products: Optional[List[Dict[str, Any]]] = None) -> str:
     if theme:
         return theme
-    cat = (category or "").strip().title()
-    return f"The {cat}\nEdit" if cat else "This Week's\nEdit"
+    variants = _cover_variants(category, n, products)
+    return variants[_cover_seed(products or [], n) % len(variants)]
+
+
+# ── front-slide uniqueness: remember recent cover headlines so the cover NEVER repeats ──────
+def _cover_history_path(out_dir: Path) -> Path:
+    return Path(out_dir).parent / "sk_cover_history.json"
+
+
+def _norm_cov(t: str) -> str:
+    return re.sub(r"\s+", " ", (t or "").replace("\n", " ").strip().lower())
+
+
+def _load_cover_history(out_dir: Path) -> List[str]:
+    try:
+        data = json.loads(_cover_history_path(out_dir).read_text("utf-8"))
+        return [str(x) for x in data] if isinstance(data, list) else []
+    except Exception:
+        return []
+
+
+def _remember_cover(out_dir: Path, title: str) -> None:
+    try:
+        hist = _load_cover_history(out_dir)
+        key = _norm_cov(title)
+        if key:
+            hist = [h for h in hist if h != key] + [key]
+            _cover_history_path(out_dir).write_text(json.dumps(hist[-80:]), "utf-8")
+    except Exception:
+        pass
+
+
+def _unique_cover_title(title: str, out_dir: Path, category: str, n: int,
+                        products: Optional[List[Dict[str, Any]]], *, explicit: bool) -> str:
+    """Return a cover headline guaranteed NOT to match a recently-used one. An explicit user
+    theme is respected as-is; otherwise, on a collision we rotate through the deterministic
+    variant pool until we find an unused headline (best-effort; never fails the render)."""
+    if explicit or not title:
+        return title
+    hist = set(_load_cover_history(out_dir))
+    if _norm_cov(title) not in hist:
+        return title
+    for cand in _cover_variants(category, n, products):     # rotate to an unused variant
+        if _norm_cov(cand) not in hist:
+            return cand
+    return title                                            # pool exhausted → keep it (rare)
 
 
 def _cover_sub(products: List[Dict[str, Any]]) -> str:
     n = len(products)
     prices = [p for p in (_num(x.get("price")) for x in products) if p]
+    maxoff = max((_discount_pct(p) or 0) for p in products) if products else 0
     unit = "piece" if n == 1 else "pieces"
+    subs = []
     if prices:
-        hi = int(max(prices))
-        return f"{n} {unit} · all under ₹{_indian_group(_round_up(hi))}"
-    return f"{n} {unit} worth a look"
+        subs.append(f"{n} {unit} · all under ₹{_indian_group(_round_up(int(max(prices))))}")
+    if maxoff:
+        subs.append(f"{n} hand-picked · up to {maxoff}% off")
+    subs.append(f"{n} {unit} worth a look")
+    return subs[_cover_seed(products, n) % len(subs)]
 
 
 def _round_up(n: int) -> int:
@@ -956,14 +1120,27 @@ _TMPL_LABEL = {"cover": "Teaser cover", "spotlight": "Price-Drop Spotlight",
 
 def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_dir: Path,
                     cdn_prefix: str, slug: str, arc: str = "auto", handle: str = "@business.sk",
-                    theme: str = "", isolate: bool = True, palette: str = "warm") -> Dict[str, Any]:
+                    theme: str = "", isolate: bool = True, palette: str = "warm",
+                    track_cover: bool = True) -> Dict[str, Any]:
     """Full pipeline (Template System v2): plan a carousel-first sequence → prep each
     product image (staged, product-true) → render designed PNGs in the chosen palette
-    (warm | sky). Returns cdn urls + local paths + the plan (with human labels)."""
+    (warm | sky). Returns cdn urls + local paths + the plan (with human labels).
+
+    `track_cover` (posts only, not previews): dedupe the front-slide headline against recent
+    posts and remember it, so the cover NEVER repeats across posts."""
     P = _palette(palette, category)
     specs = plan_slides(products, category=category, arc=arc, handle=handle, theme=theme)
     if not specs:
         return {"rendered": False, "images": [], "local": [], "count": 0, "error": "no products"}
+
+    # Front-slide uniqueness: ensure the cover headline hasn't been used recently, then record it.
+    cover_spec = next((s for s in specs if s["tmpl"] == "cover"), None)
+    if cover_spec is not None:
+        uniq = _unique_cover_title(cover_spec.get("title", ""), out_dir, category,
+                                   len(products), products, explicit=bool(theme))
+        cover_spec["title"] = uniq
+        if track_cover:
+            _remember_cover(out_dir, uniq)
 
     # prep every unique product image once (data URIs), reused across slides
     img_cache: Dict[str, str] = {}

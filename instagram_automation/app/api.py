@@ -478,7 +478,8 @@ def sk_render_preview(body: SkRenderReq):
     res = sk_render.render_carousel(body.products, category=body.category, out_dir=out_dir,
                                     cdn_prefix="/cdn/sk_slides", slug=slug, arc=body.arc,
                                     theme=body.theme, handle=body.handle,
-                                    palette=(getattr(body, "palette", None) or "warm"))
+                                    palette=(getattr(body, "palette", None) or "warm"),
+                                    track_cover=False)   # preview: don't consume the cover-uniqueness history
     if not res.get("rendered"):
         raise HTTPException(500, f"Render failed: {res.get('error')}")
     return {"success": True, "images": res["images"], "count": res["count"],

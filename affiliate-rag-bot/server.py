@@ -370,6 +370,9 @@ def _content_item(pin: dict) -> dict:
         "affiliate_link":    affiliate_link,
         "content_style":     pin.get("content_style", ""),      # Phase 4 A/B style
         "content_warnings":  pin.get("content_warnings", []),   # Phase 4 fact-check (empty=clean)
+        "display_title":     pin.get("display_title", ""),      # AI slide name (rendered onto the image)
+        "cover_title":       pin.get("cover_title", ""),        # AI cover headline (first slide)
+        "cover_subtitle":    pin.get("cover_subtitle", ""),     # AI cover subline
         # ── discovery scores (deterministic, derived from real fields — no fabrication) ──
         **_discovery.score_product(pin),
         # ── Phase 2+3: novelty + trend + confidence + intelligence + winner + evidence ──
@@ -583,6 +586,9 @@ async def api_generate(
         # ONE universal caption + hashtags for this run's carousel (shared across its items).
         "caption": (items[0].get("summary") if items else ""),
         "hashtags": (items[0].get("hashtags") if items else []),
+        # AI-written cover copy for the first slide (shared across the carousel).
+        "cover_title": (items[0].get("cover_title") if items else ""),
+        "cover_subtitle": (items[0].get("cover_subtitle") if items else ""),
         "tiers": {t: sum(1 for it in items if it.get("tier") == t) for t in ("S", "A", "B", "C", "D")},
         # Phase 2 — winner tiers (from winner_score) + novelty coverage of this batch.
         "winner_tiers": {t: sum(1 for it in items if it.get("winner_tier") == t) for t in ("S", "A", "B", "C", "D")},
