@@ -994,6 +994,46 @@ def verify_webhook(request: Request):
     raise HTTPException(403, "verification failed")
 
 
+# ---- Public Privacy Policy page (required to take the Meta app Live) -----------
+# Served on the same public host as the webhook (no admin gate on /api/webhooks/*),
+# so the app has a valid, reachable Privacy Policy URL for App Settings -> Basic.
+_PRIVACY_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Business-SK — Privacy Policy</title>
+<style>body{font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:760px;margin:40px auto;padding:0 20px;line-height:1.6;color:#1a1a1a}
+h1{font-size:28px}h2{font-size:19px;margin-top:28px}small{color:#666}a{color:#0a58ca}</style></head><body>
+<h1>Privacy Policy</h1>
+<p><small>Last updated: 15 September 2026</small></p>
+<p>This Privacy Policy explains how the Business-SK automation ("we", "the app") handles
+information when it manages the Instagram professional accounts that have explicitly connected
+to it. The app is operated for the account owner's own Instagram business presence.</p>
+<h2>Information we access</h2>
+<p>With the account owner's authorization via Instagram, the app accesses: public comments left
+on the account's own posts, and direct messages exchanged with the account, solely to send
+automated replies (for example, sharing a product link when someone comments). We access only
+the data needed to provide that automation.</p>
+<h2>How we use it</h2>
+<p>Comment and message data is used only to trigger and send the automated reply the account
+owner has configured. We do not use it for advertising profiling, and we do not sell, rent, or
+share personal information with third parties.</p>
+<h2>Data retention & deletion</h2>
+<p>Interaction records are stored only as long as needed to operate the automation and can be
+deleted on request. To request access to, or deletion of, your data, contact us at the email
+below and we will act on the request promptly.</p>
+<h2>Third-party links</h2>
+<p>Automated replies may include affiliate links (for example, to Amazon). Those destinations
+have their own privacy policies, which govern any data you provide there.</p>
+<h2>Contact</h2>
+<p>Questions or data requests: <a href="mailto:karu8749@gmail.com">karu8749@gmail.com</a></p>
+</body></html>"""
+
+
+@webhook_router.get("/privacy")
+def privacy_policy():
+    """Public privacy policy (valid URL required to switch the Meta app to Live)."""
+    return Response(content=_PRIVACY_HTML, media_type="text/html")
+
+
 def _valid_signature(raw: bytes, header: Optional[str]) -> bool:
     if not _APP_SECRET:                         # signature check optional until configured
         return True
