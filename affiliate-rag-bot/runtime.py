@@ -50,6 +50,8 @@ TUNABLE: dict[str, dict] = {
     "RENDER_ALPHA_ERODE":    {"type": "int", "min": 0, "max": 20, "agent": "still-set-renderer", "label": "Edge erode (0 = keep full edge)"},
     "RENDER_KNOCKOUT_THRESH": {"type": "int", "min": 5, "max": 80, "agent": "still-set-renderer", "label": "White-bg cutout strength"},
     "RENDER_ISOLATE_MODEL":  {"type": "str", "min": None, "max": None, "agent": "still-set-renderer", "label": "Cutout model (u2net / isnet-general-use)"},
+    "RENDER_BRAND_LOGOS":    {"type": "int", "min": 0, "max": 1, "agent": "still-set-renderer", "label": "Show brand marks on cover (0/1)"},
+    "RENDER_BRAND_MAX":      {"type": "int", "min": 0, "max": 6, "agent": "still-set-renderer", "label": "Max brand marks on cover"},
 }
 
 _cache: dict = {}

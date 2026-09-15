@@ -43,6 +43,8 @@ _RENDER_DEFAULTS = {
     "erode": int(os.getenv("SK_ALPHA_ERODE", "0") or 0),           # 0 = don't eat the product edge
     "model": os.getenv("SK_ISOLATE_MODEL", "u2net"),
     "knockout_thresh": int(os.getenv("SK_KNOCKOUT_THRESH", "30") or 30),
+    "brand_logos": os.getenv("SK_BRAND_LOGOS", "1") not in ("0", "false", ""),  # show the cover 'Featuring' brand marks
+    "brand_max": int(os.getenv("SK_BRAND_MAX", "4") or 4),          # how many brand marks on the cover
 }
 _RCFG_CACHE: Dict[str, Any] = {"at": 0.0, "val": None}
 
@@ -235,15 +237,25 @@ def _uniq_brands(products: List[Dict[str, Any]], limit: int = 4) -> List[str]:
 
 def _brand_marks(products: List[Dict[str, Any]], P: Dict[str, str], *, limit: int = 4) -> str:
     """A 'Featuring' row of brand marks for the cover's empty space. Known brands render a real
-    logo (Clearbit); the rest render a tasteful serif wordmark. Never fabricates a brand."""
+    logo (Clearbit); the rest render a tasteful serif wordmark. Never fabricates a brand.
+    Gated + sized live by the still-set-renderer agent (RENDER_BRAND_LOGOS / RENDER_BRAND_MAX)."""
+    cfg = _render_cfg()
+    if not cfg.get("brand_logos", True):
+        return ""
+    limit = max(0, int(cfg.get("brand_max", limit) or 0))
+    if limit == 0:
+        return ""
     brands = _uniq_brands(products, limit)
     if not brands:
         return ""
     cells = []
     for b in brands:
         url = _brand_logo_url(b)
-        # wordmark sits behind; when a real logo exists it renders on top (opaque white cell)
-        logo = f'<img src="{url}" loading="eager">' if url else ""
+        # The wordmark ALWAYS renders; a real logo fades in ONLY once it successfully loads
+        # (opacity:0 → 1 on load) and removes itself on error — so a failed/slow logo never
+        # shows a broken-image icon, it just falls back to the clean wordmark.
+        logo = (f'<img src="{url}" loading="eager" style="opacity:0" '
+                f'onload="this.style.opacity=1" onerror="this.remove()">') if url else ""
         cells.append(f'<div class="brandmark"><span class="wm">{_esc(b)}</span>{logo}</div>')
     return (f'<div style="display:flex;flex-direction:column;gap:14px">'
             f'<span class="brandeyebrow">Featuring</span>'
@@ -863,22 +875,22 @@ def _badges_strip(products: List[Dict[str, Any]]) -> str:
 def _cover2(products, imgs, P, *, title, subtitle, handle):
     n = len(products)
     maxoff = max((_discount_pct(p) or 0) for p in products) if products else 0
-    thumbs = "".join(f'<div class="thumb stage"><img src="{u}" style="width:88%;height:88%"></div>' for u in imgs[:3] if u)
     # the deal lives in the badge row (not floating over the headline) so the title owns the top
     off_pill = f'<span class="badge">↓ UP TO {maxoff}% OFF</span>' if maxoff else ""
+    # ONE centred column (title → brand marks → deal/badges) so nothing can ever collide,
+    # whatever the headline length or brand count.
     inner = f"""
   <div class="placard"><span class="kick">The Drop</span><span class="code">SK · EDIT</span></div>
   <span class="spark" style="top:150px;left:90px;font-size:28px">✧</span>
-  <div style="position:relative;z-index:2;margin-top:96px">
-    <div class="serif" style="font-size:116px;line-height:.9;letter-spacing:-.02em;max-width:960px">{_multiline(title)}</div>
-    <div class="serif" style="font-size:46px;font-style:italic;color:{P['tint']};margin-top:16px">{_esc(subtitle)}</div>
-    <div style="margin-top:44px">{_brand_marks(products, P)}</div>
-  </div>
-  <div style="position:absolute;left:60px;right:60px;bottom:300px;z-index:2;display:flex;flex-direction:column;gap:22px">
+  <div style="position:absolute;left:60px;right:60px;top:168px;bottom:150px;z-index:2;display:flex;flex-direction:column;justify-content:center;gap:40px">
+    <div>
+      <div class="serif" style="font-size:116px;line-height:.9;letter-spacing:-.02em;max-width:960px">{_multiline(title)}</div>
+      <div class="serif" style="font-size:46px;font-style:italic;color:{P['tint']};margin-top:16px">{_esc(subtitle)}</div>
+    </div>
+    {_brand_marks(products, P)}
     <div style="display:flex;gap:12px;flex-wrap:wrap">{off_pill}{_badges_strip(products)}</div>
-    <div class="thumbs">{thumbs}</div>
   </div>
-  <div style="position:absolute;left:60px;bottom:206px;z-index:2"><span class="swipe">Swipe → {n} deals inside</span></div>
+  <div style="position:absolute;left:60px;bottom:92px;z-index:2"><span class="swipe">Swipe → {n} deals inside</span></div>
 """
     return _page2(P, inner, foot_right="SWIPE →", handle=handle)
 

@@ -942,6 +942,8 @@ def render_config() -> dict:
         "erode":           _rt.get("RENDER_ALPHA_ERODE", 0, "int"),
         "knockout_thresh": _rt.get("RENDER_KNOCKOUT_THRESH", 30, "int"),
         "model":           (_rt.get("RENDER_ISOLATE_MODEL", "u2net", "str") or "u2net"),
+        "brand_logos":     bool(_rt.get("RENDER_BRAND_LOGOS", 1, "int")),
+        "brand_max":       _rt.get("RENDER_BRAND_MAX", 4, "int"),
     }
 
 
