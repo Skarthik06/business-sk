@@ -371,6 +371,7 @@ def _content_item(pin: dict) -> dict:
         "content_style":     pin.get("content_style", ""),      # Phase 4 A/B style
         "content_warnings":  pin.get("content_warnings", []),   # Phase 4 fact-check (empty=clean)
         "display_title":     pin.get("display_title", ""),      # AI slide name (rendered onto the image)
+        "deal_tag":          pin.get("deal_tag", ""),           # AI 1-2 word price-sticker hype word
         "cover_title":       pin.get("cover_title", ""),        # AI cover headline (first slide)
         "cover_subtitle":    pin.get("cover_subtitle", ""),     # AI cover subline
         # ── discovery scores (deterministic, derived from real fields — no fabrication) ──
@@ -925,7 +926,8 @@ AGENT_ROSTER = [
     {"name": "winner-prediction", "role": "Predicted winners (deterministic → historical)"},
     {"name": "product-scout", "role": "Category-taxonomy retrieval + quality gate"},
     {"name": "product-scorer", "role": "Multi-score ranking + tiers"},
-    {"name": "still-set-renderer", "role": "Carousel slide design + product cutout quality"},
+    {"name": "creative-copywriter", "role": "AI cover headline, clean slide names + catchy deal-sticker words (one call)"},
+    {"name": "still-set-renderer", "role": "Slide design, brand marks, product cutout + non-repeating covers"},
 ]
 
 

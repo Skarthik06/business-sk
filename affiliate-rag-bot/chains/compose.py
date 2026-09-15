@@ -99,6 +99,7 @@ class PinBatch(BaseModel):
     cover_title: str = Field(default="", description="The FIRST slide's big cover HEADLINE — an elegant, magazine-style title for this carousel of picks. 2 to 5 words, Title Case, NO price/%/emoji/hashtag. Split into two balanced lines with a single '\\n' (e.g. 'Cosy Layers\\nWorth It' or 'The Weekend\\nEdit'). Make it feel unique to THESE products — never a generic 'Fashion Edit'.")
     cover_subtitle: str = Field(default="", description="One short supporting line under the cover headline — max ~6 words, no price/emoji (e.g. 'Hand-picked comfort staples' or 'Five finds we keep reaching for').")
     slide_titles: list[str] = Field(default_factory=list, description="One SHORT clean display name per pick, SAME ORDER as `picks` — a human, elegant 2-5 word product name for the slide (e.g. 'Oversized Cotton Hoodie', NOT the keyword-stuffed Amazon title). No brand-spam, no specs dump, no price. Exactly as many entries as `picks`.")
+    deal_tags: list[str] = Field(default_factory=list, description="One PUNCHY 1-2 WORD deal label per pick, SAME ORDER as `picks` — a catchy hype word for the price sticker (e.g. 'STEAL', 'HOT DROP', 'LOWEST YET', 'GRAB FAST', 'RARE FIND', 'TODAY ONLY'). UPPERCASE, no digits, no '%', no '₹', no 'OFF'. Vary them across picks. Exactly as many entries as `picks`.")
 
 
 # ─── Prompts (system is fully static → cache-friendly) ───────────────────────
@@ -146,7 +147,10 @@ SYSTEM = (
     "• `cover_subtitle`: one short line under it, max ~6 words, no price/emoji.\n"
     "• `slide_titles`: for EACH pick (same order as `picks`) a short, human product name — "
     "2-5 clean words (e.g. 'Oversized Cotton Hoodie'), NOT the keyword-stuffed Amazon title, "
-    "no brand-spam, no specs, no price. Give exactly as many as there are picks."
+    "no brand-spam, no specs, no price. Give exactly as many as there are picks.\n"
+    "• `deal_tags`: for EACH pick (same order) a PUNCHY 1-2 WORD hype label for the price "
+    "sticker — UPPERCASE, no digits/%/₹, never the word 'OFF' (e.g. 'STEAL', 'HOT DROP', "
+    "'LOWEST YET', 'GRAB FAST', 'RARE FIND', 'TODAY ONLY'). Vary them; exactly as many as picks."
 )
 
 HUMAN = (
@@ -356,13 +360,22 @@ async def compose_pins(
         cover_title = ""
     if _seasony.search(cover_subtitle):
         cover_subtitle = ""
-    # map each picked product index → its AI slide name (aligned to `picks` order)
+    # map each picked product index → its AI slide name / deal tag (aligned to `picks` order)
     slide_name_by_pid: dict[int, str] = {}
+    deal_tag_by_pid: dict[int, str] = {}
+    _tags = batch.deal_tags or []
     for k, pid in enumerate(batch.picks or []):
-        if 0 <= pid < len(products) and k < len(batch.slide_titles or []):
+        if not (0 <= pid < len(products)):
+            continue
+        if k < len(batch.slide_titles or []):
             nm = _clean_slide(batch.slide_titles[k], lines=1, limit=48)
             if nm:
                 slide_name_by_pid[pid] = nm
+        if k < len(_tags):
+            dt = re.sub(r"[^A-Za-z' ]", "", (_tags[k] or "")).strip().upper()
+            dt = " ".join(dt.split()[:2])[:14]        # keep it to 1-2 words, no digits/%/₹
+            if dt and "OFF" not in dt.split():
+                deal_tag_by_pid[pid] = dt
 
     results: list[dict] = []
     seen_ids: set = set()
@@ -379,6 +392,7 @@ async def compose_pins(
             "content_style":   style,           # Phase 4 A/B tag
             "content_warnings": warnings,        # Phase 4 fact-check (empty = all grounded)
             "display_title":   slide_name_by_pid.get(pid, ""),   # AI slide name (renderer falls back to a cleaned Amazon title)
+            "deal_tag":        deal_tag_by_pid.get(pid, ""),     # AI 1-2 word price-sticker hype word
             "cover_title":     cover_title,      # SHARED — AI cover headline (first slide)
             "cover_subtitle":  cover_subtitle,   # SHARED — AI cover subline
         })

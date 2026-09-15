@@ -92,6 +92,15 @@ def _esc(s: Any) -> str:
     return html.escape("" if s is None else str(s))
 
 
+def _multiline(s: Any) -> str:
+    """Escape text, then turn line breaks into <br>. Handles BOTH a real newline and a LITERAL
+    backslash-n (LLMs often emit the two characters '\\n' instead of a newline in a JSON string)."""
+    raw = "" if s is None else str(s)
+    raw = raw.replace("\\n", "\n")                     # literal backslash-n → real newline
+    parts = [p.strip() for p in raw.split("\n") if p.strip()]
+    return "<br>".join(_esc(p) for p in parts)
+
+
 def _money(v: Any) -> str:
     """Render a price/MRP as a clean ₹ figure with Indian grouping. Passes through
     a value that already has a currency symbol; drops nothing, invents nothing."""
@@ -855,18 +864,18 @@ def _cover2(products, imgs, P, *, title, subtitle, handle):
     n = len(products)
     maxoff = max((_discount_pct(p) or 0) for p in products) if products else 0
     thumbs = "".join(f'<div class="thumb stage"><img src="{u}" style="width:88%;height:88%"></div>' for u in imgs[:3] if u)
-    tag = f'<div class="saletag" style="top:196px;right:70px">UP TO {maxoff}% OFF</div>' if maxoff else ""
+    # the deal lives in the badge row (not floating over the headline) so the title owns the top
+    off_pill = f'<span class="badge">↓ UP TO {maxoff}% OFF</span>' if maxoff else ""
     inner = f"""
   <div class="placard"><span class="kick">The Drop</span><span class="code">SK · EDIT</span></div>
-  <span class="spark" style="top:150px;right:120px">✦</span><span class="spark" style="top:236px;left:90px;font-size:28px">✧</span>
-  {tag}
-  <div style="position:relative;z-index:2;margin-top:120px">
-    <div class="serif" style="font-size:120px;line-height:.88;letter-spacing:-.02em;max-width:920px">{_esc(title)}</div>
-    <div class="serif" style="font-size:46px;font-style:italic;color:{P['tint']};margin-top:14px">{_esc(subtitle)}</div>
+  <span class="spark" style="top:150px;left:90px;font-size:28px">✧</span>
+  <div style="position:relative;z-index:2;margin-top:96px">
+    <div class="serif" style="font-size:116px;line-height:.9;letter-spacing:-.02em;max-width:960px">{_multiline(title)}</div>
+    <div class="serif" style="font-size:46px;font-style:italic;color:{P['tint']};margin-top:16px">{_esc(subtitle)}</div>
     <div style="margin-top:44px">{_brand_marks(products, P)}</div>
   </div>
   <div style="position:absolute;left:60px;right:60px;bottom:300px;z-index:2;display:flex;flex-direction:column;gap:22px">
-    {_badges_strip(products)}
+    <div style="display:flex;gap:12px;flex-wrap:wrap">{off_pill}{_badges_strip(products)}</div>
     <div class="thumbs">{thumbs}</div>
   </div>
   <div style="position:absolute;left:60px;bottom:206px;z-index:2"><span class="swipe">Swipe → {n} deals inside</span></div>
@@ -874,18 +883,37 @@ def _cover2(products, imgs, P, *, title, subtitle, handle):
     return _page2(P, inner, foot_right="SWIPE →", handle=handle)
 
 
+def _deal_word(p: Dict[str, Any]) -> str:
+    """The catchy 1-2 word price-sticker label: the AI `deal_tag` when present, else a truthful
+    deterministic hype word chosen by discount depth (never the flat 'OFF TODAY')."""
+    t = re.sub(r"[^A-Za-z' ]", "", (p.get("deal_tag") or "")).strip().upper()
+    t = " ".join(t.split()[:2])
+    if t and "OFF" not in t.split():
+        return t
+    off = _discount_pct(p) or 0
+    return "STEAL" if off >= 70 else "BIG DROP" if off >= 50 else "HOT PRICE" if off >= 30 else "TODAY ONLY"
+
+
+def _side_chips(p: Dict[str, Any], P: Dict[str, str]) -> str:
+    """A column of truthful proof chips to sit BESIDE the price (fills the empty space next to
+    the ₹ lockup). Falls back to a single 'Live on Amazon.in' chip so the space never looks bare."""
+    chips = _chips2(p) or '<span class="chip">🛒 Live on <b>Amazon.in</b></span>'
+    return f'<div style="display:flex;flex-direction:column;gap:12px;padding-bottom:6px">{chips}</div>'
+
+
 def _spotlight2(p, img, P, handle):
     off = _discount_pct(p) or 0
+    word = _multiline(_deal_word(p))          # AI 1-2 word hype label, stacked if two words
     inner = f"""
   <div class="placard"><span class="kick">Price Drop</span><span class="code">SK · DEAL</span></div>
   <span class="spark" style="top:150px;right:110px">✦</span>
   <div class="stage" style="position:absolute;left:56px;right:56px;top:120px;height:600px;z-index:1"><img src="{img}"></div>
   <div style="position:absolute;left:60px;right:60px;bottom:130px;z-index:2;display:flex;flex-direction:column;gap:18px">
     <div style="display:flex;align-items:flex-end;gap:22px">
-      <div class="megaoff" style="font-size:150px">{off}%</div><div class="megaoff" style="font-size:50px;padding-bottom:20px">OFF<br>TODAY</div>
+      <div class="megaoff" style="font-size:150px">{off}%</div><div class="megaoff" style="font-size:50px;padding-bottom:20px">{word}</div>
     </div>
     <div class="pname" style="font-size:40px;max-width:940px">{_esc(_clean_title(p))}</div>
-    {_pricecard(p)}
+    <div style="display:flex;align-items:flex-end;gap:28px;flex-wrap:wrap">{_pricecard(p)}{_side_chips(p, P)}</div>
   </div>
 """
     return _page2(P, inner, handle=handle)
