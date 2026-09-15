@@ -148,6 +148,23 @@ async def check_duplicates(state: BotState, config: RunnableConfig) -> dict:
 
         log.info(f"[Dedup] DB stats: {stats['total_seen']} total pinned | {stats['by_category']}")
 
+        # GUARANTEE the requested count: if removing already-pinned products drops the pool
+        # below what the user asked for, backfill with the best previously-seen products from
+        # THIS scrape (real products, occasionally re-shown) so a post is never short. Only
+        # backfills up to what the scrape actually returned. `raw` is attractiveness-sorted.
+        target = int(state.get("products_per_run") or 0)
+        if target and len(fresh) < target and dupes:
+            fresh_asins = {p.get("asin") for p in fresh}
+            dupe_asins = set(dupes)
+            seen_pool = [p for p in raw
+                         if p.get("asin") in dupe_asins and p.get("asin") not in fresh_asins]
+            need = target - len(fresh)
+            backfill = seen_pool[:need]
+            if backfill:
+                log.info(f"[Dedup] pool short ({len(fresh)}/{target}) — backfilled "
+                         f"{len(backfill)} previously-seen product(s) to meet the requested count")
+                fresh = fresh + backfill
+
         if not fresh:
             return {
                 "fresh_products":  [],
