@@ -30,7 +30,7 @@ const TAB_KICKER = {
   calendar: 'Your publishing queue and the suggested weekly plan.',
   post: 'Review the batch from Discover, choose an account, and publish.',
   hub: 'Your public Amazon page — the link for your Instagram bio.',
-  revenue: 'Measured results and the funnel — log a post to power the learning loop.',
+  revenue: 'Real earnings by network (Cuelinks · Amazon · more) + the post funnel — the results loop.',
   agents: 'Every capability is an agent — tune its constraints live, no restart.',
   accounts: 'Your affiliate program accounts, stored encrypted with your .ragskey.',
   history: 'Every carousel you have published.',
@@ -1283,6 +1283,106 @@ function IntelligencePanel({ active }) {
 }
 
 // ══════════════════════════════════ REVENUE + PERFORMANCE (Phase 6/7) ═════════
+// Tolerant report parser: accepts "date,asin,clicks,orders,earnings" or "date,earnings" rows.
+function parseNetworkReport(text) {
+  const num = (s) => { const n = Number(String(s).replace(/[^\d.-]/g, '')); return Number.isFinite(n) ? n : null; };
+  const out = [];
+  (text || '').trim().split(/\r?\n/).forEach((ln) => {
+    const c = ln.split(',').map((s) => s.trim());
+    if (!c[0] || /date|period/i.test(c[0])) return;               // skip header / blank
+    if (c.length >= 5) out.push({ period_date: c[0], product_asin: c[1] || null, clicks: num(c[2]), orders: num(c[3]), earnings: num(c[4]) });
+    else if (c.length >= 2) out.push({ period_date: c[0], earnings: num(c[c.length - 1]) });
+  });
+  return out;
+}
+
+function NetworksSection({ say }) {
+  const [d, setD] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [showImp, setShowImp] = useState(false);
+  const [impNet, setImpNet] = useState('cuelinks');
+  const [imp, setImp] = useState('');
+  const load = () => skApi.networks(30).then(setD).catch(() => setD(null));
+  useEffect(() => { load(); }, []);
+  const sync = async () => {
+    setBusy(true);
+    try {
+      const r = await skApi.cuelinksSync(30);
+      if (r.ok) { say?.(`Cuelinks synced · ${r.rows_stored || 0} row(s)`); load(); }
+      else say?.(r.error || 'Cuelinks API not set — use Import report', 'error');
+    } catch { say?.('Cuelinks sync failed', 'error'); } finally { setBusy(false); }
+  };
+  const doImport = async () => {
+    const rows = parseNetworkReport(imp);
+    if (!rows.length) return say?.('Paste CSV rows: date,asin,clicks,orders,earnings', 'error');
+    try {
+      const r = await skApi.networksImport(impNet, rows);
+      if (r.ok) { say?.(`Imported ${r.rows_stored} row(s) → ${impNet}`); setImp(''); setShowImp(false); load(); }
+      else say?.(r.error || 'Import failed', 'error');
+    } catch { say?.('Import failed', 'error'); }
+  };
+  const t = d?.total || {}; const nets = d?.networks || []; const tops = d?.top_products || [];
+  const STAT = { connected: ['var(--ok)', 'live'], coming_soon: ['var(--faint)', 'coming soon'] };
+  return (
+    <div className="panel p-4">
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
+        <div className="eyebrow">Affiliate networks · real earnings (30d)</div>
+        <div className="flex gap-2">
+          <button className="btn btn-sm btn-ghost" onClick={() => setShowImp((v) => !v)}><Icon name="doc" size={12} /> Import report</button>
+          <button className="btn btn-sm" onClick={sync} disabled={busy}>{busy ? <Spinner size={12} /> : <Icon name="bolt" size={12} />} Sync Cuelinks</button>
+        </div>
+      </div>
+      <div className="grid grid-cols-3 gap-3 mb-3">
+        <div className="stat-tile"><div className="stat-v">{t.earnings != null ? '₹' + t.earnings : '—'}</div><div className="stat-k">total earnings</div></div>
+        <div className="stat-tile"><div className="stat-v">{t.clicks || '—'}</div><div className="stat-k">clicks</div></div>
+        <div className="stat-tile"><div className="stat-v">{t.orders || '—'}</div><div className="stat-k">orders</div></div>
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {nets.map((n) => {
+          const [col, lbl] = STAT[n.status] || ['var(--muted)', n.status];
+          return (
+            <div key={n.name} className="panel p-3" style={{ opacity: n.status === 'coming_soon' ? 0.7 : 1 }}>
+              <div className="flex items-center justify-between mb-1">
+                <b style={{ fontSize: 13 }}>{n.label}</b>
+                <span className="text-xs" style={{ color: col, fontWeight: 700 }}>{lbl}</span>
+              </div>
+              <div style={{ fontSize: 22, fontWeight: 800 }}>{n.has_data ? '₹' + n.earnings : '—'}</div>
+              <div className="text-xs" style={{ color: 'var(--muted)' }}>{n.has_data ? `${n.clicks} clicks · ${n.orders} orders${n.epc != null ? ' · ₹' + n.epc + '/click' : ''}` : n.note}</div>
+            </div>
+          );
+        })}
+      </div>
+      {showImp && (
+        <div className="panel p-3 mt-3">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="eyebrow">Import a report</span>
+            <select className="sk-input" style={{ width: 140 }} value={impNet} onChange={(e) => setImpNet(e.target.value)}>
+              {nets.map((n) => <option key={n.name} value={n.name}>{n.label}</option>)}
+            </select>
+          </div>
+          <textarea className="sk-input" rows={4} value={imp} onChange={(e) => setImp(e.target.value)}
+            placeholder={'Paste CSV rows, one per line:\ndate,asin,clicks,orders,earnings\n2026-09-15,B07NJ41FPC,120,4,86.50'} style={{ fontFamily: 'monospace', fontSize: 12 }} />
+          <div className="flex justify-end mt-2"><button className="btn btn-sm" onClick={doImport}><Icon name="check" size={12} /> Import</button></div>
+        </div>
+      )}
+      {tops.length > 0 && (
+        <div className="mt-3">
+          <div className="eyebrow mb-2">Top-earning products</div>
+          <div className="flex flex-col gap-2">
+            {tops.slice(0, 8).map((p) => (
+              <div key={p.product_asin} className="acct-row">
+                <span className="prog-badge">{p.network}</span>
+                <span className="text-xs font-mono" style={{ color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.product_title || p.product_asin} · {p.clicks} clicks · {p.orders} orders</span>
+                <b>₹{p.earnings}</b>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RevenuePanel({ active, say }) {
   const [ov, setOv] = useState(null);
   const [posts, setPosts] = useState(null);
@@ -1301,9 +1401,10 @@ function RevenuePanel({ active, say }) {
   const connected = ov?.connected;
   return (
     <div className="mb-24 flex flex-col gap-4">
+      <NetworksSection say={say} />
       <div className="panel p-4">
         <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
-          <div className="eyebrow">Revenue &amp; performance</div>
+          <div className="eyebrow">Post funnel &amp; performance</div>
           <button className="btn btn-sm" onClick={async () => { try { const r = await api.affSyncPerformance(); reload(); say?.(`Synced ${r.synced} post(s) from Instagram`); } catch { say?.('Sync needs a connected IG account + posted carousels', 'error'); } }}><Icon name="bolt" size={13} /> Sync from Instagram</button>
         </div>
         {!connected

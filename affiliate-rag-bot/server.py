@@ -854,6 +854,44 @@ def performance_categories() -> dict:
     return {"ok": True, "priors": learner.category_priors()}
 
 
+# ── Affiliate NETWORK attribution (the results / earnings panel) ──────────────
+
+@app.get("/api/networks")
+def networks_summary(days: int = 30) -> dict:
+    """Per-network earnings + the registry (live networks + expansion slots) + top products +
+    the post funnel — everything the Performance panel renders."""
+    from performance.networks import network_store
+    from performance.store import performance_store
+    from performance import cuelinks
+    d = max(1, min(days, 365))
+    return {"ok": True,
+            **network_store.summary(d),
+            "top_products": network_store.top_products(d),
+            "funnel": performance_store.overview(),
+            "cuelinks_api": cuelinks.configured()}
+
+
+class NetworkImportRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+    network: str
+    rows:    list[dict] = Field(default_factory=list)   # [{period_date, [asin], [clicks], [orders], [earnings]}]
+
+
+@app.post("/api/networks/import")
+def networks_import(body: NetworkImportRequest) -> dict:
+    """Record an affiliate report export (Cuelinks / Amazon / Flipkart / Myntra) — the manual
+    path when a network has no live API. Only real report rows; nothing is fabricated."""
+    from performance.networks import network_store
+    return network_store.record_earnings(body.network, body.rows, source="import")
+
+
+@app.post("/api/networks/cuelinks/sync")
+def networks_cuelinks_sync(days: int = 30) -> dict:
+    """Pull the last `days` of Cuelinks earnings via its API (needs CUELINKS_API_TOKEN)."""
+    from performance import cuelinks
+    return cuelinks.sync(max(1, min(days, 365)))
+
+
 @app.get("/api/intelligence/insights")
 def intelligence_insights() -> dict:
     """Learned recommendations (best categories/styles by measured outcome). Empty until data."""
@@ -927,7 +965,8 @@ AGENT_ROSTER = [
     {"name": "product-scout", "role": "Category-taxonomy retrieval + quality gate"},
     {"name": "product-scorer", "role": "Multi-score ranking + tiers"},
     {"name": "creative-copywriter", "role": "AI cover headline, clean slide names + catchy deal-sticker words (one call)"},
-    {"name": "still-set-renderer", "role": "Slide design, brand marks, product cutout + non-repeating covers"},
+    {"name": "still-set-renderer", "role": "Slide design, product collage cover, cutout + non-repeating covers"},
+    {"name": "attribution-analyst", "role": "Real earnings per network + product (Cuelinks/Amazon/…); closes the results loop"},
 ]
 
 

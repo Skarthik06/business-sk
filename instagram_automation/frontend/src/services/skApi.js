@@ -55,6 +55,10 @@ export default {
   perfOverview:  () => sk.get('/performance/overview').then(data),
   perfPosts:     (limit = 50) => sk.get('/performance/posts', { params: { limit } }).then(data),
   perfIngest:    (body) => sk.post('/performance/ingest', body).then(data),
+  // affiliate network attribution (earnings panel)
+  networks:      (days = 30) => sk.get('/networks', { params: { days } }).then(data),
+  networksImport: (network, rows) => sk.post('/networks/import', { network, rows }).then(data),
+  cuelinksSync:  (days = 30) => sk.post('/networks/cuelinks/sync', null, { params: { days } }).then(data),
   retailers:     () => sk.get('/retailers').then(data),
   // agents control panel (editable constraints, runtime overlay)
   agents:        () => sk.get('/agents').then(data),
