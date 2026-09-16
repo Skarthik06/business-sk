@@ -502,9 +502,15 @@ async def api_generate(
         items: list[dict] = []
         errors: list[str] = []
         for label, opts in runs:
-            r = await execute_pipeline(
-                category=label, products_per_run=ppr, dry_run=False,
-                content_only=True, options=opts)
+            try:
+                # Bound each run so a hung scrape/compose can NEVER hold the single-run lock
+                # forever (which would 409 every future generate until a restart).
+                r = await asyncio.wait_for(execute_pipeline(
+                    category=label, products_per_run=ppr, dry_run=False,
+                    content_only=True, options=opts), timeout=cfg.bot.run_timeout if hasattr(cfg.bot, "run_timeout") else 200)
+            except asyncio.TimeoutError:
+                errors.append(f"[{label}] timed out (scrape/compose hung) — skipped so the queue stays live")
+                continue
             items.extend(_content_item(p) for p in r["pins"])
             errors.extend(f"[{label}] {e}" for e in r["errors"])
 
