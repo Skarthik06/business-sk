@@ -382,5 +382,5 @@ def build_bundles(products: list[dict], budget: int, size: int = 3) -> list[dict
             chosen.append(p); total += pr; used_cats.add(cat)
     if len(chosen) < 2:
         return []
-    return [{"title": f"Setup under ₹{budget:,}", "combined_price": total,
-             "count": len(chosen), "products": chosen}]
+    return [{"title": f"Setup under ₹{budget:,}", "combined_price": total, "total": total,
+             "budget": budget, "count": len(chosen), "products": chosen}]

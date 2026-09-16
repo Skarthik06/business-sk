@@ -65,9 +65,10 @@ async def scrape_amazon(state: BotState, config: RunnableConfig) -> dict:
         # by past yield) + pagination + adaptive stopping → far more UNIQUE products.
         # Keyword mode (explicit q) or discovery OFF: original single-query scrape.
         log_line = ""
+        _need = int(state.get("products_per_run") or 0)     # guarantee this many (threshold relaxes only to fill it)
         if keyword and keyword.strip():
             products = await scrape_products(amazon_page, category, marketplace,
-                                             query=_aud(keyword), quality=opts)
+                                             query=_aud(keyword), quality=opts, need=_need)
             log_line = f"scraped {len(products)} products for keyword '{_aud(keyword)}'"
         elif cfg.discovery.enabled:
             from rag.discovery_stats import discovery_stats
@@ -93,13 +94,13 @@ async def scrape_amazon(state: BotState, config: RunnableConfig) -> dict:
             queries = [_aud(q) for q in queries]     # gender-target each mined intent
             products, yields = await scrape_products_multi(
                 amazon_page, category, marketplace, queries, quality=opts,
-                max_pages=mp, target_pool=tp)
+                max_pages=mp, target_pool=tp, need=_need)
             discovery_stats.record_yields(category, yields)          # adaptive learning
             log_line = (f"discovery mined {len(queries)} intents "
                         f"({', '.join(queries)}) → {len(products)} unique products")
         else:
             products = await scrape_products(amazon_page, category, marketplace,
-                                             query=_aud(category), quality=opts)
+                                             query=_aud(category), quality=opts, need=_need)
             log_line = f"scraped {len(products)} products for '{_aud(category)}'"
 
         if not products:

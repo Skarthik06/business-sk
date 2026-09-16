@@ -361,14 +361,26 @@ def _soft_score(p: dict, quality: Optional[dict] = None) -> float:
 
 
 def _finalize_pool(raw: list[dict], quality: Optional[dict], cap: int, need: int = 0) -> list[dict]:
-    """Rank raw products by SOFT thresholds (see `_soft_score`) — the requested rating / reviews /
-    price / deals PREFER products, they never hard-exclude — then dedup and take the top `cap`.
-    This GUARANTEES the requested count whenever enough real products were scraped, with the
-    products that best match the preferences ranked first. Only the unrenderable (no image / no
-    real price) are dropped, since those cannot become a slide."""
-    pool = [p for p in raw if p.get("image") and _parse_price(p.get("price"))]
-    pool.sort(key=lambda p: _soft_score(p, quality), reverse=True)
-    return _dedup_products(pool)[:cap]
+    """Apply the quality thresholds like a REAL threshold, with a guaranteed count.
+
+    The rating / reviews / price / deals filters are ENFORCED (a true gate): products that meet
+    them are used, ranked by attractiveness. The threshold is only ever RELAXED when fewer than
+    `need` products meet it — then, and only then, we backfill the shortfall with the products
+    that come CLOSEST to the threshold (`_soft_score`), so the requested count is still met.
+    So: threshold fully in force whenever supply allows; relaxed just enough to never starve the
+    count. Only the unrenderable (no image / no real price) are dropped outright."""
+    renderable = [p for p in raw if p.get("image") and _parse_price(p.get("price"))]
+    passed = _dedup_products(sorted([p for p in renderable if _passes_quality(p, quality)],
+                                    key=_attractiveness, reverse=True))
+    # Threshold FULLY enforced when enough products meet it (or no count target given).
+    if not need or len(passed) >= need:
+        return passed[:cap]
+    # Short of the count: keep everything that passed, then backfill with the closest-to-threshold
+    # products (soft-ranked) so the count is guaranteed. Passing products always rank first.
+    have = {p.get("asin") for p in passed if p.get("asin")}
+    rest = _dedup_products(sorted([p for p in renderable if p.get("asin") not in have],
+                                  key=lambda p: _soft_score(p, quality), reverse=True))
+    return (passed + rest)[:cap]
 
 
 async def scrape_products(page: Page, category: str, marketplace: str,
@@ -387,14 +399,14 @@ async def scrape_products(page: Page, category: str, marketplace: str,
     """
     term = (query or CATEGORY_SEARCH.get(category, category) or category).strip()
     raw = await _scrape_page(page, category, marketplace, term, 1)
-    result = _finalize_pool(raw, quality, cap=40)
+    result = _finalize_pool(raw, quality, cap=40, need=need)
     log.success(f"Scraped {len(raw)} → top {len(result)} unique quality products ('{term}')")
     return result
 
 
 async def scrape_products_multi(page: Page, category: str, marketplace: str,
                                 queries: list[str], quality: Optional[dict] = None,
-                                max_pages: int = 2, target_pool: int = 60) -> tuple[list[dict], dict]:
+                                max_pages: int = 2, target_pool: int = 60, need: int = 0) -> tuple[list[dict], dict]:
     """Phase 1 discovery: mine SEVERAL search intents (+ pagination) for one category,
     pool them, and return the top unique quality products — plus a per-query yield map
     for adaptive rotation. Stops early once the unique quality pool reaches
@@ -471,7 +483,7 @@ async def scrape_products_multi(page: Page, category: str, marketplace: str,
         uniq = len(_finalize_pool(rows, quality, cap=10**6))
         yields[term] = {"raw": len(rows), "quality_unique": uniq}
 
-    result = _finalize_pool(raw_all, quality, cap=max(target_pool, 40))
+    result = _finalize_pool(raw_all, quality, cap=max(target_pool, 40), need=need)
     log.success(
         f"[discovery] {len(terms)} intents (parallel) · {len(raw_all)} raw → {len(result)} unique quality products"
     )
