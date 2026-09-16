@@ -212,6 +212,30 @@ def publish_story(account: Dict, media_url: str, is_video: bool = False) -> Dict
     return {"ig_media_id": media_id, "permalink": _permalink(media_id, token), "media_type": "story"}
 
 
+def _create_child(ig_id: str, url: str, token: str, attempts: int = 5) -> Dict:
+    """Create ONE carousel child, retrying the transient 'media could not be fetched' error
+    (code 9004 / subcode 2207052). That error means Meta's fetcher hit a GitHub-raw edge that
+    hadn't propagated the just-pushed slide yet — the image IS valid, so a short backoff lets it
+    catch up. Any other error is raised immediately."""
+    import time as _t
+    last: Optional[Exception] = None
+    for i in range(attempts):
+        try:
+            return _post(
+                f"{GRAPH}/{ig_id}/media",
+                {"image_url": url, "is_carousel_item": "true", "access_token": token},
+            )
+        except InstagramError as e:
+            last = e
+            msg = str(e).lower()
+            transient = ("2207052" in msg or "could not be fetched" in msg or "9004" in msg)
+            if transient and i < attempts - 1:
+                _t.sleep(5 * (i + 1))                 # 5s, 10s, 15s, 20s — let GitHub raw propagate
+                continue
+            raise
+    raise last  # pragma: no cover
+
+
 def publish(account: Dict, image_urls: List[str], caption: str) -> Dict:
     """Publish a post to `account`. Carousel if >1 image, else a single image.
 
@@ -240,10 +264,7 @@ def publish(account: Dict, image_urls: List[str], caption: str) -> Dict:
     # which already requires every child to be processed. This is ~5x faster.
     child_ids: List[str] = []
     for url in image_urls:
-        child = _post(
-            f"{GRAPH}/{ig_id}/media",
-            {"image_url": url, "is_carousel_item": "true", "access_token": token},
-        )
+        child = _create_child(ig_id, url, token)
         child_ids.append(child["id"])
 
     container = _post(
