@@ -817,6 +817,19 @@ body{{font-family:{_SANS};background:{P['g2']};color:{P['text']};overflow:hidden
    padding:0 24px;background:#FFFFFFF7;border:1.5px solid {P['border']};border-radius:16px;box-shadow:0 12px 28px rgba(20,30,45,.10)}}
 .brandmark .wm{{font-family:{_SERIF};font-size:34px;font-weight:600;color:{P['text']};letter-spacing:.01em;white-space:nowrap;line-height:1}}
 .brandmark img{{position:absolute;left:14px;top:12px;width:calc(100% - 28px);height:calc(100% - 24px);object-fit:contain;background:#fff;border-radius:8px}}
+.collage{{display:grid;gap:14px;height:100%}}
+.ccell{{position:relative;border-radius:16px;border:1.5px solid {P['border']};overflow:hidden;
+   background:radial-gradient(120% 100% at 50% 18%, {t}26 0%, {t}0F 55%, {P['stage']} 100%)}}
+.ccell>img{{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:8%;
+   filter:drop-shadow(0 16px 20px {t}45) drop-shadow(0 6px 8px rgba(20,30,45,.12))}}
+.ctag{{position:absolute;left:9px;right:9px;bottom:9px;display:flex;justify-content:space-between;align-items:center;gap:8px;
+   background:#FFFFFFF2;border:1px solid {P['border']};border-radius:11px;padding:8px 13px;box-shadow:0 8px 18px rgba(20,30,45,.10)}}
+.ctag span{{font-family:{_MONO};font-size:19px;font-weight:700;color:{P['text']};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.ctag b{{font-family:{_SANS};font-size:21px;font-weight:800;color:{t};white-space:nowrap}}
+.coff{{position:absolute;top:10px;right:10px;font-family:{_MONO};font-weight:700;font-size:17px;color:#fff;background:{t};padding:5px 10px;border-radius:8px}}
+.ctile{{display:flex;align-items:center;justify-content:center;background:{t};color:#fff;border-color:{t}}}
+.ctile div{{text-align:center;font-family:{_MONO};font-weight:700;font-size:30px;letter-spacing:.08em;line-height:1.25}}
+.ctile small{{display:block;font-size:19px;opacity:.85;letter-spacing:.16em;margin-top:4px}}
 .cta{{display:inline-flex;align-items:center;gap:12px;font-family:{_MONO};font-weight:700;letter-spacing:.16em;text-transform:uppercase;
    border-radius:100px;padding:18px 34px;font-size:26px;background:{t};color:#fff}}
 """
@@ -872,25 +885,46 @@ def _badges_strip(products: List[Dict[str, Any]]) -> str:
     return '<div style="display:flex;gap:12px;flex-wrap:wrap">' + "".join(pills[:3]) + "</div>"
 
 
+def _collage(products: List[Dict[str, Any]], imgs: List[str], P: Dict[str, str]) -> str:
+    """A COLLAGE of every product on the cover — a tidy grid of product cutouts, each with a
+    name + price tag (and a % off flag when steep). Columns scale with the product count so the
+    grid always fills the cover's lower half (no more blank space)."""
+    n = len(products)
+    if n == 0:
+        return ""
+    cols = 2 if n <= 2 else 3 if n == 3 else 2 if n == 4 else 3 if n <= 6 else 4
+    cells: List[str] = []
+    for p, img in zip(products, imgs):
+        nm = _esc(_clean_title(p, limit=24))
+        price = _money(p.get("price"))
+        off = _discount_pct(p) or 0
+        im = f'<img src="{img}">' if img else '<div style="position:absolute;inset:0"></div>'
+        offflag = f'<div class="coff">-{off}%</div>' if off >= 40 else ""
+        tag = f'<div class="ctag"><span>{nm}</span>{f"<b>{price}</b>" if price else ""}</div>'
+        cells.append(f'<div class="ccell">{im}{offflag}{tag}</div>')
+    rows = (n + cols - 1) // cols
+    if cols * rows > n:                      # fill an odd trailing slot with a CTA tile
+        cells.append('<div class="ccell ctile"><div>MORE<small>SWIPE →</small></div></div>')
+    return (f'<div class="collage" style="grid-template-columns:repeat({cols},1fr);grid-auto-rows:1fr">'
+            f'{"".join(cells)}</div>')
+
+
 def _cover2(products, imgs, P, *, title, subtitle, handle):
     n = len(products)
     maxoff = max((_discount_pct(p) or 0) for p in products) if products else 0
-    # the deal lives in the badge row (not floating over the headline) so the title owns the top
     off_pill = f'<span class="badge">↓ UP TO {maxoff}% OFF</span>' if maxoff else ""
-    # ONE centred column (title → brand marks → deal/badges) so nothing can ever collide,
-    # whatever the headline length or brand count.
+    # Top third: AI headline + subtitle + deal/badges.  Lower two-thirds: a COLLAGE of EVERY
+    # product (image + name + price) so the cover teases the whole set and never sits blank.
     inner = f"""
   <div class="placard"><span class="kick">The Drop</span><span class="code">SK · EDIT</span></div>
-  <span class="spark" style="top:150px;left:90px;font-size:28px">✧</span>
-  <div style="position:absolute;left:60px;right:60px;top:168px;bottom:150px;z-index:2;display:flex;flex-direction:column;justify-content:center;gap:40px">
-    <div>
-      <div class="serif" style="font-size:116px;line-height:.9;letter-spacing:-.02em;max-width:960px">{_multiline(title)}</div>
-      <div class="serif" style="font-size:46px;font-style:italic;color:{P['tint']};margin-top:16px">{_esc(subtitle)}</div>
-    </div>
-    {_brand_marks(products, P)}
-    <div style="display:flex;gap:12px;flex-wrap:wrap">{off_pill}{_badges_strip(products)}</div>
+  <span class="spark" style="top:150px;left:90px;font-size:26px">✧</span>
+  <div style="position:absolute;left:60px;right:60px;top:150px;z-index:2">
+    <div class="serif" style="font-size:88px;line-height:.92;letter-spacing:-.02em;max-width:960px">{_multiline(title)}</div>
+    <div class="serif" style="font-size:42px;font-style:italic;color:{P['tint']};margin-top:10px">{_esc(subtitle)}</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:20px">{off_pill}{_badges_strip(products)}</div>
   </div>
-  <div style="position:absolute;left:60px;bottom:92px;z-index:2"><span class="swipe">Swipe → {n} deals inside</span></div>
+  <div style="position:absolute;left:60px;right:60px;top:548px;bottom:148px;z-index:2">{_collage(products, imgs, P)}</div>
+  <div style="position:absolute;left:60px;bottom:88px;z-index:2"><span class="swipe">Swipe → {n} pieces inside</span></div>
 """
     return _page2(P, inner, foot_right="SWIPE →", handle=handle)
 
@@ -1199,8 +1233,9 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
         imgs = [prep(p) for p in ps]
         t = sp["tmpl"]
         if t == "cover":
-            cov_imgs = [prep(p) for p in sp.get("all", ps)[:3]]
-            htmls.append(_cover2(sp.get("all", ps), cov_imgs, P,
+            cov_products = sp.get("all", ps)                 # ALL products for the collage
+            cov_imgs = [prep(p) for p in cov_products]
+            htmls.append(_cover2(cov_products, cov_imgs, P,
                                  title=sp.get("title", ""), subtitle=sp.get("subtitle", ""), handle=handle))
         elif t == "spotlight":
             htmls.append(_spotlight2(ps[0], imgs[0], P, handle))
