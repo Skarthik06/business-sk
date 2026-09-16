@@ -683,6 +683,38 @@ def _affiliate_dm_text(category: str, products: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+_WEBHOOK_CALLBACK_URL = os.getenv("META_WEBHOOK_CALLBACK_URL",
+                                  "https://140-238-247-18.nip.io/api/webhooks/meta").strip()
+
+
+def ensure_webhook_subscription(account_id: int) -> Dict[str, Any]:
+    """Self-heal: re-assert the Meta webhook subscription so a token refresh can never silently
+    stop comment/DM delivery again. Best-effort + idempotent — every step is wrapped so it can
+    NEVER break a publish. Runs on every affiliate publish (and can be called after a token save).
+      1) Page→App subscription — always, using the account's own token.
+      2) App-level Instagram subscription — only when META_APP_ID + META_APP_SECRET are set."""
+    out: Dict[str, Any] = {}
+    try:
+        account = rags.get_account(account_id, with_secret=True) or {}
+        token = account.get("ig_access_token")
+        if token:
+            service.subscribe_page_webhooks(token)
+            out["page"] = "ok"
+    except Exception as e:                       # never let self-heal break a publish
+        out["page_error"] = str(e)[:120]
+        print(f"[webhook self-heal] page subscribe skipped: {e}")
+    app_id = os.getenv("META_APP_ID", "").strip()
+    app_secret = os.getenv("META_APP_SECRET", "").strip()
+    if app_id and app_secret and _VERIFY_TOKEN:
+        try:
+            service.subscribe_app_instagram(app_id, app_secret, _WEBHOOK_CALLBACK_URL, _VERIFY_TOKEN)
+            out["app"] = "ok"
+        except Exception as e:
+            out["app_error"] = str(e)[:120]
+            print(f"[webhook self-heal] app subscribe skipped: {e}")
+    return out
+
+
 def ensure_affiliate_automation(account_id: int, ig_media_id: str, *, category: str = "",
                                 caption: str = "", permalink: Optional[str] = None,
                                 products: Optional[List[Dict[str, Any]]] = None) -> Dict[str, Any]:
@@ -691,6 +723,7 @@ def ensure_affiliate_automation(account_id: int, ig_media_id: str, *, category: 
     suppress the account-wide real-estate rules (see rules.evaluate), so the two businesses
     never clash on the same account. Idempotent — re-posting refreshes the same rule."""
     products = products or []
+    ensure_webhook_subscription(account_id)      # self-heal the webhook link on every publish
     post_pk = store.register_affiliate_post(
         account_id, ig_media_id, category=category, caption=caption,
         permalink=permalink, products=products)
@@ -878,6 +911,29 @@ def _storefront_url() -> Optional[str]:
     return None
 
 
+# Instagram returns error 20 ("...does not support the requested response format") when a
+# reply is attempted a beat too soon after the comment arrives (webhook fires within ~1s, before
+# the comment is fully processable). It's a transient race — a short retry clears it.
+_TRANSIENT_REPLY_CODES = {"20"}
+
+
+def _reply_with_retry(token: str, comment_id: str, text: str, attempts: int = 3):
+    """Reply to a comment, retrying the transient fresh-comment race (error 20) with a short backoff.
+    Runs in the background worker (after the 200 ACK to Meta), so a brief sleep is safe."""
+    import time as _t
+    last = None
+    for i in range(attempts):
+        try:
+            return service.reply_to_comment(token, comment_id, text)
+        except service.GraphError as e:
+            last = e
+            if str(e.code) in _TRANSIENT_REPLY_CODES and i < attempts - 1:
+                _t.sleep(2.5 * (i + 1))          # 2.5s, 5s — lets Instagram finish registering the comment
+                continue
+            raise
+    raise last  # pragma: no cover
+
+
 def _dispatch(account_id: int, action: R.Action, event: R.InboundEvent, text: str, dry: bool):
     """Execute one action. Internal actions never touch Meta; reply/DM go to Graph
     only when live + eligible. Returns (status, request_ref, error_code, error_msg)."""
@@ -892,7 +948,7 @@ def _dispatch(account_id: int, action: R.Action, event: R.InboundEvent, text: st
         return "FAILED", None, "NO_TOKEN", "account has no access token"
     try:
         if action.type == "REPLY_TO_COMMENT" and event.comment_id:
-            r = service.reply_to_comment(token, event.comment_id, text)
+            r = _reply_with_retry(token, event.comment_id, text)
         elif action.type == "SEND_DM" and event.comment_id:
             # If this is an affiliate post, DM PRODUCT CARDS (image + Shop Now + See All Products)
             # — the HaulPack look — instead of a plain text link. Falls back to text otherwise.
@@ -911,8 +967,9 @@ def _dispatch(account_id: int, action: R.Action, event: R.InboundEvent, text: st
             return "SKIPPED", "no-target", None, None
         return "SUCCESS", str(r.get("id") or ""), None, None
     except service.GraphError as e:
-        # Meta rate-limit codes → retryable (Spec 30). Everything else is permanent.
-        retryable = str(e.code) in ("4", "17", "32", "613", "-1")
+        # Meta rate-limit codes → retryable (Spec 30), plus code 20 (transient fresh-comment race,
+        # in case the inline reply retry above was exhausted). Everything else is permanent.
+        retryable = str(e.code) in ("4", "17", "32", "613", "-1", "20")
         return ("RATE_LIMITED" if retryable else "FAILED"), None, str(e.code), e.message
 
 

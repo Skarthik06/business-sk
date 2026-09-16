@@ -87,6 +87,36 @@ def reply_to_comment(token: str, comment_id: str, message: str) -> Dict[str, Any
     return _post(f"{GRAPH}/{comment_id}/replies", token, {"message": message})
 
 
+# ── webhook subscription self-heal ────────────────────────────────────────────
+_PAGE_WEBHOOK_FIELDS = ("feed,messages,messaging_postbacks,message_reactions,"
+                        "mention,messaging_referrals,messaging_handovers")
+
+
+def subscribe_page_webhooks(token: str, subscribed_fields: str = _PAGE_WEBHOOK_FIELDS) -> Dict[str, Any]:
+    """Re-assert this account's Page→App webhook subscription (idempotent) so a token refresh
+    never silently stops comment/DM delivery. Uses the account's own token; resolves the Page id."""
+    page_id = _page_id(token)
+    if not page_id:
+        raise GraphError(400, None, "could not resolve page id")
+    return _post(f"{GRAPH}/{page_id}/subscribed_apps", token, {"subscribed_fields": subscribed_fields})
+
+
+def subscribe_app_instagram(app_id: str, app_secret: str, callback_url: str, verify_token: str,
+                            fields: str = "comments,messages") -> Dict[str, Any]:
+    """Re-assert the APP-level Instagram webhook subscription (idempotent). Needs the app id +
+    secret (an app access token) — used only by the self-heal when those are configured."""
+    apptok = f"{app_id}|{app_secret}"
+    r = requests.post(f"{GRAPH}/{app_id}/subscriptions",
+                      data={"object": "instagram", "callback_url": callback_url, "fields": fields,
+                            "verify_token": verify_token, "include_values": "true", "access_token": apptok},
+                      timeout=30)
+    body = r.json() if r.content else {}
+    if r.status_code not in (200, 201):
+        err = (body or {}).get("error", {})
+        raise GraphError(r.status_code, err.get("code"), err.get("message", "app subscribe failed"))
+    return body
+
+
 def hide_comment(token: str, comment_id: str, hide: bool = True) -> Dict[str, Any]:
     return _post(f"{GRAPH}/{comment_id}", token, {"hide": "true" if hide else "false"})
 
