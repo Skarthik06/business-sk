@@ -1091,13 +1091,29 @@ def privacy_policy():
     return Response(content=_PRIVACY_HTML, media_type="text/html")
 
 
+_SIG_ENFORCE = os.getenv("META_SIGNATURE_ENFORCE", "0").strip() not in ("0", "false", "")
+
+
 def _valid_signature(raw: bytes, header: Optional[str]) -> bool:
-    if not _APP_SECRET:                         # signature check optional until configured
+    """Verify Meta's X-Hub-Signature-256 (HMAC-SHA256 of the raw body with the app secret).
+    Three states, so enabling it can NEVER silently kill delivery:
+      • no META_APP_SECRET set        → check disabled, accept.
+      • secret set, META_SIGNATURE_ENFORCE off → LOG-ONLY: verify + log a mismatch, but accept
+        (lets us confirm the right secret against live traffic before enforcing).
+      • secret set, META_SIGNATURE_ENFORCE=1   → strict: reject a bad/missing signature."""
+    if not _APP_SECRET:
         return True
-    if not header or not header.startswith("sha256="):
+    ok = bool(header and header.startswith("sha256=") and hmac.compare_digest(
+        hmac.new(_APP_SECRET.encode(), raw, hashlib.sha256).hexdigest(),
+        header.split("=", 1)[1]))
+    if ok:
+        if not _SIG_ENFORCE:
+            print("[webhook-sig] signature OK")
+        return True
+    if _SIG_ENFORCE:
         return False
-    digest = hmac.new(_APP_SECRET.encode(), raw, hashlib.sha256).hexdigest()
-    return hmac.compare_digest(digest, header.split("=", 1)[1])
+    print(f"[webhook-sig] signature MISMATCH (log-only, still accepting). header={str(header)[:24]}")
+    return True
 
 
 @webhook_router.post("/meta")
