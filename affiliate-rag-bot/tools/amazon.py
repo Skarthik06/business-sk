@@ -319,20 +319,61 @@ async def _scrape_page(page: Page, category: str, marketplace: str,
     return []
 
 
-def _finalize_pool(raw: list[dict], quality: Optional[dict], cap: int) -> list[dict]:
-    """Quality-gate → attractiveness sort → within-run dedup → top `cap`. Shared by
-    the single-query and multi-query paths so both apply the SAME uniqueness rules."""
-    kept = [p for p in raw if _passes_quality(p, quality)]
-    if not kept:  # relaxed fallback so a strict filter never empties a category
-        kept = [p for p in raw if p.get("image") and _parse_price(p.get("price"))]
-    kept.sort(key=_attractiveness, reverse=True)
-    kept = _dedup_products(kept)                 # drop variant/duplicate listings
-    return kept[:cap]
+def _soft_score(p: dict, quality: Optional[dict] = None) -> float:
+    """Attractiveness PLUS how well the product meets the requested SOFT thresholds. Meeting a
+    rating / reviews / price / deals preference is a bonus; missing it is a graded penalty (bigger
+    the further off). Filters thus shape RANKING — they PREFER, never hard-exclude — so the
+    requested count is always met, with the best-matching products ranked first."""
+    from config import cfg
+    import runtime
+    o = quality or {}
+
+    def _f(v):
+        try:
+            return float(v)
+        except Exception:
+            return None
+
+    score = _attractiveness(p)
+    price = _parse_price(p.get("price"))
+    r  = _f(p.get("rating"))
+    rv = _f(p.get("reviews"))
+    min_rating  = _f(o.get("min_rating")  if o.get("min_rating")  is not None else runtime.get("QUALITY_MIN_RATING", cfg.bot.min_rating, "float"))
+    min_reviews = _f(o.get("min_reviews") if o.get("min_reviews") is not None else runtime.get("QUALITY_MIN_REVIEWS", cfg.bot.min_reviews, "int"))
+    price_max   = _f(o.get("price_max")   if o.get("price_max")   is not None else runtime.get("QUALITY_PRICE_MAX", cfg.bot.price_max, "int"))
+    price_min   = _f(o.get("price_min")   if o.get("price_min")   is not None else cfg.bot.price_min)
+    if min_rating and r is not None:
+        score += 28 if r >= min_rating else -min(28.0, (min_rating - r) * 20)
+    if min_reviews and rv is not None:
+        score += 16 if rv >= min_reviews else -min(16.0, (1 - rv / max(min_reviews, 1)) * 16)
+    if price is not None and price_max:
+        score += 14 if price <= price_max else -min(34.0, (price - price_max) / price_max * 34)
+    if price is not None and price_min and price < price_min:
+        score -= min(20.0, (price_min - price) / max(price_min, 1) * 20)
+    # Deals mode: strongly prefer a real current offer so "deals only" holds when enough exist,
+    # but a scarce category is still filled rather than emptied.
+    if o.get("deals"):
+        min_disc = int(o.get("deals_min") or runtime.get("DEALS_MIN_DISCOUNT", 10, "int"))
+        disc = int(p.get("discount_pct") or 0)
+        badge = (p.get("badge") or "").lower()
+        score += 45 if (disc >= min_disc or "deal" in badge) else -60
+    return score
+
+
+def _finalize_pool(raw: list[dict], quality: Optional[dict], cap: int, need: int = 0) -> list[dict]:
+    """Rank raw products by SOFT thresholds (see `_soft_score`) — the requested rating / reviews /
+    price / deals PREFER products, they never hard-exclude — then dedup and take the top `cap`.
+    This GUARANTEES the requested count whenever enough real products were scraped, with the
+    products that best match the preferences ranked first. Only the unrenderable (no image / no
+    real price) are dropped, since those cannot become a slide."""
+    pool = [p for p in raw if p.get("image") and _parse_price(p.get("price"))]
+    pool.sort(key=lambda p: _soft_score(p, quality), reverse=True)
+    return _dedup_products(pool)[:cap]
 
 
 async def scrape_products(page: Page, category: str, marketplace: str,
                           query: Optional[str] = None,
-                          quality: Optional[dict] = None) -> list[dict]:
+                          quality: Optional[dict] = None, need: int = 0) -> list[dict]:
     """Scrape Amazon SEARCH results (server-rendered → works headless) and return
     the top quality-ranked products. Each product carries grounded, customer-pull
     signals: rating, review count, discount %, M.R.P, 'bought in past month', badge.

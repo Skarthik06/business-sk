@@ -39,9 +39,9 @@ TUNABLE: dict[str, dict] = {
     "TREND_DISCOVERY_TERMS": {"type": "int", "min": 0, "max": 8, "agent": "trend-analyst", "label": "Trend terms in discovery"},
     "WINNER_MIN_CONFIDENCE": {"type": "float", "min": 0.2, "max": 1.0, "agent": "winner-engine", "label": "Confidence floor"},
     "PERFORMANCE_PRIOR_WEIGHT": {"type": "float", "min": 0, "max": 0.5, "agent": "learning-agent", "label": "Performance prior weight"},
-    "QUALITY_MIN_RATING":    {"type": "float", "min": 0, "max": 5, "agent": "product-scout", "label": "Min rating"},
-    "QUALITY_MIN_REVIEWS":   {"type": "int", "min": 0, "max": 5000, "agent": "product-scout", "label": "Min reviews"},
-    "QUALITY_PRICE_MAX":     {"type": "int", "min": 200, "max": 100000, "agent": "product-scout", "label": "Max price ₹"},
+    "QUALITY_MIN_RATING":    {"type": "float", "min": 0, "max": 5, "agent": "product-scout", "label": "Preferred rating (soft — ranks, never excludes)"},
+    "QUALITY_MIN_REVIEWS":   {"type": "int", "min": 0, "max": 5000, "agent": "product-scout", "label": "Preferred reviews (soft threshold)"},
+    "QUALITY_PRICE_MAX":     {"type": "int", "min": 200, "max": 100000, "agent": "product-scout", "label": "Preferred max price ₹ (soft threshold)"},
     "DEALS_MIN_DISCOUNT":    {"type": "int", "min": 0, "max": 90, "agent": "product-scout", "label": "Deals mode: min discount %"},
     "CONTENT_DEFAULT_STYLE": {"type": "str", "min": None, "max": None, "agent": "content-intelligence", "label": "Default caption style"},
     # Still-Set renderer — product cutout quality (read live by the IG backend via /api/render-config).

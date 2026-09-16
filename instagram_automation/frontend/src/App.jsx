@@ -48,6 +48,7 @@ const NAV_GROUPS = [
         { id: 'sk-affiliate', label: 'Affiliate', icon: 'spark' },
         { id: 'sk-post', label: 'Content Studio', icon: 'pin' },
         { id: 'sk-engagement', label: 'Engagement', icon: 'bolt' },
+        { id: 'sk-attribution', label: 'Attribution', icon: 'history' },
         { id: 'sk-storefront', label: 'Storefront', icon: 'ext' },
       ] },
       { label: 'Insights', items: [
@@ -320,7 +321,7 @@ export default function App() {
           {view === 'history' && <History />}
           {/* Business-SK stays MOUNTED (hidden when inactive) so an in-progress generation /
               queued batch persists as you switch panels and come back. */}
-          <div style={{ display: ['sk-overview', 'sk-affiliate', 'sk-winners', 'sk-trends', 'sk-intelligence', 'sk-calendar', 'sk-post', 'sk-storefront', 'sk-revenue', 'sk-agents', 'sk-accounts', 'sk-history'].includes(view) ? 'block' : 'none' }}>
+          <div style={{ display: ['sk-overview', 'sk-affiliate', 'sk-winners', 'sk-trends', 'sk-intelligence', 'sk-calendar', 'sk-post', 'sk-storefront', 'sk-attribution', 'sk-revenue', 'sk-agents', 'sk-accounts', 'sk-history'].includes(view) ? 'block' : 'none' }}>
             <BusinessSK notify={notify} accounts={accounts} view={view} onNavigate={setView} />
           </div>
           {view === 'sk-engagement' && <Engagement notify={notify} />}

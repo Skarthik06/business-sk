@@ -962,7 +962,7 @@ AGENT_ROSTER = [
     {"name": "retailer-adapter", "role": "Multi-retailer interface + affiliate-link service"},
     {"name": "competitor-intel", "role": "Opt-in watchlist (market signal, never cloning)"},
     {"name": "winner-prediction", "role": "Predicted winners (deterministic → historical)"},
-    {"name": "product-scout", "role": "Category-taxonomy retrieval + quality gate"},
+    {"name": "product-scout", "role": "Retrieval + SOFT quality thresholds (rating/reviews/price/deals rank, never hard-exclude) → always fills the requested count"},
     {"name": "product-scorer", "role": "Multi-score ranking + tiers"},
     {"name": "creative-copywriter", "role": "AI cover headline, clean slide names + catchy deal-sticker words (one call)"},
     {"name": "still-set-renderer", "role": "Slide design, product collage cover, cutout + non-repeating covers"},

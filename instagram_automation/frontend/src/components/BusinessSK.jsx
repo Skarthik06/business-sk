@@ -13,13 +13,13 @@ const DEFAULT_CATS = [
 const VIEW_TAB = {
   'sk-overview': 'overview', 'sk-affiliate': 'generate', 'sk-winners': 'winners',
   'sk-trends': 'trends', 'sk-intelligence': 'intel', 'sk-calendar': 'calendar',
-  'sk-post': 'post', 'sk-storefront': 'hub', 'sk-revenue': 'revenue',
+  'sk-post': 'post', 'sk-storefront': 'hub', 'sk-attribution': 'attribution', 'sk-revenue': 'revenue',
   'sk-agents': 'agents', 'sk-accounts': 'accounts', 'sk-history': 'history',
 };
 const TAB_TITLE = {
   overview: 'Overview', generate: 'Affiliate', winners: 'Winners', trends: 'Trends',
   intel: 'Intelligence', calendar: 'Content Calendar', post: 'Content Studio',
-  hub: 'Storefront', revenue: 'Revenue', agents: 'Agents', accounts: 'Accounts', history: 'History',
+  hub: 'Storefront', attribution: 'Attribution', revenue: 'Revenue', agents: 'Agents', accounts: 'Accounts', history: 'History',
 };
 const TAB_KICKER = {
   overview: 'Your affiliate operation at a glance — status, winners, and what to do next.',
@@ -30,7 +30,8 @@ const TAB_KICKER = {
   calendar: 'Your publishing queue and the suggested weekly plan.',
   post: 'Review the batch from Discover, choose an account, and publish.',
   hub: 'Your public Amazon page — the link for your Instagram bio.',
-  revenue: 'Real earnings by network (Cuelinks · Amazon · more) + the post funnel — the results loop.',
+  attribution: 'Real earnings by affiliate network (Cuelinks · Amazon · Flipkart · Myntra) + top-earning products.',
+  revenue: 'The post funnel and measured results — log a post to power the learning loop.',
   agents: 'Every capability is an agent — tune its constraints live, no restart.',
   accounts: 'Your affiliate program accounts, stored encrypted with your .ragskey.',
   history: 'Every carousel you have published.',
@@ -101,6 +102,7 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
       <div style={show('winners')}><WinnersPanel active={tab === 'winners'} say={say} /></div>
       <div style={show('trends')}><TrendsPanel active={tab === 'trends'} cats={cats} /></div>
       <div style={show('intel')}><IntelligencePanel active={tab === 'intel'} /></div>
+      <div style={show('attribution')}><AttributionPanel active={tab === 'attribution'} say={say} /></div>
       <div style={show('revenue')}><RevenuePanel active={tab === 'revenue'} say={say} /></div>
       <div style={show('calendar')}><CalendarPanel active={tab === 'calendar'} say={say} /></div>
       <div style={show('agents')}><AgentsPanel active={tab === 'agents'} say={say} /></div>
@@ -1383,6 +1385,14 @@ function NetworksSection({ say }) {
   );
 }
 
+function AttributionPanel({ active, say }) {
+  return (
+    <div className="mb-24 flex flex-col gap-4">
+      <NetworksSection say={say} />
+    </div>
+  );
+}
+
 function RevenuePanel({ active, say }) {
   const [ov, setOv] = useState(null);
   const [posts, setPosts] = useState(null);
@@ -1401,7 +1411,6 @@ function RevenuePanel({ active, say }) {
   const connected = ov?.connected;
   return (
     <div className="mb-24 flex flex-col gap-4">
-      <NetworksSection say={say} />
       <div className="panel p-4">
         <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
           <div className="eyebrow">Post funnel &amp; performance</div>
