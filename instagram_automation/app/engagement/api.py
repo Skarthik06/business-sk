@@ -590,6 +590,7 @@ def _sync_one_post(account_id: int, media_id: str, token: str, run_rules: bool,
     tick was the #1 rate-limit consumer and comment→DM never needs them — analytics are
     fetched only on a manual sync or the post-detail view."""
     new_count = fired = 0
+    _acct = rags.get_account(account_id) or {}          # for the self-author feedback-loop guard
     try:
         comments = service.get_comments(token, media_id)
     except service.GraphError as e:
@@ -603,6 +604,9 @@ def _sync_one_post(account_id: int, media_id: str, token: str, run_rules: bool,
     for cm in comments:
         cid = cm.get("id")
         if not cid:
+            continue
+        # Feedback-loop guard: skip the account's OWN comments/replies (else auto-replies loop).
+        if _is_self_author(_acct, (cm.get("from") or {}).get("id"), cm.get("username")):
             continue
         res = store.upsert_comment(account_id, media_id, cid,
                                    username=cm.get("username"), text=cm.get("text", ""))
@@ -1151,11 +1155,27 @@ def _process_payload(payload: Dict[str, Any]) -> int:
     return processed
 
 
+def _is_self_author(acct: Dict[str, Any], user_id: Optional[str], username: Optional[str]) -> bool:
+    """True if a comment was authored by the account ITSELF. Used to skip the account's own
+    comments/replies so the comment→auto-reply automation can never trigger on its own output
+    (otherwise each auto-reply is a new comment that fires again — an infinite feedback loop)."""
+    self_id = str(acct.get("ig_business_id") or "").strip()
+    self_un = (acct.get("handle") or "").lstrip("@").strip().lower()
+    by_id = str(user_id or "").strip()
+    by_un = (username or "").lstrip("@").strip().lower()
+    return bool((self_id and by_id and by_id == self_id) or (self_un and by_un and by_un == self_un))
+
+
 def _ingest(acct: Dict[str, Any], ev: Optional[Dict[str, Any]], raw_obj: Dict[str, Any]) -> int:
     """Store → dedupe → persist inbound → run rules for one parsed event. Returns 1 if
     processed, 0 if skipped/duplicate."""
     if not ev:
         return 0
+    # Feedback-loop guard: never act on the account's OWN comments/replies.
+    if ev["event_type"] == "COMMENT_RECEIVED":
+        _iev = ev["event"]
+        if _is_self_author(acct, _iev.user_id, _iev.username):
+            return 0
     rec = store.store_event(acct["id"], ev["event_type"], ev["external_event_id"],
                             raw_obj, post_id=ev.get("post_id"), comment_id=ev.get("comment_id"))
     if rec.get("is_duplicate"):
