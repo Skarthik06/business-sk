@@ -55,6 +55,8 @@ export default {
   perfOverview:  () => sk.get('/performance/overview').then(data),
   perfPosts:     (limit = 50) => sk.get('/performance/posts', { params: { limit } }).then(data),
   perfIngest:    (body) => sk.post('/performance/ingest', body).then(data),
+  // universal search — AI-inferred filter dimensions for a typed product
+  searchFilters: (q) => sk.get('/search/filters', { params: { q } }).then(data),
   // affiliate network attribution (earnings panel)
   networks:      (days = 30) => sk.get('/networks', { params: { days } }).then(data),
   networksImport: (network, rows) => sk.post('/networks/import', { network, rows }).then(data),

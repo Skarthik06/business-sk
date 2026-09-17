@@ -139,6 +139,23 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   const [dealsMin, setDealsMin] = useState(25);          // deals mode: minimum discount %
   const [audience, setAudience] = useState('');          // '' everyone | men | women | kids
   const [combo, setCombo] = useState(null);              // returned combo bundle
+  // Universal Search — type any product; AI returns per-product filters that refine + soft-rank.
+  const [searchQ, setSearchQ] = useState('');
+  const [searchCount, setSearchCount] = useState(5);
+  const [searchDims, setSearchDims] = useState([]);      // [{name, options}] from AI
+  const [searchPicks, setSearchPicks] = useState({});    // {dimName: value}
+  const [searchLoading, setSearchLoading] = useState(false);
+  useEffect(() => {                                       // debounced AI filter fetch
+    const q = searchQ.trim();
+    if (q.length < 2) { setSearchDims([]); setSearchPicks({}); return; }
+    setSearchLoading(true);
+    const t = setTimeout(() => {
+      skApi.searchFilters(q).then((d) => { setSearchDims(d.filters || []); })
+        .catch(() => setSearchDims([])).finally(() => setSearchLoading(false));
+    }, 650);
+    return () => clearTimeout(t);
+  }, [searchQ]);
+  const pickFilter = (dim, opt) => setSearchPicks((p) => ({ ...p, [dim]: p[dim] === opt ? undefined : opt }));
   const [running, setRunning] = useState(false);
   const [prog, setProg] = useState([]);                  // per-post progress rows
   const [groups, setGroups] = useState(null);            // [{id,label,category,products}]
@@ -155,10 +172,18 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   });
 
   // Each selected subcategory = one post; a category with no subs selected = one post for the category.
-  const jobs = selected.flatMap((c) => {
+  const catJobs = selected.flatMap((c) => {
     const chosen = subs[c] || [];
     return chosen.length ? chosen.map((s) => ({ cat: c, label: s, q: s })) : [{ cat: c, label: c, q: null }];
   });
+  // Universal search = its own post. Selected filter picks are appended to the query (refine) —
+  // e.g. "brown shirt slim cotton" — and the soft thresholds rank the rest.
+  const searchTerms = Object.values(searchPicks).filter(Boolean).join(' ');
+  const searchJobs = searchQ.trim()
+    ? [{ cat: 'search', label: searchQ.trim().slice(0, 28), q: (searchQ.trim() + ' ' + searchTerms).trim(),
+         count: searchCount, isSearch: true, picks: Object.values(searchPicks).filter(Boolean) }]
+    : [];
+  const jobs = [...catJobs, ...searchJobs];
   const postCount = jobs.length;
 
   const isFav = (asin) => favs.some((f) => f.asin === asin);
@@ -169,7 +194,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   const copy = (t, l) => navigator.clipboard?.writeText(t).then(() => say(`${l} copied`)).catch(() => say('Copy failed', 'error'));
 
   const run = async () => {
-    if (!selected.length) return say('Select at least one category', 'error');
+    if (!jobs.length) return say('Select a category or type a product to search', 'error');
     if (postCount > 10) return say('Instagram allows up to 10 posts — deselect a few subcategories', 'error');
     setRunning(true); setGroups(null); setCombo(null);
     const opts = { min_rating: minRating, min_reviews: minReviews, price_max: priceMax, content: style, goal,
@@ -194,10 +219,12 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
       setProg((p) => p.map((r) => (r.id === j.label ? { ...r, phase: 'generating' } : r)));
       try {
         const r = j.q
-          ? await skApi.generate([], counts[j.cat] || 3, { ...opts, q: j.q })
-          : await skApi.generate([j.cat], counts[j.cat] || 3, opts);
+          ? await skApi.generate([], j.count || counts[j.cat] || 3, { ...opts, q: j.q })
+          : await skApi.generate([j.cat], j.count || counts[j.cat] || 3, opts);
         const products = (r.items || []).map((it) => ({ ...it, category: j.cat }));  // keep base category
-        out.push({ id: j.label, label: j.label, category: j.cat, products, caption: r.caption || '', hashtags: r.hashtags || [], content_style: r.content_style || '', warnings: r.content_warnings || [], cover_tags });
+        // search posts also tag the cover with the picked filter values (e.g. Slim · Cotton)
+        const jobTags = j.isSearch ? [...(j.picks || []).slice(0, 3), ...cover_tags].slice(0, 5) : cover_tags;
+        out.push({ id: j.label, label: j.label, category: j.cat, products, caption: r.caption || '', hashtags: r.hashtags || [], content_style: r.content_style || '', warnings: r.content_warnings || [], cover_tags: jobTags });
         if (r.combo) setCombo(r.combo);
         (r.errors || []).forEach((e) => errs.push(e));
         setProg((p) => p.map((r2) => (r2.id === j.label ? { ...r2, phase: 'done', n: products.length } : r2)));
@@ -249,6 +276,44 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
         </div>
         <CategoryGrid cats={cats} counts={counts} onToggle={toggle} onCount={setCount}
           tax={tax} subs={subs} onToggleSub={toggleSub} />
+
+        {/* Universal product search — type anything; AI adapts the filters to that product */}
+        <div className="panel p-4 mt-4" style={{ border: '1.5px solid var(--accent)' }}>
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+            <div>
+              <div className="eyebrow">🔎 Universal product search</div>
+              <div className="text-xs" style={{ color: 'var(--muted)' }}>Type any product — the filters adapt to what you search. Becomes its own post.</div>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs" style={{ color: 'var(--faint)' }}>products</span>
+              <button className="mini" onClick={() => setSearchCount((n) => Math.max(1, n - 1))}>−</button>
+              <b style={{ minWidth: 20, textAlign: 'center', display: 'inline-block' }}>{searchCount}</b>
+              <button className="mini" onClick={() => setSearchCount((n) => Math.min(10, n + 1))}>+</button>
+            </div>
+          </div>
+          <input className="sk-input" style={{ width: '100%' }} value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+            placeholder="e.g. iphone 18 pro max · brown shirt · air fryer · running shoes for men" />
+          {searchLoading && <div className="text-xs mt-2 flex items-center gap-2" style={{ color: 'var(--muted)' }}><Spinner size={12} /> reading your product…</div>}
+          {searchDims.length > 0 && (
+            <div className="mt-3 flex flex-col gap-2">
+              <div className="text-xs" style={{ color: 'var(--faint)' }}>Refine (optional) — tap to narrow the search:</div>
+              {searchDims.map((d) => (
+                <div key={d.name}>
+                  <div className="ctrl-card-label" style={{ marginBottom: 5 }}>{d.name}</div>
+                  <div className="ctrl-chips">
+                    {d.options.map((o) => (
+                      <button key={o} type="button" className={cx('opt-card', searchPicks[d.name] === o && 'on')}
+                        onClick={() => pickFilter(d.name, o)}>{o}</button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {searchQ.trim() && <div className="text-xs mt-3" style={{ color: 'var(--accent)' }}>+1 post · up to {searchCount} products · searches "{(searchQ.trim() + ' ' + Object.values(searchPicks).filter(Boolean).join(' ')).trim()}"</div>}
+        </div>
+
         <p className="text-xs mt-3" style={{ color: 'var(--faint)' }}>Each subcategory you tap becomes its own post. Every result is scored (Instagram · Buy · Value · Content) and tiered S→D.</p>
 
         <div className="divider" />
@@ -318,7 +383,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
           <button className="btn btn-lg" onClick={run} disabled={running || !postCount || postCount > 10} style={{ minWidth: 180, justifyContent: 'center' }}>
             {running ? <><Spinner size={16} /> Finding…</> : <><Icon name="spark" size={17} /> Find products</>}
           </button>
-          {postCount > 0 && <span className="text-xs" style={{ color: postCount > 10 ? 'var(--danger)' : 'var(--faint)' }}>{postCount} post{postCount === 1 ? '' : 's'} · up to {Math.max(...selected.map((c) => counts[c] || 3), 0)} products each</span>}
+          {postCount > 0 && <span className="text-xs" style={{ color: postCount > 10 ? 'var(--danger)' : 'var(--faint)' }}>{postCount} post{postCount === 1 ? '' : 's'} · up to {Math.max(...selected.map((c) => counts[c] || 3), searchQ.trim() ? searchCount : 0, 0)} products each</span>}
         </div>
 
         {/* PROCESSING panel — per-post status while finding */}
