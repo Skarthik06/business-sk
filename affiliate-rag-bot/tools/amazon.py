@@ -535,6 +535,11 @@ def _dedup_products(products: list[dict]) -> list[dict]:
         asin = p.get("asin") or ""
         img_base = (p.get("image") or "").split("._")[0].split("?")[0]
         title_key = re.sub(r"[^a-z0-9]", "", (p.get("title") or "").lower())[:40]
+        # Only use the title as a dedup key when it is specific enough to identify a product.
+        # Short/brand-only titles ("puma", "nike") would otherwise collapse every distinct item
+        # of that brand into one — ASIN + image-base already catch true duplicate listings.
+        if len(title_key) < 12:
+            title_key = ""
         if (asin and asin in seen_asin) or (img_base and img_base in seen_img) or (title_key and title_key in seen_title):
             continue
         if asin:
