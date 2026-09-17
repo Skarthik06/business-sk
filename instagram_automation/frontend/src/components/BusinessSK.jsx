@@ -191,8 +191,8 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   const searchSel = Object.values(searchPicks).flat().filter(Boolean);                 // all picks (for cover tags)
   const searchJobs = searchQ.trim()
     ? [{ cat: 'search', label: searchQ.trim().slice(0, 28),
-         q: (searchQ.trim() + ' ' + refineSel.join(' ')).trim(),                       // brands NOT appended — sent separately
-         brands: brandSel, count: searchCount, isSearch: true, picks: searchSel }]
+         q: (searchQ.trim() + ' ' + refineSel.slice(0, 3).join(' ')).trim(),           // keyword: base + a few terms (breadth); brands sent separately
+         brands: brandSel, attrs: refineSel, count: searchCount, isSearch: true, picks: searchSel }]  // ALL non-brand picks rank the results (agent honours every selection)
     : [];
   const jobs = [...catJobs, ...searchJobs];
   const postCount = jobs.length;
@@ -230,7 +230,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
       setProg((p) => p.map((r) => (r.id === j.label ? { ...r, phase: 'generating' } : r)));
       try {
         const r = j.q
-          ? await skApi.generate([], j.count || counts[j.cat] || 3, { ...opts, q: j.q, ...(j.brands && j.brands.length ? { brands: j.brands } : {}) })
+          ? await skApi.generate([], j.count || counts[j.cat] || 3, { ...opts, q: j.q, ...(j.brands && j.brands.length ? { brands: j.brands } : {}), ...(j.attrs && j.attrs.length ? { attrs: j.attrs } : {}) })
           : await skApi.generate([j.cat], j.count || counts[j.cat] || 3, opts);
         const products = (r.items || []).map((it) => ({ ...it, category: j.cat }));  // keep base category
         // search posts also tag the cover with the picked filter values (e.g. Slim · Cotton)

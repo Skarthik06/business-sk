@@ -178,6 +178,27 @@ def _brand_match(p: dict, brands) -> bool:
     return False
 
 
+def _prod_text(p: dict) -> str:
+    """All the product text an attribute could match against (title + brand + badge)."""
+    return " ".join(str(p.get(k) or "") for k in ("title", "brand", "badge")).lower()
+
+
+def _attr_hits(p: dict, attrs) -> int:
+    """How many of the SELECTED attribute values (colour, size, storage, fit, material, type, …)
+    this product actually matches, by whole-word search in its text. Universal — works for ANY
+    dimension the search-planner produced, for ANY product. Used to RANK (soft), so the items that
+    fit the most selections surface first while the count is still guaranteed."""
+    if not attrs:
+        return 0
+    hay = _prod_text(p)
+    n = 0
+    for a in attrs:
+        a = (a or "").strip().lower()
+        if a and re.search(r"\b" + re.escape(a) + r"\b", hay):
+            n += 1
+    return n
+
+
 def _passes_quality(p: dict, overrides: Optional[dict] = None) -> bool:
     """Only products that ATTRACT customers: real price+image, impulse price
     range, and (when present) a solid rating + enough reviews for social proof.
@@ -381,6 +402,15 @@ def _soft_score(p: dict, quality: Optional[dict] = None) -> float:
     # brands come first and off-brand items sink to the very bottom (used only if nothing else).
     if o.get("brands"):
         score += 90 if _brand_match(p, o["brands"]) else -120
+    # Every OTHER selection (colour, size, storage, fit, material, type, …) ranks softly: the more
+    # of the picked attributes a product matches, the higher it sorts — so the guaranteed 8 fit the
+    # selections as closely as the catalogue allows, without ever hard-excluding (count is safe).
+    attrs = o.get("attrs")
+    if attrs:
+        hits = _attr_hits(p, attrs)
+        score += hits * 30                       # reward each matched selection
+        if hits == 0:
+            score -= 12                          # gentle nudge below partial matches
     return score
 
 
@@ -398,11 +428,16 @@ def _finalize_pool(raw: list[dict], quality: Optional[dict], cap: int, need: int
     products are removed up front and NEVER backfilled in (a Nike/Puma pick must never yield U.S.
     Polo). Only the soft quality thresholds relax to fill the count, and only among those brands."""
     renderable = [p for p in raw if p.get("image") and _parse_price(p.get("price"))]
-    brands = (quality or {}).get("brands")
+    q = quality or {}
+    brands = q.get("brands")
     if brands:                                   # hard brand filter — off-brand can never appear
         renderable = [p for p in renderable if _brand_match(p, brands)]
+    # When the shopper made selections (attributes or brands), rank by how well each product FITS
+    # them (_soft_score folds in attractiveness + every selection); otherwise pure attractiveness.
+    _prefs = bool(q.get("attrs") or brands)
+    _rank = (lambda p: _soft_score(p, quality)) if _prefs else _attractiveness
     passed = _dedup_products(sorted([p for p in renderable if _passes_quality(p, quality)],
-                                    key=_attractiveness, reverse=True))
+                                    key=_rank, reverse=True))
     # Threshold FULLY enforced when enough products meet it (or no count target given).
     if not need or len(passed) >= need:
         return _interleave_brands(passed, brands)[:cap]

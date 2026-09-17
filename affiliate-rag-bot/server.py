@@ -434,6 +434,7 @@ async def api_generate(
     deals_min: Optional[int] = Query(default=None, ge=0, le=90, description="Deals mode: minimum discount percent to qualify (overrides DEALS_MIN_DISCOUNT)."),
     audience: Optional[str] = Query(default=None, description="Audience/gender targeting: men|women|kids (prefixes the search terms). Blank = everyone."),
     brands: Optional[str] = Query(default=None, description="Comma-separated brand picks (Universal Search). A HARD constraint: results are limited to these brands (relaxed only to fill the count), and one query is run per brand so every selected brand is represented."),
+    attrs: Optional[str] = Query(default=None, description="Comma-separated NON-brand filter picks (colour, size, storage, fit, material, type, …). SOFT: products matching more of these rank higher, so the guaranteed count best fits the selections — never hard-excluded."),
     combo_budget: Optional[int] = Query(default=None, ge=0, le=1_000_000, description="if set, also return a combo (products from distinct categories summing <= this budget)"),
     combo_size: int = Query(default=3, ge=2, le=5),
 ) -> JSONResponse:
@@ -480,6 +481,10 @@ async def api_generate(
         picks = [b.strip() for b in brands.split(",") if b.strip()][:6]
         if picks:
             options["brands"] = picks     # hard brand constraint + one scrape query per brand
+    if attrs and attrs.strip():
+        aps = [a.strip() for a in attrs.split(",") if a.strip()][:12]
+        if aps:
+            options["attrs"] = aps        # soft: rank the count toward these selections
 
     ppr = int(products_per_run or cfg.bot.products_per_run)
 
@@ -989,7 +994,7 @@ AGENT_ROSTER = [
     {"name": "retailer-adapter", "role": "Multi-retailer interface + affiliate-link service"},
     {"name": "competitor-intel", "role": "Opt-in watchlist (market signal, never cloning)"},
     {"name": "winner-prediction", "role": "Predicted winners (deterministic → historical)"},
-    {"name": "product-scout", "role": "Retrieval + SOFT quality thresholds (rating/reviews/price/deals rank, never hard-exclude) → always fills the requested count"},
+    {"name": "product-scout", "role": "Retrieval + selection control: brand = HARD (per-brand queries, off-brand never shown), all other picks (colour/size/storage/fit/…) + quality thresholds = SOFT rank → always fills the requested count, best-fitting first"},
     {"name": "search-planner", "role": "Universal search: AGENTIC AI-inferred per-product filters (call→validate→refine→retry, never fails, never generic) → refine query + soft-rank"},
     {"name": "product-scorer", "role": "Multi-score ranking + tiers"},
     {"name": "creative-copywriter", "role": "AI cover headline, clean slide names + catchy deal-sticker words (one call)"},
