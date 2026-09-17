@@ -143,19 +143,24 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   const [searchQ, setSearchQ] = useState('');
   const [searchCount, setSearchCount] = useState(5);
   const [searchDims, setSearchDims] = useState([]);      // [{name, options}] from AI
-  const [searchPicks, setSearchPicks] = useState({});    // {dimName: value}
+  const [searchPicks, setSearchPicks] = useState({});    // {dimName: [values]} — MULTI-select
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchTokens, setSearchTokens] = useState(null);// {input,output,total} AI usage
   useEffect(() => {                                       // debounced AI filter fetch
     const q = searchQ.trim();
-    if (q.length < 2) { setSearchDims([]); setSearchPicks({}); return; }
+    if (q.length < 2) { setSearchDims([]); setSearchPicks({}); setSearchTokens(null); return; }
     setSearchLoading(true);
     const t = setTimeout(() => {
-      skApi.searchFilters(q).then((d) => { setSearchDims(d.filters || []); })
+      skApi.searchFilters(q).then((d) => { setSearchDims(d.filters || []); setSearchTokens(d.tokens || null); })
         .catch(() => setSearchDims([])).finally(() => setSearchLoading(false));
     }, 650);
     return () => clearTimeout(t);
   }, [searchQ]);
-  const pickFilter = (dim, opt) => setSearchPicks((p) => ({ ...p, [dim]: p[dim] === opt ? undefined : opt }));
+  // MULTI-select: toggle a value within its dimension's array.
+  const pickFilter = (dim, opt) => setSearchPicks((p) => {
+    const cur = p[dim] || [];
+    return { ...p, [dim]: cur.includes(opt) ? cur.filter((x) => x !== opt) : [...cur, opt] };
+  });
   const [running, setRunning] = useState(false);
   const [prog, setProg] = useState([]);                  // per-post progress rows
   const [groups, setGroups] = useState(null);            // [{id,label,category,products}]
@@ -178,10 +183,11 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   });
   // Universal search = its own post. Selected filter picks are appended to the query (refine) —
   // e.g. "brown shirt slim cotton" — and the soft thresholds rank the rest.
-  const searchTerms = Object.values(searchPicks).filter(Boolean).join(' ');
+  const searchSel = Object.values(searchPicks).flat().filter(Boolean);   // all picked values (multi)
+  const searchTerms = searchSel.join(' ');
   const searchJobs = searchQ.trim()
     ? [{ cat: 'search', label: searchQ.trim().slice(0, 28), q: (searchQ.trim() + ' ' + searchTerms).trim(),
-         count: searchCount, isSearch: true, picks: Object.values(searchPicks).filter(Boolean) }]
+         count: searchCount, isSearch: true, picks: searchSel }]
     : [];
   const jobs = [...catJobs, ...searchJobs];
   const postCount = jobs.length;
@@ -294,16 +300,19 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
           <input className="sk-input" style={{ width: '100%' }} value={searchQ}
             onChange={(e) => setSearchQ(e.target.value)}
             placeholder="e.g. iphone 18 pro max · brown shirt · air fryer · running shoes for men" />
-          {searchLoading && <div className="text-xs mt-2 flex items-center gap-2" style={{ color: 'var(--muted)' }}><Spinner size={12} /> reading your product…</div>}
+          {searchLoading && <div className="text-xs mt-2 flex items-center gap-2" style={{ color: 'var(--muted)' }}><Spinner size={12} /> AI is reading your product…</div>}
           {searchDims.length > 0 && (
             <div className="mt-3 flex flex-col gap-2">
-              <div className="text-xs" style={{ color: 'var(--faint)' }}>Refine (optional) — tap to narrow the search:</div>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="text-xs" style={{ color: 'var(--faint)' }}>Refine (optional) — tap to pick <b>multiple</b> per row:</div>
+                {searchTokens?.total ? <div className="text-xs font-mono" style={{ color: 'var(--muted)' }}>🧠 AI used {searchTokens.total} tokens ({searchTokens.input}→{searchTokens.output})</div> : null}
+              </div>
               {searchDims.map((d) => (
                 <div key={d.name}>
                   <div className="ctrl-card-label" style={{ marginBottom: 5 }}>{d.name}</div>
                   <div className="ctrl-chips">
                     {d.options.map((o) => (
-                      <button key={o} type="button" className={cx('opt-card', searchPicks[d.name] === o && 'on')}
+                      <button key={o} type="button" className={cx('opt-card', (searchPicks[d.name] || []).includes(o) && 'on')}
                         onClick={() => pickFilter(d.name, o)}>{o}</button>
                     ))}
                   </div>
@@ -311,7 +320,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
               ))}
             </div>
           )}
-          {searchQ.trim() && <div className="text-xs mt-3" style={{ color: 'var(--accent)' }}>+1 post · up to {searchCount} products · searches "{(searchQ.trim() + ' ' + Object.values(searchPicks).filter(Boolean).join(' ')).trim()}"</div>}
+          {searchQ.trim() && <div className="text-xs mt-3" style={{ color: 'var(--accent)' }}>+1 post · up to {searchCount} products · searches "{(searchQ.trim() + ' ' + searchTerms).trim()}"</div>}
         </div>
 
         <p className="text-xs mt-3" style={{ color: 'var(--faint)' }}>Each subcategory you tap becomes its own post. Every result is scored (Instagram · Buy · Value · Content) and tiered S→D.</p>
@@ -408,11 +417,13 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
           <div className="flex items-center gap-3 mb-4">
             <div className="step-head"><span className="step-n">2</span> Review — {readyPosts} post{readyPosts === 1 ? '' : 's'} ready in Content Studio</div>
             <span className="flex-1" />
+            <button className="btn btn-sm" onClick={run} disabled={running} title="Re-scrape fresh products for the same selections">{running ? <Spinner size={12} /> : <Icon name="bolt" size={12} />} Refresh</button>
             {total > 0 && <>
               <button className="btn btn-sm btn-ghost" onClick={() => copy(JSON.stringify(allItems, null, 2), 'JSON')}><Icon name="doc" size={12} /> JSON</button>
               <button className="btn btn-sm btn-ghost" onClick={() => downloadCSV(allItems)}><Icon name="ext" size={12} /> CSV</button>
             </>}
           </div>
+          <p className="text-xs mb-4" style={{ color: 'var(--faint)' }}>These stay here after you Post to IG — hit <b>Refresh</b> for fresh picks (same filters), or scroll up and change selections to generate new.</p>
           {combo && (
             <div className="panel p-4 mb-5" style={{ borderColor: 'var(--accent)' }}>
               <div className="flex items-center gap-2 mb-2"><span className="prog-badge">🎁 {combo.title}</span><span className="text-xs" style={{ color: 'var(--muted)' }}>{combo.count} products · combined ₹{Number(combo.combined_price).toLocaleString()}</span></div>
