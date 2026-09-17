@@ -898,6 +898,21 @@ def networks_cuelinks_sync(days: int = 30) -> dict:
     return cuelinks.sync(max(1, min(days, 365)))
 
 
+# ── Universal Search — AI-inferred, per-product filter dimensions ─────────────
+
+@app.get("/api/search/filters")
+async def search_filters(q: str = Query(..., min_length=2, max_length=80,
+                                        description="Free-text product search, e.g. 'brown shirt' or 'iphone 18 pro max'")) -> dict:
+    """Return the filter dimensions most relevant to THIS product (AI-inferred). The UI renders
+    them as chips; the user's picks refine the search + soft-rank. Degrades to a generic set."""
+    from chains.search_filters import suggest_filters
+    filters = await suggest_filters(q)
+    if not filters:                              # generic fallback so the card always has filters
+        filters = [{"name": "Brand", "options": ["Any", "Top brands only"]},
+                   {"name": "Colour", "options": ["Black", "White", "Blue", "Red", "Neutral"]}]
+    return {"ok": True, "query": q, "filters": filters}
+
+
 @app.get("/api/intelligence/insights")
 def intelligence_insights() -> dict:
     """Learned recommendations (best categories/styles by measured outcome). Empty until data."""
@@ -969,6 +984,7 @@ AGENT_ROSTER = [
     {"name": "competitor-intel", "role": "Opt-in watchlist (market signal, never cloning)"},
     {"name": "winner-prediction", "role": "Predicted winners (deterministic → historical)"},
     {"name": "product-scout", "role": "Retrieval + SOFT quality thresholds (rating/reviews/price/deals rank, never hard-exclude) → always fills the requested count"},
+    {"name": "search-planner", "role": "Universal search: AI-inferred per-product filters (any product) → refine query + soft-rank"},
     {"name": "product-scorer", "role": "Multi-score ranking + tiers"},
     {"name": "creative-copywriter", "role": "AI cover headline, clean slide names + catchy deal-sticker words (one call)"},
     {"name": "still-set-renderer", "role": "Slide design, product collage cover, cutout + non-repeating covers"},
