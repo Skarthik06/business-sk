@@ -1176,10 +1176,27 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
  /* AnimatedContent — scroll reveal */
  .reveal{{opacity:0;transform:translateY(26px);transition:opacity .6s cubic-bezier(.22,1,.36,1),transform .6s cubic-bezier(.22,1,.36,1)}}
  .reveal.in{{opacity:1;transform:none}}
+ /* ShinyText — sweeping highlight on the brand mark */
+ .brand.shiny{{position:relative;display:inline-block;background:linear-gradient(110deg,var(--accent) 40%,#f3d3a8 50%,var(--accent) 60%);background-size:220% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:brandshine 4s linear infinite}}
+ @keyframes brandshine{{to{{background-position:-220% 0}}}}
+ /* TiltedCard — subtle 3D tilt toward the cursor + image zoom */
+ .grid,.strip{{perspective:1000px}}
+ .card{{transform-style:preserve-3d;will-change:transform}}
+ .card:hover{{transform:translateY(-4px) rotateX(var(--ry,0deg)) rotateY(var(--rx,0deg)) scale(1.015)}}
+ .imgwrap img{{transition:transform .45s cubic-bezier(.22,1,.36,1)}}
+ .card:hover .imgwrap img{{transform:scale(1.08)}}
+ /* Search focus glow */
+ .search input:focus{{box-shadow:0 0 0 4px rgba(180,71,47,.15),0 10px 28px rgba(180,71,47,.12)}}
+ /* Floating deal icon */
+ .fire{{display:inline-block;animation:float 2.6s ease-in-out infinite}}
+ @keyframes float{{0%,100%{{transform:translateY(0) rotate(-4deg)}}50%{{transform:translateY(-6px) rotate(4deg)}}}}
+ /* Chip press feedback */
+ .chip:active{{transform:scale(.94)}}
+ .btn{{transition:background .2s,transform .15s}} .card:hover .btn{{transform:translateX(3px)}}
 </style></head><body>
 <div class="aurora"><span class="a1"></span><span class="a2"></span><span class="a3"></span></div>
 <div class="hero">
-  <div class="brand">Lost in Frames · SK Store</div>
+  <div class="brand shiny">SK LostInFrames</div>
   <h1 class="gradtext">Today's Best Finds</h1>
   <p>Handpicked deals on Amazon — updated live. Tap any product to shop.</p>
   <div class="search"><input id="q" type="search" placeholder="Search {len(products)} products…" autocomplete="off"></div>
@@ -1235,6 +1252,8 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
    var c=e.target.closest && e.target.closest('.card'); if(!c) return;
    var r=c.getBoundingClientRect();
    c.style.setProperty('--mx',(e.clientX-r.left)+'px'); c.style.setProperty('--my',(e.clientY-r.top)+'px');
+   var cx=(e.clientX-r.left)/r.width-0.5, cy=(e.clientY-r.top)/r.height-0.5;   /* TiltedCard */
+   c.style.setProperty('--rx',(cx*7).toFixed(2)+'deg'); c.style.setProperty('--ry',(-cy*7).toFixed(2)+'deg');
  }});
  /* AnimatedContent — reveal on scroll (staggered) */
  var io=new IntersectionObserver(function(es){{
