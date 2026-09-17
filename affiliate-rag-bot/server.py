@@ -1088,9 +1088,9 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
             proof.append(f'{escape(str(reviews))} reviews')
         proof_html = f'<div class="proof">{" · ".join(proof)}</div>' if proof else ""
         meta = (f'<span class="orig">{orig}</span>' if orig else "") + (f'<span class="off">-{disc}%</span>' if disc else "")
-        return f"""<a class="card{' feat' if featured else ''}" href="{link}" target="_blank" rel="nofollow noopener sponsored"
+        return f"""<a class="card reveal{' feat' if featured else ''}" href="{link}" target="_blank" rel="nofollow noopener sponsored"
           data-cat="{escape(cat)}" data-title="{title.lower()}" data-disc="{disc}" data-price="{_num(p.get('price'))}" data-rating="{_num(rating)}">
-          <div class="imgwrap"><img loading="lazy" src="{img}" alt="">{f'<span class="badge">-{disc}% OFF</span>' if disc else ''}</div>
+          <div class="imgwrap"><img loading="{'eager' if featured else 'lazy'}" src="{img}" alt="">{f'<span class="badge">-{disc}% OFF</span>' if disc else ''}</div>
           <div class="body"><div class="title">{title}</div>{proof_html}
             <div class="prices"><span class="price">{price}</span>{meta}</div>
             <span class="btn">Shop on Amazon →</span></div>
@@ -1152,10 +1152,35 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
  .disc{{text-align:center;color:var(--muted);font-size:11px;padding:6px 18px}}
  footer{{text-align:center;color:var(--muted);font-size:12px;padding:22px}}
  .nomatch{{display:none;text-align:center;color:var(--muted);padding:40px}}
+ /* ── ReactBits-style animations (ported) ───────────────────────────── */
+ /* Aurora background (animated colour blobs) */
+ .aurora{{position:fixed;inset:0;z-index:-1;overflow:hidden;filter:blur(70px) saturate(1.1);opacity:.55;pointer-events:none}}
+ .aurora span{{position:absolute;width:52vw;height:52vw;border-radius:50%;mix-blend-mode:multiply;animation:drift 22s ease-in-out infinite}}
+ .aurora .a1{{background:radial-gradient(circle,#e8a06a,transparent 60%);top:-14vw;left:-8vw}}
+ .aurora .a2{{background:radial-gradient(circle,#B4472F,transparent 60%);top:-6vw;right:-12vw;animation-delay:-6s}}
+ .aurora .a3{{background:radial-gradient(circle,#d98a3d,transparent 60%);bottom:-18vw;left:22vw;animation-delay:-12s}}
+ @keyframes drift{{0%,100%{{transform:translate(0,0) scale(1)}}33%{{transform:translate(6vw,4vw) scale(1.12)}}66%{{transform:translate(-5vw,3vw) scale(.94)}}}}
+ @media (prefers-reduced-motion:reduce){{.aurora span{{animation:none}}}}
+ /* GradientText — animated gradient hero heading */
+ .gradtext{{background:linear-gradient(90deg,#B4472F,#c96a1e,#e0a34a,#B4472F);background-size:280% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:gtxt 7s linear infinite}}
+ @keyframes gtxt{{to{{background-position:280% 0}}}}
+ /* ShinyText — sweeping highlight on the badge */
+ .badge{{position:absolute;top:10px;left:10px;overflow:hidden}}
+ .badge::after{{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.55) 50%,transparent 70%);transform:translateX(-120%);animation:shine 3.4s ease-in-out infinite}}
+ @keyframes shine{{0%,60%{{transform:translateX(-120%)}}100%{{transform:translateX(120%)}}}}
+ /* SpotlightCard — cursor-following glow */
+ .card{{position:relative;isolation:isolate}}
+ .card::before{{content:"";position:absolute;inset:0;z-index:1;border-radius:inherit;opacity:0;transition:opacity .3s;
+   background:radial-gradient(220px circle at var(--mx,50%) var(--my,0%), rgba(180,71,47,.18), transparent 60%)}}
+ .card:hover::before{{opacity:1}}
+ /* AnimatedContent — scroll reveal */
+ .reveal{{opacity:0;transform:translateY(26px);transition:opacity .6s cubic-bezier(.22,1,.36,1),transform .6s cubic-bezier(.22,1,.36,1)}}
+ .reveal.in{{opacity:1;transform:none}}
 </style></head><body>
+<div class="aurora"><span class="a1"></span><span class="a2"></span><span class="a3"></span></div>
 <div class="hero">
   <div class="brand">SK · The Edit</div>
-  <h1>Today's Best Finds</h1>
+  <h1 class="gradtext">Today's Best Finds</h1>
   <p>Handpicked deals on Amazon — updated live. Tap any product to shop.</p>
   <div class="search"><input id="q" type="search" placeholder="Search {len(products)} products…" autocomplete="off"></div>
 </div>
@@ -1203,6 +1228,19 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
  chips.forEach(function(ch){{ch.onclick=function(){{chips.forEach(function(x){{x.classList.remove('on');}});ch.classList.add('on');curCat=ch.dataset.f;apply();}};}});
  q.addEventListener('input',apply); sortSel.addEventListener('change',sortCards);
  sortCards();
+ /* SpotlightCard — cursor-following glow */
+ document.addEventListener('mousemove',function(e){{
+   var c=e.target.closest && e.target.closest('.card'); if(!c) return;
+   var r=c.getBoundingClientRect();
+   c.style.setProperty('--mx',(e.clientX-r.left)+'px'); c.style.setProperty('--my',(e.clientY-r.top)+'px');
+ }});
+ /* AnimatedContent — reveal on scroll (staggered) */
+ var io=new IntersectionObserver(function(es){{
+   es.forEach(function(en){{ if(en.isIntersecting){{ var el=en.target;
+     el.style.transitionDelay=(Math.min([].indexOf.call(el.parentNode.children,el),8)*40)+'ms';
+     el.classList.add('in'); io.unobserve(el); }} }});
+ }},{{threshold:.08}});
+ [].slice.call(document.querySelectorAll('.reveal')).forEach(function(el){{io.observe(el);}});
 </script>
 </body></html>"""
     return HTMLResponse(html)
