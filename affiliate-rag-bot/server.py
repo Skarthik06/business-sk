@@ -1199,8 +1199,10 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
   <p class="nomatch" id="nomatch">No products match — try another search.</p>
   {empty}
 </main>
-<p class="disc">#Ad · As an Amazon Associate I earn from qualifying purchases.</p>
-<footer>{len(products)} products · {len(by_cat)} categories · updated live · Lost in Frames · SK Store</footer>
+<footer>
+  <div>© 2026 Lost in Frames · SK Store. All rights reserved.</div>
+  <div style="opacity:.6;font-size:10px;margin-top:5px">As an Amazon Associate we earn from qualifying purchases.</div>
+</footer>
 <script>
  var grid=document.getElementById('grid'), q=document.getElementById('q'), sortSel=document.getElementById('sort'),
      count=document.getElementById('count'), nomatch=document.getElementById('nomatch'),
