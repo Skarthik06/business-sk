@@ -1110,7 +1110,7 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
 
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>SK · The Edit — Amazon Picks</title>
+<title>Lost in Frames · SK Store — Amazon Picks</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
@@ -1179,7 +1179,7 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
 </style></head><body>
 <div class="aurora"><span class="a1"></span><span class="a2"></span><span class="a3"></span></div>
 <div class="hero">
-  <div class="brand">SK · The Edit</div>
+  <div class="brand">Lost in Frames · SK Store</div>
   <h1 class="gradtext">Today's Best Finds</h1>
   <p>Handpicked deals on Amazon — updated live. Tap any product to shop.</p>
   <div class="search"><input id="q" type="search" placeholder="Search {len(products)} products…" autocomplete="off"></div>
@@ -1200,7 +1200,7 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
   {empty}
 </main>
 <p class="disc">#Ad · As an Amazon Associate I earn from qualifying purchases.</p>
-<footer>{len(products)} products · {len(by_cat)} categories · updated live · SK · The Edit</footer>
+<footer>{len(products)} products · {len(by_cat)} categories · updated live · Lost in Frames · SK Store</footer>
 <script>
  var grid=document.getElementById('grid'), q=document.getElementById('q'), sortSel=document.getElementById('sort'),
      count=document.getElementById('count'), nomatch=document.getElementById('nomatch'),
