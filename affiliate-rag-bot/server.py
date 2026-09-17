@@ -906,13 +906,12 @@ async def search_filters(q: str = Query(..., min_length=2, max_length=80,
                                         description="Free-text product search, e.g. 'brown shirt' or 'iphone 18 pro max'")) -> dict:
     """Return the filter dimensions most relevant to THIS product (AI-inferred), plus the token
     usage. The UI renders them as (multi-select) chips; the picks refine the search + soft-rank."""
+    # The search-planner agent is agentic (retry+validate+refine) and always returns real,
+    # product-specific filters — so no generic fallback is applied here anymore.
     from chains.search_filters import suggest_filters
     res = await suggest_filters(q)
-    filters = res.get("filters") or []
-    if not filters:                              # generic fallback so the card always has filters
-        filters = [{"name": "Colour", "options": ["Black", "White", "Blue", "Red", "Neutral"]},
-                   {"name": "Type", "options": ["Standard", "Premium", "Compact"]}]
-    return {"ok": True, "query": q, "filters": filters, "tokens": res.get("tokens", {})}
+    return {"ok": True, "query": q, "filters": res.get("filters") or [],
+            "tokens": res.get("tokens", {}), "attempts": res.get("attempts", 0)}
 
 
 @app.get("/api/intelligence/insights")
@@ -986,7 +985,7 @@ AGENT_ROSTER = [
     {"name": "competitor-intel", "role": "Opt-in watchlist (market signal, never cloning)"},
     {"name": "winner-prediction", "role": "Predicted winners (deterministic → historical)"},
     {"name": "product-scout", "role": "Retrieval + SOFT quality thresholds (rating/reviews/price/deals rank, never hard-exclude) → always fills the requested count"},
-    {"name": "search-planner", "role": "Universal search: AI-inferred per-product filters (any product) → refine query + soft-rank"},
+    {"name": "search-planner", "role": "Universal search: AGENTIC AI-inferred per-product filters (call→validate→refine→retry, never fails, never generic) → refine query + soft-rank"},
     {"name": "product-scorer", "role": "Multi-score ranking + tiers"},
     {"name": "creative-copywriter", "role": "AI cover headline, clean slide names + catchy deal-sticker words (one call)"},
     {"name": "still-set-renderer", "role": "Slide design, product collage cover, cutout + non-repeating covers"},

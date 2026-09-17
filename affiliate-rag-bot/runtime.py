@@ -44,6 +44,9 @@ TUNABLE: dict[str, dict] = {
     "QUALITY_PRICE_MAX":     {"type": "int", "min": 200, "max": 100000, "agent": "product-scout", "label": "Preferred max price ₹ (soft threshold)"},
     "DEALS_MIN_DISCOUNT":    {"type": "int", "min": 0, "max": 90, "agent": "product-scout", "label": "Deals mode: min discount %"},
     "CONTENT_DEFAULT_STYLE": {"type": "str", "min": None, "max": None, "agent": "content-intelligence", "label": "Default caption style"},
+    # Universal Search filter planner — agentic call→validate→refine→retry (never fails, never generic).
+    "SEARCH_FILTER_RETRIES": {"type": "int", "min": 1, "max": 5, "agent": "search-planner", "label": "Max AI attempts (retry until valid)"},
+    "SEARCH_FILTER_MIN_DIMS": {"type": "int", "min": 1, "max": 5, "agent": "search-planner", "label": "Min distinct filter dimensions"},
     # Still-Set renderer — product cutout quality (read live by the IG backend via /api/render-config).
     "RENDER_ISOLATE":        {"type": "int", "min": 0, "max": 1, "agent": "still-set-renderer", "label": "Cut out product (0/1)"},
     "RENDER_ALPHA_MATTING":  {"type": "int", "min": 0, "max": 1, "agent": "still-set-renderer", "label": "Smooth edges / alpha matting (0/1)"},
