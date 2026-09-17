@@ -1055,82 +1055,155 @@ def hub_json(category: Optional[str] = None) -> dict:
 
 @app.get("/hub", response_class=HTMLResponse)
 def hub_page(category: Optional[str] = None) -> HTMLResponse:
-    """A public, mobile-friendly 'shop' page listing every product we've posted,
-    each linking to Amazon with your associate tag — the 'link in bio' surface."""
+    """The public storefront — the 'link in bio' surface. A polished, converting shop:
+    brand hero, live search, category filter chips, sort, a Top-Deals strip, and elegant
+    cards. Every product links to Amazon with your associate tag. Client-side search/filter/
+    sort over a server-rendered grid, so it's fast, shareable, and works without a build step."""
     from html import escape
     from collections import OrderedDict
     from rag.posts import post_store
     from tools.amazon import _hi_res_image
     products = post_store.all_products(category)
 
-    def _card(p: dict) -> str:
+    def _num(v):
+        try:
+            return float(str(v).replace(",", "").strip() or 0)
+        except Exception:
+            return 0.0
+
+    def _card(p: dict, featured: bool = False) -> str:
         img = escape(_hi_res_image(p.get("image", "")))
-        title = escape((p.get("product_title") or "")[:90])
-        price = escape(p.get("price", ""))
+        title = escape((p.get("product_title") or "")[:100])
+        price = escape(p.get("price", "") or "")
         orig = escape(p.get("orig_price", "") or "")
-        disc = p.get("discount_pct")
+        disc = int(p.get("discount_pct") or 0)
         rating = p.get("rating")
         reviews = p.get("reviews")
+        cat = ((p.get("category") or "other").strip().lower()) or "other"
         link = escape(p.get("affiliate_link") or f"https://www.{cfg.amazon.marketplace}/dp/{p.get('asin','')}?tag={cfg.amazon.associate_tag}")
-        meta = []
-        if orig:
-            meta.append(f'<span class="orig">{orig}</span>')
-        if disc:
-            meta.append(f'<span class="off">-{int(disc)}%</span>')
         proof = []
         if rating is not None:
             proof.append(f'★ {escape(str(rating))}')
         if reviews:
             proof.append(f'{escape(str(reviews))} reviews')
         proof_html = f'<div class="proof">{" · ".join(proof)}</div>' if proof else ""
-        return f"""
-        <a class="card" href="{link}" target="_blank" rel="nofollow noopener">
-          <div class="imgwrap"><img loading="lazy" src="{img}" alt="">{f'<span class="badge">-{int(disc)}%</span>' if disc else ''}</div>
+        meta = (f'<span class="orig">{orig}</span>' if orig else "") + (f'<span class="off">-{disc}%</span>' if disc else "")
+        return f"""<a class="card{' feat' if featured else ''}" href="{link}" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="{escape(cat)}" data-title="{title.lower()}" data-disc="{disc}" data-price="{_num(p.get('price'))}" data-rating="{_num(rating)}">
+          <div class="imgwrap"><img loading="lazy" src="{img}" alt="">{f'<span class="badge">-{disc}% OFF</span>' if disc else ''}</div>
           <div class="body"><div class="title">{title}</div>{proof_html}
-            <div class="prices"><span class="price">{price}</span>{"".join(meta)}</div>
-            <div class="row"><span class="btn">Shop on Amazon →</span></div></div>
+            <div class="prices"><span class="price">{price}</span>{meta}</div>
+            <span class="btn">Shop on Amazon →</span></div>
         </a>"""
 
-    # Group products into neat category sections.
     by_cat: "OrderedDict[str, list]" = OrderedDict()
     for p in products:
-        by_cat.setdefault((p.get("category") or "other").strip() or "other", []).append(p)
-    sections = []
-    for cat, items in by_cat.items():
-        cards = "\n".join(_card(p) for p in items)
-        sections.append(f'<section><h2 class="cat-h">{escape(cat.title())} <span>{len(items)}</span></h2><div class="grid">{cards}</div></section>')
-    body_html = "\n".join(sections) or '<p class="empty">No products yet — publish some from Business-SK.</p>'
+        by_cat.setdefault(((p.get("category") or "other").strip().lower()) or "other", []).append(p)
+    all_cards = "\n".join(_card(p) for p in products)
+    deals = sorted([p for p in products if (p.get("discount_pct") or 0) >= 40],
+                   key=lambda p: p.get("discount_pct") or 0, reverse=True)[:8]
+    deals_html = ("".join(_card(p, featured=True) for p in deals)) if deals else ""
+    chips = ('<button class="chip on" data-f="all">All</button>'
+             + "".join(f'<button class="chip" data-f="{escape(c)}">{escape(c.title())}<b>{len(items)}</b></button>'
+                       for c, items in by_cat.items()))
+    empty = '' if products else '<p class="empty">No products yet — publish some from Business-SK.</p>'
 
-    title = "Amazon Picks" + (f" · {escape(category)}" if category else "")
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>{title}</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SK · The Edit — Amazon Picks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
- :root{{color-scheme:light dark}}
- *{{box-sizing:border-box}} body{{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#0d1117;color:#e6edf3}}
- header{{padding:24px 18px 6px;text-align:center}} header h1{{margin:0;font-size:23px}}
- .disc{{font-size:11px;color:#8b949e;text-align:center;padding:0 18px 10px}}
- main{{max-width:960px;margin:0 auto;padding:6px 12px 30px}}
- section{{margin:18px 0}}
- .cat-h{{font-size:16px;margin:0 4px 10px;display:flex;align-items:center;gap:8px;text-transform:capitalize}}
- .cat-h span{{font:600 11px ui-monospace,monospace;color:#8b949e;background:#161b22;border:1px solid #30363d;border-radius:20px;padding:1px 9px}}
- .grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(158px,1fr));gap:13px}}
- .card{{background:#161b22;border:1px solid #30363d;border-radius:14px;overflow:hidden;text-decoration:none;color:inherit;display:flex;flex-direction:column;transition:border-color .15s}}
- .card:hover{{border-color:#2f81f7}}
- .imgwrap{{position:relative;height:168px;background:#fff;display:grid;place-items:center}} .imgwrap img{{max-width:100%;max-height:100%;object-fit:contain}}
- .badge{{position:absolute;top:8px;left:8px;background:#238636;color:#fff;font:700 11px ui-monospace,monospace;padding:2px 7px;border-radius:7px}}
- .body{{padding:11px;display:flex;flex-direction:column;gap:6px;flex:1}}
- .title{{font-size:13px;line-height:1.3;font-weight:600}}
- .proof{{font:600 10.5px ui-monospace,monospace;color:#8b949e}}
- .prices{{display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}}
- .price{{font-weight:800;font-size:15px}} .orig{{text-decoration:line-through;color:#6e7681;font-size:12px}} .off{{color:#3fb950;font:700 12px ui-monospace,monospace}}
- .row{{margin-top:auto}} .btn{{font-size:11px;color:#2f81f7;white-space:nowrap}}
- .empty{{text-align:center;color:#8b949e;padding:50px}}
- footer{{text-align:center;color:#8b949e;font-size:11px;padding:16px}}
+ *{{box-sizing:border-box}}
+ :root{{--bg:#F7F3EC;--card:#FFFFFF;--ink:#241c17;--muted:#7c6f64;--line:#e6ddd0;--accent:#B4472F;--accent2:#c96a1e}}
+ body{{margin:0;background:var(--bg);color:var(--ink);font-family:'Hanken Grotesk',system-ui,sans-serif}}
+ a{{text-decoration:none;color:inherit}}
+ .hero{{padding:40px 20px 18px;text-align:center;background:radial-gradient(120% 90% at 50% 0%, #fff 0%, var(--bg) 70%)}}
+ .brand{{font-family:'Space Mono',monospace;font-size:13px;letter-spacing:.34em;text-transform:uppercase;color:var(--accent)}}
+ .hero h1{{font-family:'Instrument Serif',Georgia,serif;font-size:52px;line-height:1;margin:8px 0 6px;letter-spacing:-.01em}}
+ .hero p{{margin:0;color:var(--muted);font-size:15px}}
+ .search{{max-width:520px;margin:20px auto 0;position:relative}}
+ .search input{{width:100%;padding:14px 18px;border:1.5px solid var(--line);border-radius:100px;background:#fff;font-size:15px;font-family:inherit;color:var(--ink);box-shadow:0 8px 24px rgba(20,30,45,.06)}}
+ .search input:focus{{outline:none;border-color:var(--accent)}}
+ .bar{{position:sticky;top:0;z-index:5;background:rgba(247,243,236,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:12px 0}}
+ .chips{{display:flex;gap:9px;overflow-x:auto;padding:0 16px;max-width:1040px;margin:0 auto;scrollbar-width:none}} .chips::-webkit-scrollbar{{display:none}}
+ .chip{{flex:none;font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--muted);background:#fff;border:1.5px solid var(--line);border-radius:100px;padding:8px 16px;cursor:pointer;display:flex;gap:7px;align-items:center;white-space:nowrap;transition:.15s}}
+ .chip b{{color:var(--accent);font-weight:700}} .chip.on{{background:var(--accent);color:#fff;border-color:var(--accent)}} .chip.on b{{color:#fff}}
+ .sortrow{{max-width:1040px;margin:14px auto 0;padding:0 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}}
+ .sortrow .n{{font-family:'Space Mono',monospace;font-size:12px;color:var(--muted)}}
+ select{{font-family:inherit;font-size:13px;padding:8px 12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}}
+ main{{max-width:1040px;margin:0 auto;padding:8px 16px 40px}}
+ .sec-h{{font-family:'Instrument Serif',Georgia,serif;font-size:30px;margin:26px 4px 14px;display:flex;align-items:center;gap:10px}}
+ .sec-h .fire{{font-size:22px}}
+ .strip{{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(190px,1fr);gap:14px;overflow-x:auto;padding:2px 2px 10px;scrollbar-width:none}} .strip::-webkit-scrollbar{{display:none}}
+ .grid{{display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:16px}}
+ .card{{background:var(--card);border:1.5px solid var(--line);border-radius:18px;overflow:hidden;display:flex;flex-direction:column;transition:transform .15s,box-shadow .15s,border-color .15s;box-shadow:0 6px 18px rgba(20,30,45,.05)}}
+ .card:hover{{transform:translateY(-3px);box-shadow:0 16px 34px rgba(20,30,45,.12);border-color:var(--accent)}}
+ .imgwrap{{position:relative;aspect-ratio:1;background:#fff;display:grid;place-items:center;padding:10px}} .imgwrap img{{max-width:100%;max-height:100%;object-fit:contain}}
+ .badge{{position:absolute;top:10px;left:10px;background:var(--accent);color:#fff;font:700 12px 'Space Mono',monospace;padding:4px 9px;border-radius:8px}}
+ .body{{padding:13px 14px 15px;display:flex;flex-direction:column;gap:7px;flex:1}}
+ .title{{font-size:14px;line-height:1.32;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}}
+ .proof{{font:700 11px 'Space Mono',monospace;color:var(--muted)}}
+ .prices{{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:auto}}
+ .price{{font-weight:800;font-size:18px}} .orig{{text-decoration:line-through;color:#a99;font-size:13px}} .off{{color:var(--accent);font:700 13px 'Space Mono',monospace}}
+ .btn{{margin-top:9px;display:inline-block;font:700 12px 'Space Mono',monospace;color:#fff;background:var(--ink);border-radius:100px;padding:9px 15px;text-align:center;letter-spacing:.02em}}
+ .card:hover .btn{{background:var(--accent)}}
+ .empty{{text-align:center;color:var(--muted);padding:60px}}
+ .disc{{text-align:center;color:var(--muted);font-size:11px;padding:6px 18px}}
+ footer{{text-align:center;color:var(--muted);font-size:12px;padding:22px}}
+ .nomatch{{display:none;text-align:center;color:var(--muted);padding:40px}}
 </style></head><body>
-<header><h1>🛍️ {title}</h1></header>
+<div class="hero">
+  <div class="brand">SK · The Edit</div>
+  <h1>Today's Best Finds</h1>
+  <p>Handpicked deals on Amazon — updated live. Tap any product to shop.</p>
+  <div class="search"><input id="q" type="search" placeholder="Search {len(products)} products…" autocomplete="off"></div>
+</div>
+<div class="bar"><div class="chips">{chips}</div></div>
+<main>
+  {f'<h2 class="sec-h" id="dealsH"><span class="fire">🔥</span> Top Deals</h2><div class="strip" id="deals">{deals_html}</div>' if deals_html else ''}
+  <div class="sortrow"><span class="n" id="count">{len(products)} products</span>
+    <select id="sort">
+      <option value="disc">Biggest discount</option>
+      <option value="rating">Top rated</option>
+      <option value="plow">Price: low to high</option>
+      <option value="phigh">Price: high to low</option>
+    </select></div>
+  <h2 class="sec-h" id="allH">All Products</h2>
+  <div class="grid" id="grid">{all_cards}</div>
+  <p class="nomatch" id="nomatch">No products match — try another search.</p>
+  {empty}
+</main>
 <p class="disc">#Ad · As an Amazon Associate I earn from qualifying purchases.</p>
-<main>{body_html}</main>
-<footer>{len(products)} products · {len(by_cat)} categories · updated live</footer>
+<footer>{len(products)} products · {len(by_cat)} categories · updated live · SK · The Edit</footer>
+<script>
+ var grid=document.getElementById('grid'), q=document.getElementById('q'), sortSel=document.getElementById('sort'),
+     count=document.getElementById('count'), nomatch=document.getElementById('nomatch'),
+     chips=[].slice.call(document.querySelectorAll('.chip')), cards=[].slice.call(grid.querySelectorAll('.card'));
+ var curCat='all';
+ function apply(){{
+   var term=(q.value||'').trim().toLowerCase(); var shown=0;
+   cards.forEach(function(c){{
+     var ok=(curCat==='all'||c.dataset.cat===curCat) && (!term||c.dataset.title.indexOf(term)>-1);
+     c.style.display=ok?'':'none'; if(ok) shown++;
+   }});
+   count.textContent=shown+' product'+(shown===1?'':'s');
+   nomatch.style.display=shown?'none':'block';
+ }}
+ function sortCards(){{
+   var v=sortSel.value;
+   cards.sort(function(a,b){{
+     if(v==='disc') return (+b.dataset.disc)-(+a.dataset.disc);
+     if(v==='rating') return (+b.dataset.rating)-(+a.dataset.rating);
+     if(v==='plow') return (+a.dataset.price)-(+b.dataset.price);
+     if(v==='phigh') return (+b.dataset.price)-(+a.dataset.price);
+     return 0;
+   }}).forEach(function(c){{grid.appendChild(c);}});
+ }}
+ chips.forEach(function(ch){{ch.onclick=function(){{chips.forEach(function(x){{x.classList.remove('on');}});ch.classList.add('on');curCat=ch.dataset.f;apply();}};}});
+ q.addEventListener('input',apply); sortSel.addEventListener('change',sortCards);
+ sortCards();
+</script>
 </body></html>"""
     return HTMLResponse(html)
 
