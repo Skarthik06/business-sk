@@ -903,14 +903,15 @@ def networks_cuelinks_sync(days: int = 30) -> dict:
 @app.get("/api/search/filters")
 async def search_filters(q: str = Query(..., min_length=2, max_length=80,
                                         description="Free-text product search, e.g. 'brown shirt' or 'iphone 18 pro max'")) -> dict:
-    """Return the filter dimensions most relevant to THIS product (AI-inferred). The UI renders
-    them as chips; the user's picks refine the search + soft-rank. Degrades to a generic set."""
+    """Return the filter dimensions most relevant to THIS product (AI-inferred), plus the token
+    usage. The UI renders them as (multi-select) chips; the picks refine the search + soft-rank."""
     from chains.search_filters import suggest_filters
-    filters = await suggest_filters(q)
+    res = await suggest_filters(q)
+    filters = res.get("filters") or []
     if not filters:                              # generic fallback so the card always has filters
-        filters = [{"name": "Brand", "options": ["Any", "Top brands only"]},
-                   {"name": "Colour", "options": ["Black", "White", "Blue", "Red", "Neutral"]}]
-    return {"ok": True, "query": q, "filters": filters}
+        filters = [{"name": "Colour", "options": ["Black", "White", "Blue", "Red", "Neutral"]},
+                   {"name": "Type", "options": ["Standard", "Premium", "Compact"]}]
+    return {"ok": True, "query": q, "filters": filters, "tokens": res.get("tokens", {})}
 
 
 @app.get("/api/intelligence/insights")

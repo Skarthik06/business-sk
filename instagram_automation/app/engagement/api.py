@@ -904,15 +904,9 @@ def _context(event: R.InboundEvent, account: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _storefront_url() -> Optional[str]:
-    """Public GitHub-Pages storefront URL — the 'See All Products' / universal shop link."""
-    try:
-        from app.services import hosting
-        user, repo, _ = hosting._git_cfg()
-        if user and repo:
-            return f"https://{user.lower()}.github.io/{repo}/storefront/"
-    except Exception:
-        pass
-    return None
+    """Public storefront URL (Vercel) — the 'See All Products' / universal shop link in DMs.
+    Override with the STOREFRONT_URL env var."""
+    return (os.getenv("STOREFRONT_URL", "https://lostinframes-sk-store.vercel.app").strip() or None)
 
 
 # Instagram returns error 20 ("...does not support the requested response format") when a
