@@ -830,6 +830,8 @@ body{{font-family:{_SANS};background:{P['g2']};color:{P['text']};overflow:hidden
 .ctile{{display:flex;align-items:center;justify-content:center;background:{t};color:#fff;border-color:{t}}}
 .ctile div{{text-align:center;font-family:{_MONO};font-weight:700;font-size:30px;letter-spacing:.08em;line-height:1.25}}
 .ctile small{{display:block;font-size:19px;opacity:.85;letter-spacing:.16em;margin-top:4px}}
+.selchip{{display:inline-flex;align-items:center;font-family:{_MONO};font-size:20px;font-weight:700;letter-spacing:.02em;
+   color:{P['text']};background:{P['chip']};border:1.5px solid {t};border-radius:100px;padding:8px 18px}}
 .cta{{display:inline-flex;align-items:center;gap:12px;font-family:{_MONO};font-weight:700;letter-spacing:.16em;text-transform:uppercase;
    border-radius:100px;padding:18px 34px;font-size:26px;background:{t};color:#fff}}
 """
@@ -887,20 +889,20 @@ def _badges_strip(products: List[Dict[str, Any]]) -> str:
 
 def _collage(products: List[Dict[str, Any]], imgs: List[str], P: Dict[str, str]) -> str:
     """A COLLAGE of every product on the cover — a tidy grid of product cutouts, each with a
-    name + price tag (and a % off flag when steep). Columns scale with the product count so the
-    grid always fills the cover's lower half (no more blank space)."""
+    NAME tag (prices are intentionally NOT shown on the cover — the tease is the look, the price
+    reveals inside). A '% off' flag stays as a hook when the discount is steep. Columns scale with
+    the product count so the grid always fills the cover's lower half."""
     n = len(products)
     if n == 0:
         return ""
     cols = 2 if n <= 2 else 3 if n == 3 else 2 if n == 4 else 3 if n <= 6 else 4
     cells: List[str] = []
     for p, img in zip(products, imgs):
-        nm = _esc(_clean_title(p, limit=24))
-        price = _money(p.get("price"))
+        nm = _esc(_clean_title(p, limit=26))
         off = _discount_pct(p) or 0
         im = f'<img src="{img}">' if img else '<div style="position:absolute;inset:0"></div>'
-        offflag = f'<div class="coff">-{off}%</div>' if off >= 40 else ""
-        tag = f'<div class="ctag"><span>{nm}</span>{f"<b>{price}</b>" if price else ""}</div>'
+        offflag = f'<div class="coff">-{off}%</div>' if off >= 40 else ""   # discount hook, not a price
+        tag = f'<div class="ctag"><span>{nm}</span></div>'                  # NAME only — no cost on the cover
         cells.append(f'<div class="ccell">{im}{offflag}{tag}</div>')
     rows = (n + cols - 1) // cols
     if cols * rows > n:                      # fill an odd trailing slot with a CTA tile
@@ -909,12 +911,22 @@ def _collage(products: List[Dict[str, Any]], imgs: List[str], P: Dict[str, str])
             f'{"".join(cells)}</div>')
 
 
-def _cover2(products, imgs, P, *, title, subtitle, handle):
+def _sel_chips(cover_tags: Optional[List[str]], P: Dict[str, str]) -> str:
+    """A row of the selections used for THIS post (audience · style · deals · price · rating),
+    so every cover reflects its own filters and reads as unique. No prices — labels only."""
+    tags = [str(t).strip() for t in (cover_tags or []) if str(t).strip()][:6]
+    if not tags:
+        return ""
+    chips = "".join(f'<span class="selchip">{_esc(t)}</span>' for t in tags)
+    return f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">{chips}</div>'
+
+
+def _cover2(products, imgs, P, *, title, subtitle, handle, cover_tags=None):
     n = len(products)
     maxoff = max((_discount_pct(p) or 0) for p in products) if products else 0
     off_pill = f'<span class="badge">↓ UP TO {maxoff}% OFF</span>' if maxoff else ""
-    # Top third: AI headline + subtitle + deal/badges.  Lower two-thirds: a COLLAGE of EVERY
-    # product (image + name + price) so the cover teases the whole set and never sits blank.
+    # Top third: AI headline + subtitle + deal badges + the selection tags for this post.
+    # Lower two-thirds: a COLLAGE of every product (image + name, no price).
     inner = f"""
   <div class="placard"><span class="kick">The Drop</span><span class="code">SK · EDIT</span></div>
   <span class="spark" style="top:150px;left:90px;font-size:26px">✧</span>
@@ -922,8 +934,9 @@ def _cover2(products, imgs, P, *, title, subtitle, handle):
     <div class="serif" style="font-size:88px;line-height:.92;letter-spacing:-.02em;max-width:960px">{_multiline(title)}</div>
     <div class="serif" style="font-size:42px;font-style:italic;color:{P['tint']};margin-top:10px">{_esc(subtitle)}</div>
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:20px">{off_pill}{_badges_strip(products)}</div>
+    {_sel_chips(cover_tags, P)}
   </div>
-  <div style="position:absolute;left:60px;right:60px;top:548px;bottom:148px;z-index:2">{_collage(products, imgs, P)}</div>
+  <div style="position:absolute;left:60px;right:60px;top:560px;bottom:148px;z-index:2">{_collage(products, imgs, P)}</div>
   <div style="position:absolute;left:60px;bottom:88px;z-index:2"><span class="swipe">Swipe → {n} pieces inside</span></div>
 """
     return _page2(P, inner, foot_right="SWIPE →", handle=handle)
@@ -1033,7 +1046,7 @@ def _pick_tmpl(p: Dict[str, Any]) -> str:
 
 # ── the planner: product count + arc → slide specs ────────────────────────────
 def plan_slides(products: List[Dict[str, Any]], *, category: str = "", arc: str = "auto",
-                handle: str = "@business.sk", theme: str = "") -> List[Dict[str, Any]]:
+                handle: str = "@business.sk", theme: str = "", cover_tags: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """Carousel-FIRST plan: every product gets its OWN full slide (no cramped grids).
     2–8 products → teaser Cover → one auto-chosen template per product → CTA closer.
     The per-product template is picked from the product's own data (deep discount →
@@ -1056,7 +1069,7 @@ def plan_slides(products: List[Dict[str, Any]], *, category: str = "", arc: str 
     cover_sub   = ai_cs or _cover_sub(products)
     specs.append({"tmpl": "cover", "products": products[:3], "kick": kick,
                   "title": cover_title, "subtitle": cover_sub,
-                  "all": products[:10]})
+                  "all": products[:10], "cover_tags": cover_tags or []})
     for p in products[:8]:
         specs.append({"tmpl": _pick_tmpl(p), "products": [p], "kick": kick})
     specs.append({"tmpl": "closer", "products": [], "kick": kick, "handle": handle})
@@ -1195,7 +1208,7 @@ _TMPL_LABEL = {"cover": "Teaser cover", "spotlight": "Price-Drop Spotlight",
 def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_dir: Path,
                     cdn_prefix: str, slug: str, arc: str = "auto", handle: str = "@business.sk",
                     theme: str = "", isolate: bool = True, palette: str = "warm",
-                    track_cover: bool = True) -> Dict[str, Any]:
+                    track_cover: bool = True, cover_tags: Optional[List[str]] = None) -> Dict[str, Any]:
     """Full pipeline (Template System v2): plan a carousel-first sequence → prep each
     product image (staged, product-true) → render designed PNGs in the chosen palette
     (warm | sky). Returns cdn urls + local paths + the plan (with human labels).
@@ -1203,7 +1216,7 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
     `track_cover` (posts only, not previews): dedupe the front-slide headline against recent
     posts and remember it, so the cover NEVER repeats across posts."""
     P = _palette(palette, category)
-    specs = plan_slides(products, category=category, arc=arc, handle=handle, theme=theme)
+    specs = plan_slides(products, category=category, arc=arc, handle=handle, theme=theme, cover_tags=cover_tags)
     if not specs:
         return {"rendered": False, "images": [], "local": [], "count": 0, "error": "no products"}
 
@@ -1236,7 +1249,8 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
             cov_products = sp.get("all", ps)                 # ALL products for the collage
             cov_imgs = [prep(p) for p in cov_products]
             htmls.append(_cover2(cov_products, cov_imgs, P,
-                                 title=sp.get("title", ""), subtitle=sp.get("subtitle", ""), handle=handle))
+                                 title=sp.get("title", ""), subtitle=sp.get("subtitle", ""), handle=handle,
+                                 cover_tags=sp.get("cover_tags", [])))
         elif t == "spotlight":
             htmls.append(_spotlight2(ps[0], imgs[0], P, handle))
         elif t == "proof":

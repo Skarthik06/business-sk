@@ -176,6 +176,17 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
                    ...(dealsOn ? { deals: 1, deals_min: dealsMin } : {}),
                    ...(audience ? { audience } : {}),
                    ...(comboOn ? { combo_budget: comboBudget } : {}) };
+    // Selection tags shown on each post's COVER (so the cover reflects the filters used) — no prices.
+    const _title = (s) => String(s).replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const _aud = { men: '👨 Men', women: '👩 Women', kids: '🧒 Kids' };
+    const coverTags = [];
+    if (audience && _aud[audience]) coverTags.push(_aud[audience]);
+    if (style && style !== 'auto') coverTags.push(_title(style));
+    if (goal && goal !== 'balanced') coverTags.push((GOALS.find((g) => g.k === goal) || {}).label || _title(goal));
+    if (dealsOn) coverTags.push(`🔥 ${dealsMin}%+ off`);
+    if (priceMax) coverTags.push(`Under ₹${Number(priceMax).toLocaleString()}`);
+    if (minRating) coverTags.push(`${minRating}★+`);
+    const cover_tags = coverTags.slice(0, 5);
     const out = [];
     const errs = [];
     setProg(jobs.map((j) => ({ id: j.label, phase: 'queued', n: 0 })));
@@ -186,7 +197,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
           ? await skApi.generate([], counts[j.cat] || 3, { ...opts, q: j.q })
           : await skApi.generate([j.cat], counts[j.cat] || 3, opts);
         const products = (r.items || []).map((it) => ({ ...it, category: j.cat }));  // keep base category
-        out.push({ id: j.label, label: j.label, category: j.cat, products, caption: r.caption || '', hashtags: r.hashtags || [], content_style: r.content_style || '', warnings: r.content_warnings || [] });
+        out.push({ id: j.label, label: j.label, category: j.cat, products, caption: r.caption || '', hashtags: r.hashtags || [], content_style: r.content_style || '', warnings: r.content_warnings || [], cover_tags });
         if (r.combo) setCombo(r.combo);
         (r.errors || []).forEach((e) => errs.push(e));
         setProg((p) => p.map((r2) => (r2.id === j.label ? { ...r2, phase: 'done', n: products.length } : r2)));
@@ -412,7 +423,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     if (!pins.length) { say('No products to preview', 'error'); return; }
     setPreviewing(g.id); setPreview(null);
     try {
-      const res = await api.skRenderPreview(pins, { category: g.category, palette });
+      const res = await api.skRenderPreview(pins, { category: g.category, palette, cover_tags: g.cover_tags || [] });
       setPreview({ id: g.id, images: res.images || [], plan: res.plan || [], palette: res.palette });
     } catch (e) {
       say(e?.response?.data?.detail || e?.message || 'Preview failed', 'error');
@@ -446,7 +457,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       const images = pins.map((p) => hiRes(p.image_url)).filter(Boolean);        // full-resolution images
       let media_id = null, permalink = null, status = 'dry';
       if (!dryRun) {
-        const res = await api.skCarousel(account, images, caption, { category: g.category, products: pins, palette });
+        const res = await api.skCarousel(account, images, caption, { category: g.category, products: pins, palette, cover_tags: g.cover_tags || [] });
         media_id = res.ig_media_id; permalink = res.permalink; status = 'posted';
       }
       const rec = await skApi.recordPost({ category: g.category, products: pins, media_id, permalink, caption, status, content_style: g.content_style || '' });
