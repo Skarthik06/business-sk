@@ -1,11 +1,245 @@
-<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Lost in Frames · SK Store</title>
-<meta http-equiv="refresh" content="0; url=https://140-238-247-18.nip.io/sk-api/hub">
-<link rel="canonical" href="https://140-238-247-18.nip.io/sk-api/hub">
-<style>body{font-family:system-ui,sans-serif;background:#F7F3EC;color:#241c17;display:grid;place-items:center;height:100vh;margin:0}</style>
-</head><body>
-<!-- vercel.json rewrites every path to the live storefront; this file is only a no-JS fallback. -->
-<p>Loading the store… <a href="https://140-238-247-18.nip.io/sk-api/hub">tap here</a> if it doesn't open.</p>
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SK · The Edit — Amazon Picks</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<style>
+ *{box-sizing:border-box}
+ :root{--bg:#F7F3EC;--card:#FFFFFF;--ink:#241c17;--muted:#7c6f64;--line:#e6ddd0;--accent:#B4472F;--accent2:#c96a1e}
+ body{margin:0;background:var(--bg);color:var(--ink);font-family:'Hanken Grotesk',system-ui,sans-serif}
+ a{text-decoration:none;color:inherit}
+ .hero{padding:40px 20px 18px;text-align:center;background:radial-gradient(120% 90% at 50% 0%, #fff 0%, var(--bg) 70%)}
+ .brand{font-family:'Space Mono',monospace;font-size:13px;letter-spacing:.34em;text-transform:uppercase;color:var(--accent)}
+ .hero h1{font-family:'Instrument Serif',Georgia,serif;font-size:52px;line-height:1;margin:8px 0 6px;letter-spacing:-.01em}
+ .hero p{margin:0;color:var(--muted);font-size:15px}
+ .search{max-width:520px;margin:20px auto 0;position:relative}
+ .search input{width:100%;padding:14px 18px;border:1.5px solid var(--line);border-radius:100px;background:#fff;font-size:15px;font-family:inherit;color:var(--ink);box-shadow:0 8px 24px rgba(20,30,45,.06)}
+ .search input:focus{outline:none;border-color:var(--accent)}
+ .bar{position:sticky;top:0;z-index:5;background:rgba(247,243,236,.92);backdrop-filter:blur(8px);border-bottom:1px solid var(--line);padding:12px 0}
+ .chips{display:flex;gap:9px;overflow-x:auto;padding:0 16px;max-width:1040px;margin:0 auto;scrollbar-width:none} .chips::-webkit-scrollbar{display:none}
+ .chip{flex:none;font-family:'Space Mono',monospace;font-size:13px;font-weight:700;color:var(--muted);background:#fff;border:1.5px solid var(--line);border-radius:100px;padding:8px 16px;cursor:pointer;display:flex;gap:7px;align-items:center;white-space:nowrap;transition:.15s}
+ .chip b{color:var(--accent);font-weight:700} .chip.on{background:var(--accent);color:#fff;border-color:var(--accent)} .chip.on b{color:#fff}
+ .sortrow{max-width:1040px;margin:14px auto 0;padding:0 16px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
+ .sortrow .n{font-family:'Space Mono',monospace;font-size:12px;color:var(--muted)}
+ select{font-family:inherit;font-size:13px;padding:8px 12px;border:1.5px solid var(--line);border-radius:10px;background:#fff;color:var(--ink)}
+ main{max-width:1040px;margin:0 auto;padding:8px 16px 40px}
+ .sec-h{font-family:'Instrument Serif',Georgia,serif;font-size:30px;margin:26px 4px 14px;display:flex;align-items:center;gap:10px}
+ .sec-h .fire{font-size:22px}
+ .strip{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(190px,1fr);gap:14px;overflow-x:auto;padding:2px 2px 10px;scrollbar-width:none} .strip::-webkit-scrollbar{display:none}
+ .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:16px}
+ .card{background:var(--card);border:1.5px solid var(--line);border-radius:18px;overflow:hidden;display:flex;flex-direction:column;transition:transform .15s,box-shadow .15s,border-color .15s;box-shadow:0 6px 18px rgba(20,30,45,.05)}
+ .card:hover{transform:translateY(-3px);box-shadow:0 16px 34px rgba(20,30,45,.12);border-color:var(--accent)}
+ .imgwrap{position:relative;aspect-ratio:1;background:#fff;display:grid;place-items:center;padding:10px} .imgwrap img{max-width:100%;max-height:100%;object-fit:contain}
+ .badge{position:absolute;top:10px;left:10px;background:var(--accent);color:#fff;font:700 12px 'Space Mono',monospace;padding:4px 9px;border-radius:8px}
+ .body{padding:13px 14px 15px;display:flex;flex-direction:column;gap:7px;flex:1}
+ .title{font-size:14px;line-height:1.32;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+ .proof{font:700 11px 'Space Mono',monospace;color:var(--muted)}
+ .prices{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-top:auto}
+ .price{font-weight:800;font-size:18px} .orig{text-decoration:line-through;color:#a99;font-size:13px} .off{color:var(--accent);font:700 13px 'Space Mono',monospace}
+ .btn{margin-top:9px;display:inline-block;font:700 12px 'Space Mono',monospace;color:#fff;background:var(--ink);border-radius:100px;padding:9px 15px;text-align:center;letter-spacing:.02em}
+ .card:hover .btn{background:var(--accent)}
+ .empty{text-align:center;color:var(--muted);padding:60px}
+ .disc{text-align:center;color:var(--muted);font-size:11px;padding:6px 18px}
+ footer{text-align:center;color:var(--muted);font-size:12px;padding:22px}
+ .nomatch{display:none;text-align:center;color:var(--muted);padding:40px}
+ /* ── ReactBits-style animations (ported) ───────────────────────────── */
+ /* Aurora background (animated colour blobs) */
+ .aurora{position:fixed;inset:0;z-index:-1;overflow:hidden;filter:blur(70px) saturate(1.1);opacity:.55;pointer-events:none}
+ .aurora span{position:absolute;width:52vw;height:52vw;border-radius:50%;mix-blend-mode:multiply;animation:drift 22s ease-in-out infinite}
+ .aurora .a1{background:radial-gradient(circle,#e8a06a,transparent 60%);top:-14vw;left:-8vw}
+ .aurora .a2{background:radial-gradient(circle,#B4472F,transparent 60%);top:-6vw;right:-12vw;animation-delay:-6s}
+ .aurora .a3{background:radial-gradient(circle,#d98a3d,transparent 60%);bottom:-18vw;left:22vw;animation-delay:-12s}
+ @keyframes drift{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(6vw,4vw) scale(1.12)}66%{transform:translate(-5vw,3vw) scale(.94)}}
+ @media (prefers-reduced-motion:reduce){.aurora span{animation:none}}
+ /* GradientText — animated gradient hero heading */
+ .gradtext{background:linear-gradient(90deg,#B4472F,#c96a1e,#e0a34a,#B4472F);background-size:280% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:gtxt 7s linear infinite}
+ @keyframes gtxt{to{background-position:280% 0}}
+ /* ShinyText — sweeping highlight on the badge */
+ .badge{position:absolute;top:10px;left:10px;overflow:hidden}
+ .badge::after{content:"";position:absolute;inset:0;background:linear-gradient(110deg,transparent 30%,rgba(255,255,255,.55) 50%,transparent 70%);transform:translateX(-120%);animation:shine 3.4s ease-in-out infinite}
+ @keyframes shine{0%,60%{transform:translateX(-120%)}100%{transform:translateX(120%)}}
+ /* SpotlightCard — cursor-following glow */
+ .card{position:relative;isolation:isolate}
+ .card::before{content:"";position:absolute;inset:0;z-index:1;border-radius:inherit;opacity:0;transition:opacity .3s;
+   background:radial-gradient(220px circle at var(--mx,50%) var(--my,0%), rgba(180,71,47,.18), transparent 60%)}
+ .card:hover::before{opacity:1}
+ /* AnimatedContent — scroll reveal */
+ .reveal{opacity:0;transform:translateY(26px);transition:opacity .6s cubic-bezier(.22,1,.36,1),transform .6s cubic-bezier(.22,1,.36,1)}
+ .reveal.in{opacity:1;transform:none}
+</style></head><body>
+<div class="aurora"><span class="a1"></span><span class="a2"></span><span class="a3"></span></div>
+<div class="hero">
+  <div class="brand">SK · The Edit</div>
+  <h1 class="gradtext">Today's Best Finds</h1>
+  <p>Handpicked deals on Amazon — updated live. Tap any product to shop.</p>
+  <div class="search"><input id="q" type="search" placeholder="Search 9 products…" autocomplete="off"></div>
+</div>
+<div class="bar"><div class="chips"><button class="chip on" data-f="all">All</button><button class="chip" data-f="fashion">Fashion<b>9</b></button></div></div>
+<main>
+  <h2 class="sec-h" id="dealsH"><span class="fire">🔥</span> Top Deals</h2><div class="strip" id="deals"><a class="card reveal feat" href="https://www.amazon.in/dp/B0HBQTRTQW?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="deemoon" data-disc="80" data-price="0.0" data-rating="3.6">
+          <div class="imgwrap"><img loading="eager" src="https://m.media-amazon.com/images/I/81ochE-BbUL.jpg" alt=""><span class="badge">-80% OFF</span></div>
+          <div class="body"><div class="title">DEEMOON</div><div class="proof">★ 3.6 · 108 reviews</div>
+            <div class="prices"><span class="price">₹499</span><span class="orig">₹2,499</span><span class="off">-80%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a><a class="card reveal feat" href="https://www.amazon.in/dp/B0HJHD8MGW?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="mia fashion" data-disc="77" data-price="0.0" data-rating="0.0">
+          <div class="imgwrap"><img loading="eager" src="https://m.media-amazon.com/images/I/61go83YTREL.jpg" alt=""><span class="badge">-77% OFF</span></div>
+          <div class="body"><div class="title">MIA FASHION</div>
+            <div class="prices"><span class="price">₹699</span><span class="orig">₹2,999</span><span class="off">-77%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a><a class="card reveal feat" href="https://www.amazon.in/dp/B0CBX5KCN9?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="u turn" data-disc="75" data-price="0.0" data-rating="3.5">
+          <div class="imgwrap"><img loading="eager" src="https://m.media-amazon.com/images/I/71CyAHsiT+L.jpg" alt=""><span class="badge">-75% OFF</span></div>
+          <div class="body"><div class="title">U TURN</div><div class="proof">★ 3.5 · 2600 reviews</div>
+            <div class="prices"><span class="price">₹398</span><span class="orig">₹1,599</span><span class="off">-75%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a><a class="card reveal feat" href="https://www.amazon.in/dp/B0HGGXLB79?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="sane originals" data-disc="75" data-price="0.0" data-rating="0.0">
+          <div class="imgwrap"><img loading="eager" src="https://m.media-amazon.com/images/I/61Nu7CIQijL.jpg" alt=""><span class="badge">-75% OFF</span></div>
+          <div class="body"><div class="title">SANE ORIGINALS</div>
+            <div class="prices"><span class="price">₹999</span><span class="orig">₹3,999</span><span class="off">-75%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a><a class="card reveal feat" href="https://www.amazon.in/dp/B0HH6WYHDZ?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="reversible jacket for men | 2-in-1 double-sided lightweight jacket | water-resistant windcheater wit" data-disc="71" data-price="0.0" data-rating="0.0">
+          <div class="imgwrap"><img loading="eager" src="https://m.media-amazon.com/images/I/41JF1iif0RL.jpg" alt=""><span class="badge">-71% OFF</span></div>
+          <div class="body"><div class="title">Reversible Jacket for Men | 2-in-1 Double-Sided Lightweight Jacket | Water-Resistant Windcheater wit</div>
+            <div class="prices"><span class="price">₹545</span><span class="orig">₹1,859</span><span class="off">-71%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a><a class="card reveal feat" href="https://www.amazon.in/dp/B0HHB3D7RJ?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="exotix" data-disc="70" data-price="0.0" data-rating="0.0">
+          <div class="imgwrap"><img loading="eager" src="https://m.media-amazon.com/images/I/51yt86uinUL.jpg" alt=""><span class="badge">-70% OFF</span></div>
+          <div class="body"><div class="title">EXOTIX</div>
+            <div class="prices"><span class="price">₹899</span><span class="orig">₹2,999</span><span class="off">-70%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a><a class="card reveal feat" href="https://www.amazon.in/dp/B0H8DXBMT3?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="youth first men&#x27;s cotton blend casual shirt for men | regular fit solid full sleeve | soft comfortab" data-disc="64" data-price="0.0" data-rating="3.8">
+          <div class="imgwrap"><img loading="eager" src="https://m.media-amazon.com/images/I/61eGLUYdfrL.jpg" alt=""><span class="badge">-64% OFF</span></div>
+          <div class="body"><div class="title">Youth First Men&#x27;s Cotton Blend Casual Shirt for Men | Regular Fit Solid Full Sleeve | Soft Comfortab</div><div class="proof">★ 3.8 · 9 reviews</div>
+            <div class="prices"><span class="price">₹249</span><span class="orig">₹699</span><span class="off">-64%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a><a class="card reveal feat" href="https://www.amazon.in/dp/B0D2RJP93R?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="scott international" data-disc="59" data-price="0.0" data-rating="3.9">
+          <div class="imgwrap"><img loading="eager" src="https://m.media-amazon.com/images/I/6192LNjOcNL.jpg" alt=""><span class="badge">-59% OFF</span></div>
+          <div class="body"><div class="title">Scott International</div><div class="proof">★ 3.9 · 1400 reviews</div>
+            <div class="prices"><span class="price">₹699</span><span class="orig">₹1,699</span><span class="off">-59%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a></div>
+  <div class="sortrow"><span class="n" id="count">9 products</span>
+    <select id="sort">
+      <option value="disc">Biggest discount</option>
+      <option value="rating">Top rated</option>
+      <option value="plow">Price: low to high</option>
+      <option value="phigh">Price: high to low</option>
+    </select></div>
+  <h2 class="sec-h" id="allH">All Products</h2>
+  <div class="grid" id="grid"><a class="card reveal" href="https://www.amazon.in/dp/B0D2RJP93R?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="scott international" data-disc="59" data-price="0.0" data-rating="3.9">
+          <div class="imgwrap"><img loading="lazy" src="https://m.media-amazon.com/images/I/6192LNjOcNL.jpg" alt=""><span class="badge">-59% OFF</span></div>
+          <div class="body"><div class="title">Scott International</div><div class="proof">★ 3.9 · 1400 reviews</div>
+            <div class="prices"><span class="price">₹699</span><span class="orig">₹1,699</span><span class="off">-59%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a>
+<a class="card reveal" href="https://www.amazon.in/dp/B0HBQTRTQW?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="deemoon" data-disc="80" data-price="0.0" data-rating="3.6">
+          <div class="imgwrap"><img loading="lazy" src="https://m.media-amazon.com/images/I/81ochE-BbUL.jpg" alt=""><span class="badge">-80% OFF</span></div>
+          <div class="body"><div class="title">DEEMOON</div><div class="proof">★ 3.6 · 108 reviews</div>
+            <div class="prices"><span class="price">₹499</span><span class="orig">₹2,499</span><span class="off">-80%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a>
+<a class="card reveal" href="https://www.amazon.in/dp/B0CBX5KCN9?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="u turn" data-disc="75" data-price="0.0" data-rating="3.5">
+          <div class="imgwrap"><img loading="lazy" src="https://m.media-amazon.com/images/I/71CyAHsiT+L.jpg" alt=""><span class="badge">-75% OFF</span></div>
+          <div class="body"><div class="title">U TURN</div><div class="proof">★ 3.5 · 2600 reviews</div>
+            <div class="prices"><span class="price">₹398</span><span class="orig">₹1,599</span><span class="off">-75%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a>
+<a class="card reveal" href="https://www.amazon.in/dp/B0H8DXBMT3?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="youth first men&#x27;s cotton blend casual shirt for men | regular fit solid full sleeve | soft comfortab" data-disc="64" data-price="0.0" data-rating="3.8">
+          <div class="imgwrap"><img loading="lazy" src="https://m.media-amazon.com/images/I/61eGLUYdfrL.jpg" alt=""><span class="badge">-64% OFF</span></div>
+          <div class="body"><div class="title">Youth First Men&#x27;s Cotton Blend Casual Shirt for Men | Regular Fit Solid Full Sleeve | Soft Comfortab</div><div class="proof">★ 3.8 · 9 reviews</div>
+            <div class="prices"><span class="price">₹249</span><span class="orig">₹699</span><span class="off">-64%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a>
+<a class="card reveal" href="https://www.amazon.in/dp/B0C7W6T24J?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="allen solly" data-disc="34" data-price="0.0" data-rating="4.1">
+          <div class="imgwrap"><img loading="lazy" src="https://m.media-amazon.com/images/I/61sDPQHxnPL.jpg" alt=""><span class="badge">-34% OFF</span></div>
+          <div class="body"><div class="title">Allen Solly</div><div class="proof">★ 4.1 · 1300 reviews</div>
+            <div class="prices"><span class="price">₹1,189</span><span class="orig">₹1,799</span><span class="off">-34%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a>
+<a class="card reveal" href="https://www.amazon.in/dp/B0HGGXLB79?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="sane originals" data-disc="75" data-price="0.0" data-rating="0.0">
+          <div class="imgwrap"><img loading="lazy" src="https://m.media-amazon.com/images/I/61Nu7CIQijL.jpg" alt=""><span class="badge">-75% OFF</span></div>
+          <div class="body"><div class="title">SANE ORIGINALS</div>
+            <div class="prices"><span class="price">₹999</span><span class="orig">₹3,999</span><span class="off">-75%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a>
+<a class="card reveal" href="https://www.amazon.in/dp/B0HJHD8MGW?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="mia fashion" data-disc="77" data-price="0.0" data-rating="0.0">
+          <div class="imgwrap"><img loading="lazy" src="https://m.media-amazon.com/images/I/61go83YTREL.jpg" alt=""><span class="badge">-77% OFF</span></div>
+          <div class="body"><div class="title">MIA FASHION</div>
+            <div class="prices"><span class="price">₹699</span><span class="orig">₹2,999</span><span class="off">-77%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a>
+<a class="card reveal" href="https://www.amazon.in/dp/B0HHB3D7RJ?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="exotix" data-disc="70" data-price="0.0" data-rating="0.0">
+          <div class="imgwrap"><img loading="lazy" src="https://m.media-amazon.com/images/I/51yt86uinUL.jpg" alt=""><span class="badge">-70% OFF</span></div>
+          <div class="body"><div class="title">EXOTIX</div>
+            <div class="prices"><span class="price">₹899</span><span class="orig">₹2,999</span><span class="off">-70%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a>
+<a class="card reveal" href="https://www.amazon.in/dp/B0HH6WYHDZ?tag=sparkle060b-21" target="_blank" rel="nofollow noopener sponsored"
+          data-cat="fashion" data-title="reversible jacket for men | 2-in-1 double-sided lightweight jacket | water-resistant windcheater wit" data-disc="71" data-price="0.0" data-rating="0.0">
+          <div class="imgwrap"><img loading="lazy" src="https://m.media-amazon.com/images/I/41JF1iif0RL.jpg" alt=""><span class="badge">-71% OFF</span></div>
+          <div class="body"><div class="title">Reversible Jacket for Men | 2-in-1 Double-Sided Lightweight Jacket | Water-Resistant Windcheater wit</div>
+            <div class="prices"><span class="price">₹545</span><span class="orig">₹1,859</span><span class="off">-71%</span></div>
+            <span class="btn">Shop on Amazon →</span></div>
+        </a></div>
+  <p class="nomatch" id="nomatch">No products match — try another search.</p>
+  
+</main>
+<p class="disc">#Ad · As an Amazon Associate I earn from qualifying purchases.</p>
+<footer>9 products · 1 categories · updated live · SK · The Edit</footer>
+<script>
+ var grid=document.getElementById('grid'), q=document.getElementById('q'), sortSel=document.getElementById('sort'),
+     count=document.getElementById('count'), nomatch=document.getElementById('nomatch'),
+     chips=[].slice.call(document.querySelectorAll('.chip')), cards=[].slice.call(grid.querySelectorAll('.card'));
+ var curCat='all';
+ function apply(){
+   var term=(q.value||'').trim().toLowerCase(); var shown=0;
+   cards.forEach(function(c){
+     var ok=(curCat==='all'||c.dataset.cat===curCat) && (!term||c.dataset.title.indexOf(term)>-1);
+     c.style.display=ok?'':'none'; if(ok) shown++;
+   });
+   count.textContent=shown+' product'+(shown===1?'':'s');
+   nomatch.style.display=shown?'none':'block';
+ }
+ function sortCards(){
+   var v=sortSel.value;
+   cards.sort(function(a,b){
+     if(v==='disc') return (+b.dataset.disc)-(+a.dataset.disc);
+     if(v==='rating') return (+b.dataset.rating)-(+a.dataset.rating);
+     if(v==='plow') return (+a.dataset.price)-(+b.dataset.price);
+     if(v==='phigh') return (+b.dataset.price)-(+a.dataset.price);
+     return 0;
+   }).forEach(function(c){grid.appendChild(c);});
+ }
+ chips.forEach(function(ch){ch.onclick=function(){chips.forEach(function(x){x.classList.remove('on');});ch.classList.add('on');curCat=ch.dataset.f;apply();};});
+ q.addEventListener('input',apply); sortSel.addEventListener('change',sortCards);
+ sortCards();
+ /* SpotlightCard — cursor-following glow */
+ document.addEventListener('mousemove',function(e){
+   var c=e.target.closest && e.target.closest('.card'); if(!c) return;
+   var r=c.getBoundingClientRect();
+   c.style.setProperty('--mx',(e.clientX-r.left)+'px'); c.style.setProperty('--my',(e.clientY-r.top)+'px');
+ });
+ /* AnimatedContent — reveal on scroll (staggered) */
+ var io=new IntersectionObserver(function(es){
+   es.forEach(function(en){ if(en.isIntersecting){ var el=en.target;
+     el.style.transitionDelay=(Math.min([].indexOf.call(el.parentNode.children,el),8)*40)+'ms';
+     el.classList.add('in'); io.unobserve(el); } });
+ },{threshold:.08});
+ [].slice.call(document.querySelectorAll('.reveal')).forEach(function(el){io.observe(el);});
+</script>
 </body></html>
