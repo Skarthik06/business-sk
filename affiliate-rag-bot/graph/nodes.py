@@ -71,17 +71,15 @@ async def scrape_amazon(state: BotState, config: RunnableConfig) -> dict:
             base = _aud(keyword)
             if _brands:
                 # Brand picks are a HARD selection: search each brand SEPARATELY (e.g.
-                # "puma shoes", "nike shoes") so every chosen brand is represented, then the
-                # brand gate (in quality) keeps only those brands. One brand → single query.
+                # "puma shoes", "nike shoes") over MULTIPLE pages so there is enough on-brand
+                # supply to fill the count, then the hard brand filter keeps ONLY those brands
+                # (off-brand is never padded in). More brands → fewer pages each (bounded work).
                 bqueries = [f"{b} {base}".strip() for b in _brands]
-                if len(bqueries) == 1:
-                    products = await scrape_products(amazon_page, category, marketplace,
-                                                     query=bqueries[0], quality=opts, need=_need)
-                else:
-                    products, _by = await scrape_products_multi(
-                        amazon_page, category, marketplace, bqueries, quality=opts,
-                        max_pages=1, target_pool=max(_need * 6, 48), need=_need)
-                log_line = f"scraped {len(products)} products for brands {_brands} + '{base}'"
+                bpages = 3 if len(bqueries) == 1 else 2
+                products, _by = await scrape_products_multi(
+                    amazon_page, category, marketplace, bqueries, quality=opts,
+                    max_pages=bpages, target_pool=max(_need * 8, 64), need=_need)
+                log_line = f"scraped {len(products)} on-brand products for {_brands} + '{base}'"
             else:
                 products = await scrape_products(amazon_page, category, marketplace,
                                                  query=base, quality=opts, need=_need)

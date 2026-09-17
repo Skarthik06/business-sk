@@ -392,8 +392,15 @@ def _finalize_pool(raw: list[dict], quality: Optional[dict], cap: int, need: int
     `need` products meet it — then, and only then, we backfill the shortfall with the products
     that come CLOSEST to the threshold (`_soft_score`), so the requested count is still met.
     So: threshold fully in force whenever supply allows; relaxed just enough to never starve the
-    count. Only the unrenderable (no image / no real price) are dropped outright."""
+    count. Only the unrenderable (no image / no real price) are dropped outright.
+
+    BRAND is the exception — a HARD constraint. When the shopper picked specific brands, off-brand
+    products are removed up front and NEVER backfilled in (a Nike/Puma pick must never yield U.S.
+    Polo). Only the soft quality thresholds relax to fill the count, and only among those brands."""
     renderable = [p for p in raw if p.get("image") and _parse_price(p.get("price"))]
+    brands = (quality or {}).get("brands")
+    if brands:                                   # hard brand filter — off-brand can never appear
+        renderable = [p for p in renderable if _brand_match(p, brands)]
     passed = _dedup_products(sorted([p for p in renderable if _passes_quality(p, quality)],
                                     key=_attractiveness, reverse=True))
     # Threshold FULLY enforced when enough products meet it (or no count target given).
