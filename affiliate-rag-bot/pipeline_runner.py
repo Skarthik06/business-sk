@@ -249,6 +249,7 @@ def _pin_to_json(pin: dict, posted_map: dict) -> dict:
         "deal_tag":          pin.get("deal_tag", ""),           # AI 1-2 word price-sticker hype word
         "cover_title":       pin.get("cover_title", ""),        # AI cover headline (first slide)
         "cover_subtitle":    pin.get("cover_subtitle", ""),     # AI cover subline
+        "content_tokens":    pin.get("content_tokens"),         # tokens the compose call used
         "posted":            bool(result.get("success")),
         "post_error":        result.get("error"),
     }

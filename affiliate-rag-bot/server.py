@@ -374,6 +374,7 @@ def _content_item(pin: dict) -> dict:
         "deal_tag":          pin.get("deal_tag", ""),           # AI 1-2 word price-sticker hype word
         "cover_title":       pin.get("cover_title", ""),        # AI cover headline (first slide)
         "cover_subtitle":    pin.get("cover_subtitle", ""),     # AI cover subline
+        "content_tokens":    pin.get("content_tokens"),         # tokens the compose call used
         # ── discovery scores (deterministic, derived from real fields — no fabrication) ──
         **_discovery.score_product(pin),
         # ── Phase 2+3: novelty + trend + confidence + intelligence + winner + evidence ──

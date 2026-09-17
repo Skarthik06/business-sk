@@ -289,7 +289,7 @@ async def compose_pins(
 
     llm = ChatOpenAI(**llm_kwargs)
     # Structured output → schema guaranteed via function calling (no text parsing).
-    structured = llm.with_structured_output(PinBatch)
+    structured = llm.with_structured_output(PinBatch, include_raw=True)   # include_raw → token usage
     chain = ChatPromptTemplate.from_messages([("system", SYSTEM), ("human", HUMAN)]) | structured
 
     category = (products[0].get("category") or "product").strip() or "product"
@@ -304,7 +304,14 @@ async def compose_pins(
 
     log.ai(f"Composing ONE caption for {count} products from {min(len(products), MAX_CANDIDATES)} candidates in ONE structured call...")
 
-    batch: PinBatch = await chain.ainvoke(inputs)
+    _res = await chain.ainvoke(inputs)
+    batch: PinBatch = _res.get("parsed")
+    if batch is None:                                    # structured parse failed — nothing usable
+        return []
+    _usage = getattr(_res.get("raw"), "usage_metadata", None) or {}
+    content_tokens = {"input": int(_usage.get("input_tokens") or 0),
+                      "output": int(_usage.get("output_tokens") or 0),
+                      "total": int(_usage.get("total_tokens") or 0)}
 
     # ONE universal caption + hashtags for the whole carousel (shared by every pick).
     # No verbose FTC sentence in the caption (per the account owner); disclosure is the
@@ -395,6 +402,7 @@ async def compose_pins(
             "deal_tag":        deal_tag_by_pid.get(pid, ""),     # AI 1-2 word price-sticker hype word
             "cover_title":     cover_title,      # SHARED — AI cover headline (first slide)
             "cover_subtitle":  cover_subtitle,   # SHARED — AI cover subline
+            "content_tokens":  content_tokens,   # SHARED — tokens the ONE compose call used
         })
 
     # 1) honour the model's ranked picks (best first), skipping invalid/duplicate indices.
