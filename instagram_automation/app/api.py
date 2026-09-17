@@ -238,6 +238,7 @@ class SkCarouselReq(BaseModel):
     arc: str = "auto"                  # carousel story arc: auto | ranking
     theme: str = ""                    # optional collection theme line for the cover
     palette: str = "warm"              # slide palette: warm | sky
+    cover_tags: list[str] = []         # selection tags for the cover (audience/style/deals/price/rating)
 
 
 class SkRenderReq(BaseModel):
@@ -247,6 +248,7 @@ class SkRenderReq(BaseModel):
     theme: str = ""
     handle: str = "@business.sk"
     palette: str = "warm"              # slide palette: warm | sky
+    cover_tags: list[str] = []         # selection tags for the cover
 
 
 def _hi_res(url: str) -> str:
@@ -394,7 +396,8 @@ def sk_carousel(body: SkCarouselReq):
         try:
             designed = _render_sk_slides(products, category=body.category, arc=body.arc,
                                          theme=body.theme, handle=(account.get("handle") or "@business.sk"),
-                                         palette=(getattr(body, "palette", None) or "warm"))
+                                         palette=(getattr(body, "palette", None) or "warm"),
+                                         cover_tags=getattr(body, "cover_tags", None) or [])
             if designed.get("images"):
                 images = designed["images"]        # GitHub-raw URLs of the rendered PNGs
                 design_meta = {"rendered": True, "count": designed["count"], "plan": designed.get("plan")}
@@ -428,7 +431,8 @@ def sk_carousel(body: SkCarouselReq):
 
 
 def _render_sk_slides(products: list[dict], *, category: str, arc: str, theme: str,
-                      handle: str, palette: str = "warm") -> dict:
+                      handle: str, palette: str = "warm", cover_tags: list[str] | None = None,
+                      track_cover: bool = True) -> dict:
     """Render Still Set slides for these products, publish the PNGs to GitHub raw (IG-fetchable),
     and return the raw URLs + plan. Used by /api/sk/carousel (design=True) and the preview."""
     import hashlib
@@ -438,7 +442,8 @@ def _render_sk_slides(products: list[dict], *, category: str, arc: str, theme: s
     out_dir = settings.IMAGES_DIR / "sk_slides"
     res = sk_render.render_carousel(products, category=category, out_dir=out_dir,
                                     cdn_prefix="/cdn/sk_slides", slug=slug, arc=arc,
-                                    theme=theme, handle=handle, palette=palette)
+                                    theme=theme, handle=handle, palette=palette,
+                                    cover_tags=cover_tags or [], track_cover=track_cover)
     if not res.get("rendered") or not res.get("local"):
         return {"images": [], "count": 0, "plan": res.get("plan"), "error": res.get("error")}
     # push the rendered PNGs to GitHub raw so Instagram can fetch them, then wait for the CDN
@@ -479,6 +484,7 @@ def sk_render_preview(body: SkRenderReq):
                                     cdn_prefix="/cdn/sk_slides", slug=slug, arc=body.arc,
                                     theme=body.theme, handle=body.handle,
                                     palette=(getattr(body, "palette", None) or "warm"),
+                                    cover_tags=getattr(body, "cover_tags", None) or [],
                                     track_cover=False)   # preview: don't consume the cover-uniqueness history
     if not res.get("rendered"):
         raise HTTPException(500, f"Render failed: {res.get('error')}")
