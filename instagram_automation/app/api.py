@@ -542,15 +542,10 @@ SK_API_TARGET = _os.getenv("SK_API_TARGET", "http://affiliate_backend:8100")
 
 
 def _storefront_public_url() -> str | None:
-    """The GitHub Pages URL the storefront is served at (owner is lowercased by Pages)."""
-    try:
-        from app.services import hosting
-        user, repo, _ = hosting._git_cfg()
-        if not user or not repo:
-            return None
-        return f"https://{user.lower()}.github.io/{repo}/storefront/"
-    except Exception:
-        return None
+    """The public URL the storefront lives at — the Vercel-hosted store (trusted vercel.app domain,
+    edge-cached, always live). Override with the STOREFRONT_URL env var if the domain changes."""
+    import os
+    return (os.getenv("STOREFRONT_URL", "https://lostinframes-sk-store.vercel.app").strip() or None)
 
 
 @app.get("/api/sk/storefront/url")

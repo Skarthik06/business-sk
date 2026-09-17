@@ -989,8 +989,8 @@ function HubTab({ cats, say }) {
           </div>
         </div>
         <p className="text-sm mb-3" style={{ color: 'var(--muted)' }}>
-          One public Amazon page with <b>{products?.length ?? '…'}</b> of your products — every card links to Amazon with your tag.
-          Hit <b>Publish / refresh</b> after posting to update it, then paste this link into your Instagram bio.
+          Your public store on <b>Vercel</b> with <b>{products?.length ?? '…'}</b> products — every card links to Amazon with your tag.
+          It's <b>always live</b> (updates automatically as you post) — just paste this link into your Instagram bio.
         </p>
         {publicUrl ? (
           <div className="flex items-center gap-2 flex-wrap">
@@ -1003,7 +1003,7 @@ function HubTab({ cats, say }) {
             {connected === false ? 'Connect a GitHub token in the Settings panel to publish a public link.' : 'Click Publish to create your public link.'}
           </p>
         )}
-        <p className="text-xs mt-2" style={{ color: 'var(--faint)' }}>Hosted free on GitHub Pages · updates ~1 min after each publish.</p>
+        <p className="text-xs mt-2" style={{ color: 'var(--faint)' }}>🔒 Hosted on Vercel (lostinframes-sk-store) · trusted URL · always live · edge-cached.</p>
       </div>
 
       {/* LOCAL preview + filter */}

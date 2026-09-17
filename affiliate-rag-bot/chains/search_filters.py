@@ -10,6 +10,9 @@ Token discipline: one structured call, tiny output, static cache-friendly system
 """
 from __future__ import annotations
 
+import re
+from typing import Optional
+
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from pydantic import BaseModel, Field
@@ -27,19 +30,26 @@ class SearchFilters(BaseModel):
 
 
 SYSTEM = (
-    "You help shoppers narrow an Amazon India product search. Given a search query, return the "
-    "3-5 filter dimensions a shopper would MOST want to narrow by FOR THAT PRODUCT TYPE, each with "
-    "3-6 short realistic options. Tailor to the product:\n"
-    "• apparel → Fit, Size, Sleeve, Material, Colour, Pattern\n"
-    "• phones → Storage, RAM, Colour, Condition, Network\n"
-    "• laptops → RAM, Storage, Screen Size, Processor\n"
-    "• kitchen/appliances → Capacity, Wattage, Type, Material\n"
-    "• footwear → Size, Type, Colour, Closure\n"
-    "• beauty → Skin Type, Concern, Finish, Volume\n"
-    "Dimension names 1-2 words, Title Case; options short (1-3 words). Do NOT include price or "
-    "rating (handled by separate sliders). Only dimensions that make sense for THIS query."
+    "You are a precise product-search assistant for Amazon India. First, silently identify the "
+    "EXACT product the shopper typed (brand, type, model). Then return the 3-5 filter dimensions a "
+    "real shopper would MOST use to narrow THAT specific product — each with 3-6 short, realistic, "
+    "MUTUALLY-EXCLUSIVE options.\n"
+    "HARD RULES:\n"
+    "1. NEVER return two dimensions that mean the same thing. Pick ONE canonical term only — e.g. "
+    "use 'Storage' OR 'Capacity' (never both); 'Colour' not 'Color'; 'Screen Size' not 'Display' + "
+    "'Size'. Every dimension must be a DISTINCT concept.\n"
+    "2. Options within a dimension must be distinct real values (e.g. Storage: 128 GB, 256 GB, 512 "
+    "GB, 1 TB). No duplicates, no overlaps, no 'Any'.\n"
+    "3. Tailor tightly to the product: phone→Storage/RAM/Colour/Condition/Network; "
+    "laptop→RAM/Storage/Screen Size/Processor; shirt→Fit/Size/Sleeve/Material/Colour; "
+    "shoes→Size/Width/Type/Colour; air fryer→Capacity/Power/Type/Material; watch→Type/Strap/"
+    "Dial Colour/Features. If unsure of the category, give generic but useful ones (Brand, Colour, "
+    "Type, Material).\n"
+    "4. Dimension names are 1-2 words, Title Case; options 1-3 words. NEVER include price or rating "
+    "(separate sliders handle those).\n"
+    "Return JSON only — no prose."
 )
-HUMAN = "Product search: {q}\nReturn the most relevant filter dimensions with options."
+HUMAN = "Product the shopper typed: \"{q}\"\nReturn the distinct, non-overlapping filter dimensions."
 
 
 def _llm() -> ChatOpenAI:
@@ -53,22 +63,39 @@ def _llm() -> ChatOpenAI:
     return ChatOpenAI(**kw)
 
 
-async def suggest_filters(query: str) -> list[dict]:
-    """Return [{name, options[]}] for the query. Empty list on any failure (caller degrades to a
-    generic filter set), so the search box never breaks over this optional helper."""
+async def suggest_filters(query: str) -> dict:
+    """Return {"filters": [{name, options[]}], "tokens": {...}} for the query. Clean JSON in / JSON
+    out (structured output), and the exact token usage so the UI can show it. On any failure returns
+    empty filters + zero tokens, so the search box never breaks over this optional helper."""
     q = (query or "").strip()
+    empty = {"filters": [], "tokens": {"input": 0, "output": 0, "total": 0}}
     if len(q) < 2:
-        return []
+        return empty
     try:
         chain = ChatPromptTemplate.from_messages([("system", SYSTEM), ("human", HUMAN)]) \
-            | _llm().with_structured_output(SearchFilters)
-        res: SearchFilters = await chain.ainvoke({"q": q[:80]})
-        out = []
-        for f in (res.filters or [])[:5]:
+            | _llm().with_structured_output(SearchFilters, include_raw=True)
+        res = await chain.ainvoke({"q": q[:80]})            # {parsed, raw, parsing_error}
+        parsed: Optional[SearchFilters] = res.get("parsed")
+        usage = getattr(res.get("raw"), "usage_metadata", None) or {}
+        tokens = {"input": int(usage.get("input_tokens") or 0),
+                  "output": int(usage.get("output_tokens") or 0),
+                  "total": int(usage.get("total_tokens") or 0)}
+        out, seen = [], set()
+        for f in ((parsed.filters if parsed else []) or [])[:5]:
             name = " ".join((f.name or "").split())[:24]
-            opts = [" ".join((o or "").split())[:24] for o in (f.options or []) if (o or "").strip()][:6]
-            if name and opts:
-                out.append({"name": name, "options": opts})
-        return out
+            key = re.sub(r"[^a-z]", "", name.lower())
+            # de-dup near-synonym dimensions defensively (storage/capacity, colour/color)
+            key = {"capacity": "storage", "color": "colour", "display": "screensize"}.get(key, key)
+            if not name or key in seen:
+                continue
+            opts, oseen = [], set()
+            for o in (f.options or []):
+                ov = " ".join((o or "").split())[:24]
+                ok = ov.lower()
+                if ov and ok not in oseen and ok not in ("any", "all"):
+                    oseen.add(ok); opts.append(ov)
+            if opts:
+                seen.add(key); out.append({"name": name, "options": opts[:6]})
+        return {"filters": out, "tokens": tokens}
     except Exception:
-        return []
+        return empty
