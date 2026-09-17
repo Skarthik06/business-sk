@@ -141,7 +141,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   const [combo, setCombo] = useState(null);              // returned combo bundle
   // Universal Search — type any product; AI returns per-product filters that refine + soft-rank.
   const [searchQ, setSearchQ] = useState('');
-  const [searchCount, setSearchCount] = useState(5);
+  const [searchCount, setSearchCount] = useState(8);     // 8 products → cover collage + 8 slides + DM/bio CTA = a full 10-slide carousel
   const [searchDims, setSearchDims] = useState([]);      // [{name, options}] from AI
   const [searchPicks, setSearchPicks] = useState({});    // {dimName: [values]} — MULTI-select
   const [searchLoading, setSearchLoading] = useState(false);
@@ -181,13 +181,18 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
     const chosen = subs[c] || [];
     return chosen.length ? chosen.map((s) => ({ cat: c, label: s, q: s })) : [{ cat: c, label: c, q: null }];
   });
-  // Universal search = its own post. Selected filter picks are appended to the query (refine) —
-  // e.g. "brown shirt slim cotton" — and the soft thresholds rank the rest.
-  const searchSel = Object.values(searchPicks).flat().filter(Boolean);   // all picked values (multi)
-  const searchTerms = searchSel.join(' ');
+  // Universal search = its own post. Brand picks are a HARD constraint (sent as `brands`, one
+  // scrape query per brand, gated server-side); every OTHER pick refines the keyword + soft-ranks.
+  const _isBrandDim = (name) => /\b(brand|make|label|manufacturer)\b/i.test(name || '');
+  const brandDim = Object.keys(searchPicks).find(_isBrandDim);
+  const brandSel = (brandDim ? searchPicks[brandDim] : []).filter(Boolean);            // e.g. [Nike, Puma]
+  const refineSel = Object.entries(searchPicks)                                        // all non-brand picks
+    .filter(([k]) => !_isBrandDim(k)).flatMap(([, v]) => v).filter(Boolean);
+  const searchSel = Object.values(searchPicks).flat().filter(Boolean);                 // all picks (for cover tags)
   const searchJobs = searchQ.trim()
-    ? [{ cat: 'search', label: searchQ.trim().slice(0, 28), q: (searchQ.trim() + ' ' + searchTerms).trim(),
-         count: searchCount, isSearch: true, picks: searchSel }]
+    ? [{ cat: 'search', label: searchQ.trim().slice(0, 28),
+         q: (searchQ.trim() + ' ' + refineSel.join(' ')).trim(),                       // brands NOT appended — sent separately
+         brands: brandSel, count: searchCount, isSearch: true, picks: searchSel }]
     : [];
   const jobs = [...catJobs, ...searchJobs];
   const postCount = jobs.length;
@@ -225,7 +230,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
       setProg((p) => p.map((r) => (r.id === j.label ? { ...r, phase: 'generating' } : r)));
       try {
         const r = j.q
-          ? await skApi.generate([], j.count || counts[j.cat] || 3, { ...opts, q: j.q })
+          ? await skApi.generate([], j.count || counts[j.cat] || 3, { ...opts, q: j.q, ...(j.brands && j.brands.length ? { brands: j.brands } : {}) })
           : await skApi.generate([j.cat], j.count || counts[j.cat] || 3, opts);
         const products = (r.items || []).map((it) => ({ ...it, category: j.cat }));  // keep base category
         // search posts also tag the cover with the picked filter values (e.g. Slim · Cotton)
@@ -292,9 +297,9 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs" style={{ color: 'var(--faint)' }}>products</span>
-              <button className="mini" onClick={() => setSearchCount((n) => Math.max(1, n - 1))}>−</button>
+              <button className="mini" onClick={() => setSearchCount((n) => Math.max(3, n - 1))}>−</button>
               <b style={{ minWidth: 20, textAlign: 'center', display: 'inline-block' }}>{searchCount}</b>
-              <button className="mini" onClick={() => setSearchCount((n) => Math.min(10, n + 1))}>+</button>
+              <button className="mini" onClick={() => setSearchCount((n) => Math.min(8, n + 1))}>+</button>
             </div>
           </div>
           <input className="sk-input" style={{ width: '100%' }} value={searchQ}
@@ -320,7 +325,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
               ))}
             </div>
           )}
-          {searchQ.trim() && <div className="text-xs mt-3" style={{ color: 'var(--accent)' }}>+1 post · up to {searchCount} products · searches "{(searchQ.trim() + ' ' + searchTerms).trim()}"</div>}
+          {searchQ.trim() && <div className="text-xs mt-3" style={{ color: 'var(--accent)' }}>+1 post · {searchCount} products{brandSel.length ? ` · only ${brandSel.join(' / ')}` : ''} · searches "{(searchQ.trim() + ' ' + refineSel.join(' ')).trim()}"</div>}
         </div>
 
         <p className="text-xs mt-3" style={{ color: 'var(--faint)' }}>Each subcategory you tap becomes its own post. Every result is scored (Instagram · Buy · Value · Content) and tiered S→D.</p>

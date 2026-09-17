@@ -66,10 +66,26 @@ async def scrape_amazon(state: BotState, config: RunnableConfig) -> dict:
         # Keyword mode (explicit q) or discovery OFF: original single-query scrape.
         log_line = ""
         _need = int(state.get("products_per_run") or 0)     # guarantee this many (threshold relaxes only to fill it)
+        _brands = [b for b in (opts.get("brands") or []) if b]
         if keyword and keyword.strip():
-            products = await scrape_products(amazon_page, category, marketplace,
-                                             query=_aud(keyword), quality=opts, need=_need)
-            log_line = f"scraped {len(products)} products for keyword '{_aud(keyword)}'"
+            base = _aud(keyword)
+            if _brands:
+                # Brand picks are a HARD selection: search each brand SEPARATELY (e.g.
+                # "puma shoes", "nike shoes") so every chosen brand is represented, then the
+                # brand gate (in quality) keeps only those brands. One brand → single query.
+                bqueries = [f"{b} {base}".strip() for b in _brands]
+                if len(bqueries) == 1:
+                    products = await scrape_products(amazon_page, category, marketplace,
+                                                     query=bqueries[0], quality=opts, need=_need)
+                else:
+                    products, _by = await scrape_products_multi(
+                        amazon_page, category, marketplace, bqueries, quality=opts,
+                        max_pages=1, target_pool=max(_need * 6, 48), need=_need)
+                log_line = f"scraped {len(products)} products for brands {_brands} + '{base}'"
+            else:
+                products = await scrape_products(amazon_page, category, marketplace,
+                                                 query=base, quality=opts, need=_need)
+                log_line = f"scraped {len(products)} products for keyword '{base}'"
         elif cfg.discovery.enabled:
             from rag.discovery_stats import discovery_stats
             candidates = _discovery.category_queries(category)

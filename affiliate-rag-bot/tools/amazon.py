@@ -163,6 +163,21 @@ def _parse_count(s: Optional[str]) -> int:
     return int(n)
 
 
+def _brand_match(p: dict, brands) -> bool:
+    """True if the product belongs to one of the SELECTED brands. Brand is the one search
+    selection an agent must honour EXACTLY (a Nike/Puma pick must never return U.S. Polo), so this
+    is used as a real gate — enforced whenever enough matching products exist, relaxed only to fill
+    the count. Matched against the title + brand field (Amazon titles lead with the brand)."""
+    if not brands:
+        return True
+    hay = ((p.get("title") or "") + " " + (p.get("brand") or "")).lower()
+    for b in brands:
+        b = (b or "").strip().lower()
+        if b and b in hay:
+            return True
+    return False
+
+
 def _passes_quality(p: dict, overrides: Optional[dict] = None) -> bool:
     """Only products that ATTRACT customers: real price+image, impulse price
     range, and (when present) a solid rating + enough reviews for social proof.
@@ -176,6 +191,11 @@ def _passes_quality(p: dict, overrides: Optional[dict] = None) -> bool:
     min_reviews = o.get("min_reviews") if o.get("min_reviews") is not None else runtime.get("QUALITY_MIN_REVIEWS", cfg.bot.min_reviews, "int")
     price_min   = o.get("price_min")   if o.get("price_min")   is not None else cfg.bot.price_min
     price_max   = o.get("price_max")   if o.get("price_max")   is not None else runtime.get("QUALITY_PRICE_MAX", cfg.bot.price_max, "int")
+
+    # Brand is a hard selection: if the shopper picked specific brands, only those qualify
+    # (relaxed solely to fill the count, in _finalize_pool). Ranks/quality stay soft.
+    if o.get("brands") and not _brand_match(p, o["brands"]):
+        return False
 
     price = _parse_price(p.get("price"))
     if not p.get("image") or not price:
@@ -357,6 +377,10 @@ def _soft_score(p: dict, quality: Optional[dict] = None) -> float:
         disc = int(p.get("discount_pct") or 0)
         badge = (p.get("badge") or "").lower()
         score += 45 if (disc >= min_disc or "deal" in badge) else -60
+    # Brand: a picked brand dominates ranking, so even when the count must be filled the selected
+    # brands come first and off-brand items sink to the very bottom (used only if nothing else).
+    if o.get("brands"):
+        score += 90 if _brand_match(p, o["brands"]) else -120
     return score
 
 

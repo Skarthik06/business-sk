@@ -433,6 +433,7 @@ async def api_generate(
     deals: bool = Query(default=False, description="Deals mode: keep only products with a real current offer (discount % or deal badge)."),
     deals_min: Optional[int] = Query(default=None, ge=0, le=90, description="Deals mode: minimum discount percent to qualify (overrides DEALS_MIN_DISCOUNT)."),
     audience: Optional[str] = Query(default=None, description="Audience/gender targeting: men|women|kids (prefixes the search terms). Blank = everyone."),
+    brands: Optional[str] = Query(default=None, description="Comma-separated brand picks (Universal Search). A HARD constraint: results are limited to these brands (relaxed only to fill the count), and one query is run per brand so every selected brand is represented."),
     combo_budget: Optional[int] = Query(default=None, ge=0, le=1_000_000, description="if set, also return a combo (products from distinct categories summing <= this budget)"),
     combo_size: int = Query(default=3, ge=2, le=5),
 ) -> JSONResponse:
@@ -475,6 +476,10 @@ async def api_generate(
         aud = _AUD_MAP.get(aud, "")
         if aud:
             options["audience"] = aud
+    if brands and brands.strip():
+        picks = [b.strip() for b in brands.split(",") if b.strip()][:6]
+        if picks:
+            options["brands"] = picks     # hard brand constraint + one scrape query per brand
 
     ppr = int(products_per_run or cfg.bot.products_per_run)
 
