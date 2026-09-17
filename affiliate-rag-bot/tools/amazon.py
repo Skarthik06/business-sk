@@ -405,13 +405,38 @@ def _finalize_pool(raw: list[dict], quality: Optional[dict], cap: int, need: int
                                     key=_attractiveness, reverse=True))
     # Threshold FULLY enforced when enough products meet it (or no count target given).
     if not need or len(passed) >= need:
-        return passed[:cap]
+        return _interleave_brands(passed, brands)[:cap]
     # Short of the count: keep everything that passed, then backfill with the closest-to-threshold
     # products (soft-ranked) so the count is guaranteed. Passing products always rank first.
     have = {p.get("asin") for p in passed if p.get("asin")}
     rest = _dedup_products(sorted([p for p in renderable if p.get("asin") not in have],
                                   key=lambda p: _soft_score(p, quality), reverse=True))
-    return (passed + rest)[:cap]
+    return _interleave_brands(passed + rest, brands)[:cap]
+
+
+def _interleave_brands(ranked: list[dict], brands) -> list[dict]:
+    """When 2+ brands are picked, give each a FAIR share of the carousel by round-robining across
+    brands (best-of-each-brand first), instead of letting the highest-volume brand fill every slot.
+    Order within a brand is preserved (already ranked). Single/zero brand → unchanged."""
+    order = [b.strip().lower() for b in (brands or []) if b and b.strip()]
+    if len(order) < 2:
+        return ranked
+    buckets: dict[str, list] = {b: [] for b in order}
+    leftover: list[dict] = []
+    for p in ranked:
+        for b in order:
+            if _brand_match(p, [b]):
+                buckets[b].append(p)
+                break
+        else:
+            leftover.append(p)
+    out: list[dict] = []
+    while any(buckets[b] for b in order):
+        for b in order:
+            if buckets[b]:
+                out.append(buckets[b].pop(0))
+    out.extend(leftover)                          # (none, under the hard brand filter)
+    return out
 
 
 async def scrape_products(page: Page, category: str, marketplace: str,
