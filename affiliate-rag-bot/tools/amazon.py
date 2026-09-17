@@ -170,10 +170,13 @@ def _brand_match(p: dict, brands) -> bool:
     the count. Matched against the title + brand field (Amazon titles lead with the brand)."""
     if not brands:
         return True
-    hay = ((p.get("title") or "") + " " + (p.get("brand") or "")).lower()
+    # Normalise away punctuation/spaces so "Levis" matches "Levi's", "US Polo" matches
+    # "U.S. Polo Assn.", "boat" matches "boAt", etc. (brand chip text rarely matches the
+    # listing's exact punctuation).
+    hay = re.sub(r"[^a-z0-9]", "", ((p.get("title") or "") + " " + (p.get("brand") or "")).lower())
     for b in brands:
-        b = (b or "").strip().lower()
-        if b and b in hay:
+        nb = re.sub(r"[^a-z0-9]", "", (b or "").lower())
+        if nb and nb in hay:
             return True
     return False
 
@@ -262,7 +265,18 @@ _SCRAPE_JS = r"""
     const g = (s) => item.querySelector(s);
     const t = (s) => (g(s)?.textContent || '').trim();
     const asin  = item.getAttribute('data-asin');
-    const title = t('h2 a span, h2 span, .a-size-base-plus, .a-size-medium');
+    // Full product title: Amazon puts it in different places across layouts (an <h2> span, the
+    // product link's aria-label, or the image alt) and a separate row often holds just the brand.
+    // Collect every candidate and keep the LONGEST — the full title always beats the brand row.
+    const imgEl = g('img.s-image');
+    const cand = [];
+    ['h2 a span', 'h2 span', 'h2 a', 'h2', '.a-size-base-plus', '.a-size-medium'].forEach((s) => {
+      const el = item.querySelector(s); if (el) cand.push((el.textContent || '').trim());
+    });
+    const lnk = item.querySelector('h2 a, a.a-link-normal.a-text-normal, a.s-line-clamp-2, a.s-line-clamp-4');
+    if (lnk && lnk.getAttribute('aria-label')) cand.push(lnk.getAttribute('aria-label').trim());
+    if (imgEl && imgEl.getAttribute('alt')) cand.push(imgEl.getAttribute('alt').trim());
+    const title = (cand.filter(Boolean).sort((a, b) => b.length - a.length)[0] || '');
     if (!asin || title.length < 4) continue;
     const full = (item.innerText || '').replace(/\s+/g, ' ');
     const rM   = (t('.a-icon-alt').match(/([\d.]+)\s*out of 5/) || full.match(/([\d.]+)\s*out of 5 stars/));
@@ -286,7 +300,6 @@ _SCRAPE_JS = r"""
                 .replace(/\s+/g, ' ').trim();
       if (/^amazon['’]s$/i.test(badge)) badge = "Amazon's Choice";   // repair a split badge
     }
-    const imgEl = g('img.s-image');
     out.push({
       asin: asin, category: category, title: title,
       price:      t('.a-price .a-offscreen'),
