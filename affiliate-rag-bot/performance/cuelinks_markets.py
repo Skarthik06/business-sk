@@ -157,15 +157,32 @@ def toggle_active(market_id: str) -> list[str]:
     return cur
 
 
+def set_live_markets(markets: list[dict]) -> list[dict]:
+    """Store the LIVE Cuelinks campaign catalogue (from a /campaigns refresh) — top markets with
+    real payout %/EPC. When present it replaces the curated list in the panel."""
+    clean = [m for m in (markets or []) if m.get("id") and m.get("name")][:60]
+    _write("live_markets", clean)
+    return clean
+
+
+def get_live_markets() -> list[dict]:
+    return _read("live_markets", []) or []
+
+
 def catalog() -> dict:
     """The full panel payload: markets (with active flag), categories, and current constraints —
-    one clean JSON shape the frontend renders and the AI planner reasons over."""
+    one clean JSON shape the frontend renders and the AI planner reasons over. Uses the LIVE
+    Cuelinks catalogue when it has been synced, else the curated fallback list."""
     active = set(get_active())
-    markets = [{**m, "active": m["id"] in active} for m in MARKETS]
+    live = get_live_markets()
+    base = live if live else MARKETS
+    markets = [{**m, "active": m.get("id") in active} for m in base]
+    cats = sorted({m.get("category", "") for m in base if m.get("category")}) or _CATEGORIES
     return {
         "markets": markets,
-        "categories": _CATEGORIES,
+        "categories": cats,
         "constraints": get_constraints(),
         "active_count": len(active),
-        "total": len(MARKETS),
+        "total": len(base),
+        "live": bool(live),
     }

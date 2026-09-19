@@ -985,6 +985,42 @@ async def cuelinks_plan(apply: bool = Query(default=False, description="If true,
             "applied_active": applied}
 
 
+@app.post("/api/cuelinks/ping")
+def cuelinks_ping() -> dict:
+    """Verify the Cuelinks v3 API key + identity (@ping)."""
+    from performance import cuelinks
+    return cuelinks.ping()
+
+
+@app.post("/api/cuelinks/campaigns/refresh")
+def cuelinks_campaigns_refresh(q: str = Query(default="", max_length=60),
+                               sort: str = Query(default="epc"),
+                               limit: int = Query(default=60, ge=1, le=500)) -> dict:
+    """Pull the LIVE Cuelinks market catalogue (GET /campaigns) and store it as the panel's markets
+    (real payout %/EPC). Needs CUELINKS_API_TOKEN. Falls back to the curated list if unset."""
+    from performance import cuelinks
+    from performance import cuelinks_markets as cm
+    res = cuelinks.fetch_campaigns(q=q, sort=sort, limit=limit)
+    if not res.get("ok"):
+        return res
+    stored = cm.set_live_markets(res.get("markets", []))
+    return {"ok": True, "stored": len(stored), "live": True}
+
+
+class CuelinksConvertReq(BaseModel):
+    model_config = {"extra": "forbid"}
+    url:        str
+    subids:     Optional[list[str]] = None
+    channel_id: Optional[str] = None
+
+
+@app.post("/api/cuelinks/convert")
+def cuelinks_convert(body: CuelinksConvertReq) -> dict:
+    """Convert any product URL into a tracked clnk.in affiliate link (POST /links/convert)."""
+    from performance import cuelinks
+    return cuelinks.convert_link(body.url, subids=body.subids, channel_id=body.channel_id)
+
+
 # ── Universal Search — AI-inferred, per-product filter dimensions ─────────────
 
 @app.get("/api/search/filters")
