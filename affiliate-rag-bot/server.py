@@ -39,6 +39,17 @@ from pipeline_runner import execute_pipeline, NODE_ORDER
 from chains import discovery as _discovery
 
 MAX_PRODUCTS_PER_RUN = 25   # hard ceiling (matches the Amazon scrape cap)
+
+# Pretty display names per product `source` — for storefront store badges/filters.
+_STORE_LABELS = {
+    "amazon": "Amazon", "flipkart": "Flipkart", "myntra": "Myntra", "nykaa": "Nykaa",
+    "nykaabeauty": "Nykaa", "ajio": "AJIO", "meesho": "Meesho", "tatacliq": "Tata CLiQ",
+    "pepperfry": "Pepperfry", "firstcry": "FirstCry", "lenskart": "Lenskart", "croma": "Croma",
+    "reliancedigital": "Reliance Digital", "pharmeasy": "PharmEasy", "decathlon": "Decathlon",
+    "bigbasket": "BigBasket", "snapdeal": "Snapdeal", "makemytrip": "MakeMyTrip", "urbanic": "Urbanic",
+    "mamaearth": "Mamaearth", "boat": "boAt", "noise": "Noise", "wow": "WOW Skin Science",
+    "muscleblaze": "MuscleBlaze", "cuelinks": "Cuelinks",
+}
 MAX_CATEGORIES       = 8    # categories per request
 ALLOWED_MARKETPLACES = {    # Amazon domains the scraper/deep-link support
     "amazon.in", "amazon.com", "amazon.co.uk", "amazon.ca",
@@ -1125,18 +1136,21 @@ async def cuelinks_generate(count: int = Query(default=8, ge=2, le=10,
                 "note": "No fresh deals (all recently posted) — try other categories or come back later."}
     copy = await compose_deal_post(picks)
     hooks = copy.get("hooks", [])
+    import re as _re
     items = []
     for i, d in enumerate(picks):
+        merchant = d.get("merchant", "")
         items.append({
             "asin": f"cl_{d['id']}",
             "product_title": d.get("title", ""),
-            "brand": d.get("merchant", ""),
+            "brand": merchant,
             "category": d.get("category", "") or "deals",
             "discount_pct": d.get("discount"),
             "coupon_code": d.get("code", ""),
             "affiliate_link": d.get("url", ""),
             "image_url": "",                              # deals have no product photo → brand-card render
             "deal": True,
+            "source": _re.sub(r"[^a-z0-9]", "", merchant.lower()) or "cuelinks",  # store categorisation
             "hook": hooks[i] if i < len(hooks) else "",
             "ends": d.get("ends"),
             "summary": copy.get("caption", ""),
@@ -1347,7 +1361,7 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
         reviews = p.get("reviews")
         cat = ((p.get("category") or "other").strip().lower()) or "other"
         source = (p.get("source") or "amazon").strip().lower()
-        store = "Flipkart" if source == "flipkart" else "Amazon"
+        store = _STORE_LABELS.get(source) or (source.title() if source not in ("", "amazon") else "Amazon")
         _fallback = p.get("affiliate_link") or (f"https://www.{cfg.amazon.marketplace}/dp/{p.get('asin','')}?tag={cfg.amazon.associate_tag}" if source != "flipkart" else "#")
         link = escape(_fallback)
         proof = []

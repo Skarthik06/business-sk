@@ -210,6 +210,15 @@ _BRAND_DOMAINS = {
     "mamaearth": "mamaearth.in", "lakme": "lakmeindia.com", "nivea": "nivea.in",
     "boldfit": "boldfit.in", "wakefit": "wakefit.co", "sparx": "sparxfootwear.com",
     "redtape": "redtape.com", "bata": "bata.in", "wrogn": "wrogn.com", "roadster": "myntra.com",
+    # Cuelinks marketplaces / stores (so DEAL cards show the merchant logo)
+    "flipkart": "flipkart.com", "myntra": "myntra.com", "ajio": "ajio.com", "nykaa": "nykaa.com",
+    "nykaabeauty": "nykaa.com", "meesho": "meesho.com", "tatacliq": "tatacliq.com",
+    "tatacliqluxury": "tatacliq.com", "pepperfry": "pepperfry.com", "firstcry": "firstcry.com",
+    "lenskart": "lenskart.com", "croma": "croma.com", "reliancedigital": "reliancedigital.in",
+    "pharmeasy": "pharmeasy.in", "netmeds": "netmeds.com", "decathlon": "decathlon.in",
+    "bigbasket": "bigbasket.com", "snapdeal": "snapdeal.com", "makemytrip": "makemytrip.com",
+    "urbanic": "urbanic.com", "swiggy": "swiggy.com", "swiggyinstamart": "swiggy.com",
+    "muscleblaze": "muscleblaze.com", "ekart": "flipkart.com",
 }
 
 
@@ -1097,6 +1106,57 @@ def _savings2(p, img, P, handle):
     return _page2(P, inner, handle=handle)
 
 
+def _deal_logo(brand: str, P: Dict[str, str], *, big: bool = False) -> str:
+    """A single merchant logo block (Clearbit) with a serif wordmark fallback — for deal slides."""
+    url = _brand_logo_url(brand)
+    logo = (f'<img src="{url}" loading="eager" style="opacity:0" onload="this.style.opacity=1" onerror="this.remove()">') if url else ""
+    h, mw, fs = (118, 220, 46) if big else (76, 132, 34)
+    return (f'<div class="brandmark" style="height:{h}px;min-width:{mw}px">'
+            f'<span class="wm" style="font-size:{fs}px">{_esc(brand)}</span>{logo}</div>')
+
+
+def _deal_card2(p, P, handle):
+    """A single Cuelinks DEAL slide — merchant logo + discount + offer hook + coupon code + CTA.
+    No product photo needed (deals are store-level), so the brand mark carries the visual."""
+    brand = _brand(p) or "Store"
+    off = _discount_pct(p) or 0
+    code = str(p.get("coupon_code") or "").strip()
+    hook = _esc((p.get("hook") or _clean_title(p, limit=64)))
+    big_off = (f'<div class="megaoff" style="font-size:150px">{off}%<span style="font-size:52px"> OFF</span></div>'
+               if off else '<div class="megaoff" style="font-size:100px">Deal Drop</div>')
+    code_row = (f'<div style="display:flex;align-items:center;gap:16px"><span class="chip">USE CODE</span>'
+                f'<span style="font-family:{_MONO};font-weight:700;font-size:40px;letter-spacing:.1em;color:{P["text"]};'
+                f'border:2px dashed {P["tint"]};border-radius:12px;padding:10px 26px">{_esc(code)}</span></div>') if code else ""
+    inner = f"""
+  <div class="placard"><span class="kick">Deal Drop</span><span class="code">SK · CUELINKS</span></div>
+  <span class="spark" style="top:150px;right:110px">✦</span>
+  <div style="position:absolute;left:60px;right:60px;top:190px;z-index:2;display:flex;flex-direction:column;gap:30px;align-items:flex-start">
+    {_deal_logo(brand, P, big=True)}
+    {big_off}
+    <div class="pname" style="font-size:40px;max-width:920px">{hook}</div>
+    {code_row}
+  </div>
+  <div style="position:absolute;left:60px;bottom:130px;z-index:2"><span class="cta">Shop {_esc(brand)} →</span></div>
+"""
+    return _page2(P, inner, handle=handle)
+
+
+def _deal_cover2(deals, P, *, title, subtitle, handle):
+    """Cover for a DEALS post — headline + a grid of the merchant logos featured."""
+    n = len(deals)
+    inner = f"""
+  <div class="placard"><span class="kick">The Deals Edit</span><span class="code">SK · CUELINKS</span></div>
+  <span class="spark" style="top:150px;left:90px;font-size:26px">✧</span>
+  <div style="position:absolute;left:60px;right:60px;top:150px;z-index:2">
+    <div class="serif" style="font-size:88px;line-height:.92;letter-spacing:-.02em;max-width:960px">{_multiline(title or "Today's Best Deals")}</div>
+    <div class="serif" style="font-size:42px;font-style:italic;color:{P['tint']};margin-top:10px">{_esc(subtitle or f"{n} live offers inside")}</div>
+  </div>
+  <div style="position:absolute;left:60px;right:60px;top:540px;bottom:150px;z-index:2">{_brand_marks(deals, P, limit=6)}</div>
+  <div style="position:absolute;left:60px;bottom:88px;z-index:2"><span class="swipe">Swipe → {n} deals</span></div>
+"""
+    return _page2(P, inner, foot_right="SWIPE →", handle=handle)
+
+
 def _closer2(P, handle):
     """Elegant final CTA: comment→auto-DM (any comment triggers the DM link), link in
     bio, and a follow nudge for the account."""
@@ -1189,6 +1249,16 @@ def plan_slides(products: List[Dict[str, Any]], *, category: str = "", arc: str 
     specs: List[Dict[str, Any]] = []
     if n == 0:
         return specs
+    # DEALS carousel (Cuelinks offers — no product photos): brand-logo deal cards, not product slides.
+    if all(p.get("deal") for p in products):
+        ai_ct = next((c for c in ((p.get("cover_title") or "").strip() for p in products) if c), "")
+        ai_cs = next((c for c in ((p.get("cover_subtitle") or "").strip() for p in products) if c), "")
+        specs.append({"tmpl": "deal_cover", "products": products[:6], "all": products[:8],
+                      "title": theme or ai_ct or "", "subtitle": ai_cs})
+        for p in products[:8]:
+            specs.append({"tmpl": "deal", "products": [p], "kick": kick})
+        specs.append({"tmpl": "closer", "products": [], "kick": kick, "handle": handle})
+        return specs[:10]
     if n == 1:                                      # single product → just its own hero
         p = products[0]
         specs.append({"tmpl": _pick_tmpl(p), "products": [p], "kick": kick})
@@ -1337,7 +1407,8 @@ def _render_htmls(htmls: List[str], out_dir: Path, cdn_prefix: str, slug: str) -
 
 _TMPL_LABEL = {"cover": "Teaser cover", "spotlight": "Price-Drop Spotlight",
                "savings": "Savings Hero", "editorial": "Editorial Hero", "proof": "Social-Proof",
-               "feature": "Why-We-Love-It", "lookbook": "Lookbook", "closer": "Shop-the-set CTA"}
+               "feature": "Why-We-Love-It", "lookbook": "Lookbook", "closer": "Shop-the-set CTA",
+               "deal_cover": "Deals cover", "deal": "Deal card"}
 
 
 def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_dir: Path,
@@ -1396,6 +1467,10 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
             htmls.append(_feature2(ps[0], imgs[0], P, handle))
         elif t == "lookbook":
             htmls.append(_lookbook2(ps[0], imgs[0], P, handle))
+        elif t == "deal_cover":
+            htmls.append(_deal_cover2(sp.get("products", []), P, title=sp.get("title", ""), subtitle=sp.get("subtitle", ""), handle=handle))
+        elif t == "deal":
+            htmls.append(_deal_card2(ps[0], P, handle))
         elif t == "closer":
             htmls.append(_closer2(P, sp.get("handle", handle)))
         else:                                          # "editorial" + any fallback

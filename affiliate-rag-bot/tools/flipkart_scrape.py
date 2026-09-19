@@ -46,10 +46,14 @@ def _fetch(query: str, page: int = 1) -> str:
 
 
 def _img(u: str) -> str:
+    """Highest-resolution Flipkart CDN image (fills the {@width}/{@height} placeholders at 1080,
+    and upgrades any baked-in small size to 1080) — crisp on a 1080px Instagram slide."""
     if not u:
         return ""
-    return (u.replace("{@width}", "612").replace("{@height}", "612")
-             .replace("http://", "https://"))
+    u = u.replace("{@width}", "1080").replace("{@height}", "1080").replace("http://", "https://")
+    # some URLs carry a fixed small size in the path (…/image/612/612/…) — upscale it
+    u = re.sub(r"/image/\d{2,4}/\d{2,4}/", "/image/1080/1080/", u)
+    return u
 
 
 def _price(pricing: dict, names: set) -> int | None:
