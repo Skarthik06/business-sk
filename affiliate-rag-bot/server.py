@@ -745,6 +745,7 @@ def record_post(body: RecordPostRequest) -> dict:
         # richer fields so the public storefront can show discount + social proof
         "orig_price": p.get("orig_price", ""), "discount_pct": p.get("discount_pct"),
         "rating": p.get("rating"), "reviews": p.get("reviews"),
+        "source": (p.get("source") or "amazon"),        # which store — for storefront categorisation
     } for p in (body.products or [])]
     rec = post_store.record(body.category, minimal, body.media_id, body.permalink,
                             body.caption, status=body.status, content_style=body.content_style)
@@ -1345,7 +1346,10 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
         rating = p.get("rating")
         reviews = p.get("reviews")
         cat = ((p.get("category") or "other").strip().lower()) or "other"
-        link = escape(p.get("affiliate_link") or f"https://www.{cfg.amazon.marketplace}/dp/{p.get('asin','')}?tag={cfg.amazon.associate_tag}")
+        source = (p.get("source") or "amazon").strip().lower()
+        store = "Flipkart" if source == "flipkart" else "Amazon"
+        _fallback = p.get("affiliate_link") or (f"https://www.{cfg.amazon.marketplace}/dp/{p.get('asin','')}?tag={cfg.amazon.associate_tag}" if source != "flipkart" else "#")
+        link = escape(_fallback)
         proof = []
         if rating is not None:
             proof.append(f'★ {escape(str(rating))}')
@@ -1354,11 +1358,11 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
         proof_html = f'<div class="proof">{" · ".join(proof)}</div>' if proof else ""
         meta = (f'<span class="orig">{orig}</span>' if orig else "") + (f'<span class="off">-{disc}%</span>' if disc else "")
         return f"""<a class="card reveal{' feat' if featured else ''}" href="{link}" target="_blank" rel="nofollow noopener sponsored"
-          data-cat="{escape(cat)}" data-title="{title.lower()}" data-disc="{disc}" data-price="{_num(p.get('price'))}" data-rating="{_num(rating)}">
-          <div class="imgwrap"><img loading="{'eager' if featured else 'lazy'}" src="{img}" alt="">{f'<span class="badge">-{disc}% OFF</span>' if disc else ''}</div>
+          data-cat="{escape(cat)}" data-src="{escape(source)}" data-title="{title.lower()}" data-disc="{disc}" data-price="{_num(p.get('price'))}" data-rating="{_num(rating)}">
+          <div class="imgwrap"><img loading="{'eager' if featured else 'lazy'}" src="{img}" alt="">{f'<span class="badge">-{disc}% OFF</span>' if disc else ''}<span class="store store-{escape(source)}">{store}</span></div>
           <div class="body"><div class="title">{title}</div>{proof_html}
             <div class="prices"><span class="price">{price}</span>{meta}</div>
-            <span class="btn">Shop on Amazon →</span></div>
+            <span class="btn">Shop on {store} →</span></div>
         </a>"""
 
     by_cat: "OrderedDict[str, list]" = OrderedDict()
@@ -1371,6 +1375,17 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
     chips = ('<button class="chip on" data-f="all">All</button>'
              + "".join(f'<button class="chip" data-f="{escape(c)}">{escape(c.title())}<b>{len(items)}</b></button>'
                        for c, items in by_cat.items()))
+    # Store filter (Amazon vs Flipkart) — only shown once there is more than one store.
+    by_src: "OrderedDict[str, int]" = OrderedDict()
+    for p in products:
+        s = (p.get("source") or "amazon").strip().lower()
+        by_src[s] = by_src.get(s, 0) + 1
+    _src_label = {"amazon": "Amazon", "flipkart": "Flipkart"}
+    src_chips = ""
+    if len(by_src) > 1:
+        src_chips = ('<button class="schip on" data-s="all">All stores</button>'
+                     + "".join(f'<button class="schip" data-s="{escape(s)}">{escape(_src_label.get(s, s.title()))}<b>{n}</b></button>'
+                               for s, n in by_src.items()))
     empty = '' if products else '<p class="empty">No products yet — publish some from Business-SK.</p>'
 
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -1406,6 +1421,11 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
  .card:hover{{transform:translateY(-3px);box-shadow:0 16px 34px rgba(20,30,45,.12);border-color:var(--accent)}}
  .imgwrap{{position:relative;aspect-ratio:1;background:#fff;display:grid;place-items:center;padding:10px}} .imgwrap img{{max-width:100%;max-height:100%;object-fit:contain}}
  .badge{{position:absolute;top:10px;left:10px;background:var(--accent);color:#fff;font:700 12px 'Space Mono',monospace;padding:4px 9px;border-radius:8px}}
+ .store{{position:absolute;top:10px;right:10px;font:700 10px 'Space Mono',monospace;letter-spacing:.04em;color:#fff;padding:4px 8px;border-radius:7px;background:#241c17;text-transform:uppercase}}
+ .store-flipkart{{background:#2874F0}} .store-amazon{{background:#E8850C}}
+ .schip{{flex:none;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--muted);background:#fff;border:1.5px solid var(--line);border-radius:100px;padding:7px 14px;cursor:pointer;display:flex;gap:6px;align-items:center;white-space:nowrap;transition:.15s}}
+ .schip.on{{color:#fff;background:var(--ink);border-color:var(--ink)}} .schip b{{opacity:.7}}
+ .srcbar{{padding-top:0}}
  .body{{padding:13px 14px 15px;display:flex;flex-direction:column;gap:7px;flex:1}}
  .title{{font-size:14px;line-height:1.32;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}}
  .proof{{font:700 11px 'Space Mono',monospace;color:var(--muted)}}
@@ -1467,6 +1487,7 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
   <div class="search"><input id="q" type="search" placeholder="Search {len(products)} products…" autocomplete="off"></div>
 </div>
 <div class="bar"><div class="chips">{chips}</div></div>
+{f'<div class="bar srcbar"><div class="chips">{src_chips}</div></div>' if src_chips else ''}
 <main>
   {f'<h2 class="sec-h" id="dealsH"><span class="fire">🔥</span> Top Deals</h2><div class="strip" id="deals">{deals_html}</div>' if deals_html else ''}
   <div class="sortrow"><span class="n" id="count">{len(products)} products</span>
@@ -1483,17 +1504,18 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
 </main>
 <footer>
   <div>© 2026 Lost in Frames · SK Store. All rights reserved.</div>
-  <div style="opacity:.6;font-size:10px;margin-top:5px">As an Amazon Associate we earn from qualifying purchases.</div>
+  <div style="opacity:.6;font-size:10px;margin-top:5px">As an Amazon Associate and affiliate partner (via Cuelinks), we earn from qualifying purchases.</div>
 </footer>
 <script>
  var grid=document.getElementById('grid'), q=document.getElementById('q'), sortSel=document.getElementById('sort'),
      count=document.getElementById('count'), nomatch=document.getElementById('nomatch'),
      chips=[].slice.call(document.querySelectorAll('.chip')), cards=[].slice.call(grid.querySelectorAll('.card'));
- var curCat='all';
+ var curCat='all', curSrc='all';
+ var schips=[].slice.call(document.querySelectorAll('.schip'));
  function apply(){{
    var term=(q.value||'').trim().toLowerCase(); var shown=0;
    cards.forEach(function(c){{
-     var ok=(curCat==='all'||c.dataset.cat===curCat) && (!term||c.dataset.title.indexOf(term)>-1);
+     var ok=(curCat==='all'||c.dataset.cat===curCat) && (curSrc==='all'||c.dataset.src===curSrc) && (!term||c.dataset.title.indexOf(term)>-1);
      c.style.display=ok?'':'none'; if(ok) shown++;
    }});
    count.textContent=shown+' product'+(shown===1?'':'s');
@@ -1510,6 +1532,7 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
    }}).forEach(function(c){{grid.appendChild(c);}});
  }}
  chips.forEach(function(ch){{ch.onclick=function(){{chips.forEach(function(x){{x.classList.remove('on');}});ch.classList.add('on');curCat=ch.dataset.f;apply();}};}});
+ schips.forEach(function(ch){{ch.onclick=function(){{schips.forEach(function(x){{x.classList.remove('on');}});ch.classList.add('on');curSrc=ch.dataset.s;apply();}};}});
  q.addEventListener('input',apply); sortSel.addEventListener('change',sortCards);
  sortCards();
  /* SpotlightCard — cursor-following glow */

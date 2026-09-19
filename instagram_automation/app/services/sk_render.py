@@ -875,15 +875,21 @@ def _chips2(p: Dict[str, Any]) -> str:
     return out
 
 
+def _store_name(p: Dict[str, Any]) -> str:
+    """The store a product is live on, from its `source` — so a Flipkart post never says Amazon."""
+    return "Flipkart" if str((p or {}).get("source", "")).lower() == "flipkart" else "Amazon.in"
+
+
 def _badges_strip(products: List[Dict[str, Any]]) -> str:
-    """Truthful Amazon badges present across the picks + a 'Live on Amazon.in' pill.
-    Uses the real badge TEXT only (never Amazon's logo) — trademark-safe."""
+    """Truthful store badges present across the picks + a 'Live on <store>' pill.
+    Uses the real badge TEXT only (never a store logo) — trademark-safe."""
     seen, pills = set(), []
     for p in products:
         b = _badge_text(p)
         if b and b not in seen:
             seen.add(b); pills.append(f'<span class="badge">✓ {_esc(b)}</span>')
-    pills.append('<span class="chip">🛒 Live on <b>Amazon.in</b></span>')
+    store = _store_name(products[0]) if products else "Amazon.in"
+    pills.append(f'<span class="chip">🛒 Live on <b>{store}</b></span>')
     return '<div style="display:flex;gap:12px;flex-wrap:wrap">' + "".join(pills[:3]) + "</div>"
 
 
@@ -955,8 +961,8 @@ def _deal_word(p: Dict[str, Any]) -> str:
 
 def _side_chips(p: Dict[str, Any], P: Dict[str, str]) -> str:
     """A column of truthful proof chips to sit BESIDE the price (fills the empty space next to
-    the ₹ lockup). Falls back to a single 'Live on Amazon.in' chip so the space never looks bare."""
-    chips = _chips2(p) or '<span class="chip">🛒 Live on <b>Amazon.in</b></span>'
+    the ₹ lockup). Falls back to a single 'Live on <store>' chip so the space never looks bare."""
+    chips = _chips2(p) or f'<span class="chip">🛒 Live on <b>{_store_name(p)}</b></span>'
     return f'<div style="display:flex;flex-direction:column;gap:12px;padding-bottom:6px">{chips}</div>'
 
 
@@ -1044,7 +1050,7 @@ def _feature_points(p: Dict[str, Any]) -> List[str]:
         pts.append(f"{_fmt_count(dem)} bought recently")
     if not pts:
         pts.append("Hand-picked by the editor")
-    pts.append("Live on Amazon.in")
+    pts.append(f"Live on {_store_name(p)}")
     return pts[:4]
 
 
