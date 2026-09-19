@@ -993,18 +993,23 @@ def cuelinks_ping() -> dict:
 
 
 @app.post("/api/cuelinks/campaigns/refresh")
-def cuelinks_campaigns_refresh(q: str = Query(default="", max_length=60),
-                               sort: str = Query(default="epc"),
-                               limit: int = Query(default=60, ge=1, le=500)) -> dict:
-    """Pull the LIVE Cuelinks market catalogue (GET /campaigns) and store it as the panel's markets
-    (real payout %/EPC). Needs CUELINKS_API_TOKEN. Falls back to the curated list if unset."""
+def cuelinks_campaigns_refresh() -> dict:
+    """Enrich the curated market list with LIVE Cuelinks data (real payout %, EPC, join status) by
+    matching each market by name, and store it as the panel catalogue. Needs CUELINKS_API_TOKEN."""
     from performance import cuelinks
     from performance import cuelinks_markets as cm
-    res = cuelinks.fetch_campaigns(q=q, sort=sort, limit=limit)
+    res = cuelinks.enrich_markets(cm.MARKETS)
     if not res.get("ok"):
         return res
     stored = cm.set_live_markets(res.get("markets", []))
-    return {"ok": True, "stored": len(stored), "live": True}
+    return {"ok": True, "stored": len(stored), "matched": res.get("matched", 0), "live": True}
+
+
+@app.get("/api/cuelinks/search")
+def cuelinks_search(q: str = Query(..., min_length=2, max_length=60), limit: int = Query(default=15, ge=1, le=50)) -> dict:
+    """Live merchant lookup — search the Cuelinks campaign catalogue by name (payout, EPC, status)."""
+    from performance import cuelinks
+    return cuelinks.fetch_campaigns(q=q, limit=limit)
 
 
 class CuelinksConvertReq(BaseModel):

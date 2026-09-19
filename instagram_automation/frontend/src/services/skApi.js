@@ -68,6 +68,9 @@ export default {
   cuelinksConstraints: (patch) => sk.post('/cuelinks/constraints', patch).then(data),
   cuelinksActive:      (body) => sk.post('/cuelinks/active', body).then(data),
   cuelinksPlan:        (apply = false) => sk.post('/cuelinks/plan', null, { params: { apply } }).then(data),
+  cuelinksRefresh:     () => sk.post('/cuelinks/campaigns/refresh').then(data),   // enrich markets with live payout/EPC/status
+  cuelinksPing:        () => sk.post('/cuelinks/ping').then(data),
+  cuelinksConvert:     (url) => sk.post('/cuelinks/convert', { url }).then(data),
   retailers:     () => sk.get('/retailers').then(data),
   // agents control panel (editable constraints, runtime overlay)
   agents:        () => sk.get('/agents').then(data),

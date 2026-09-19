@@ -1502,10 +1502,19 @@ function CuelinksPanel({ say }) {
   const [plan, setPlan] = useState(null);      // AI plan result
   const [planning, setPlanning] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [catFilter, setCatFilter] = useState('all');
 
   const load = () => skApi.cuelinksMarkets(30).then((r) => { setD(r); setC(r.constraints); }).catch(() => setD(null));
   useEffect(() => { load(); }, []);
+  const syncLive = async () => {
+    setSyncing(true);
+    try {
+      const r = await skApi.cuelinksRefresh();
+      if (r.ok) { say?.(`Live data synced — ${r.matched}/${r.stored} markets matched real Cuelinks payouts`); load(); }
+      else say?.(r.error || 'Needs the Cuelinks API key in .env', 'error');
+    } catch { say?.('Live sync failed', 'error'); } finally { setSyncing(false); }
+  };
 
   const patchC = (k, v) => setC((x) => ({ ...x, [k]: v }));
   const toggleCat = (cat) => setC((x) => { const cur = x.focus_categories || []; return { ...x, focus_categories: cur.includes(cat) ? cur.filter((y) => y !== cat) : [...cur, cat] }; });
@@ -1540,9 +1549,10 @@ function CuelinksPanel({ say }) {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <div className="eyebrow">🧠 Cuelinks · AI affiliate markets</div>
-          <div className="text-xs" style={{ color: 'var(--muted)' }}>{d.active_count}/{d.total} markets active · one Cuelinks redirect monetises them all · {d.cuelinks_api ? <span style={{ color: 'var(--ok)' }}>API connected</span> : <span style={{ color: 'var(--faint)' }}>API not set (import earnings manually)</span>}</div>
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>{d.active_count}/{d.total} markets active · one Cuelinks redirect monetises them all · {d.cuelinks_api ? <span style={{ color: 'var(--ok)' }}>API connected{d.live ? ' · live payouts' : ''}</span> : <span style={{ color: 'var(--faint)' }}>API not set (import earnings manually)</span>}</div>
         </div>
         <div className="flex items-center gap-2">
+          {d.cuelinks_api && <button className="btn btn-sm btn-ghost" onClick={syncLive} disabled={syncing} title="Pull live Cuelinks payout %, EPC and join status for every market">{syncing ? <Spinner size={12} /> : <Icon name="bolt" size={12} />} Sync live data</button>}
           <div className="stat-tile" style={{ padding: '6px 12px' }}><div className="stat-v" style={{ fontSize: 18 }}>{e.has_data ? '₹' + e.earnings : '—'}</div><div className="stat-k">Cuelinks 30d</div></div>
         </div>
       </div>
@@ -1626,10 +1636,11 @@ function CuelinksPanel({ say }) {
           {markets.map((m) => (
             <div key={m.id} className="panel p-3" style={{ borderColor: m.active ? 'var(--accent)' : 'var(--border)' }}>
               <div className="flex items-center justify-between gap-2 mb-1">
-                <b style={{ fontSize: 14 }}>{m.name}</b>
+                <div className="flex items-center gap-2"><b style={{ fontSize: 14 }}>{m.name}</b>{m.live_matched && <span className="style-tag" title="Live Cuelinks data" style={{ color: 'var(--ok)' }}>● live</span>}</div>
                 <button className={cx('btn', 'btn-sm', !m.active && 'btn-ghost')} onClick={() => toggleMarket(m.id)}>{m.active ? '✓ Active' : 'Activate'}</button>
               </div>
-              <div className="text-xs font-mono" style={{ color: 'var(--muted)' }}>{m.category} · <span style={{ color: 'var(--accent)' }}>{m.commission}%</span> · AOV {m.aov} · {m.cookie}d</div>
+              <div className="text-xs font-mono" style={{ color: 'var(--muted)' }}>{m.category} · <span style={{ color: 'var(--accent)' }}>{m.commission}%</span>{m.aov ? ` · AOV ${m.aov}` : ''}{m.cookie ? ` · ${typeof m.cookie === 'number' ? m.cookie + 'd' : m.cookie}` : ''}{m.epc && m.epc !== '0.0' ? ` · ₹${m.epc} EPC` : ''}</div>
+              {m.join_status && <div className="text-xs mt-1"><span className="style-tag" style={{ color: m.join_status === 'open' || m.join_status === 'approved' ? 'var(--ok)' : 'var(--faint)' }}>{m.join_status === 'open' ? 'open to join' : m.join_status.replace(/_/g, ' ')}</span></div>}
               <div className="text-xs mt-1" style={{ color: 'var(--faint)' }}>{m.note}</div>
             </div>
           ))}

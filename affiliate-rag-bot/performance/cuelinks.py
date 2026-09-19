@@ -117,61 +117,105 @@ def sync(days: int = 30) -> dict:
         return {"ok": False, "error": str(e)[:160]}
 
 
-# ── live campaigns → market catalogue overlay ─────────────────────────────────
-def _aov_band(v) -> str:
-    """Turn an average-order-value number into the panel's band label."""
-    try:
-        n = float(v)
-    except Exception:
-        return ""
-    lo, hi = int(n * 0.6), int(n * 1.6)
-    def k(x):
-        return f"₹{round(x/1000,1)}k" if x >= 1000 else f"₹{x}"
-    return f"{k(lo)}–{k(hi)}"
+# ── live campaigns (GET /campaigns) ───────────────────────────────────────────
+# The catalogue has 28k+ campaigns and its generic listing is alphabetical CPC noise, so a raw
+# dump is useless. Instead we ENRICH the curated market list: query each market by name, match the
+# right campaign, and pull its LIVE payout %, EPC and join status. Best of both — a clean, curated
+# grid carrying real Cuelinks numbers.
+import re as _re
 
 
-def _map_campaign(r: dict) -> dict | None:
-    name = _pick(r, "name", "merchant", "campaign", "title")
-    if not name:
-        return None
-    cid = _pick(r, "id", "campaign_id", "slug") or name.lower().replace(" ", "")
-    payout = _pick(r, "payout", "commission", "commission_rate", "max_payout", "epc")
-    try:
-        commission = round(float(str(payout).replace("%", "").strip()), 1) if payout is not None else None
-    except Exception:
-        commission = None
-    return {
-        "id": str(cid).lower(),
-        "name": str(name)[:40],
-        "category": str(_pick(r, "category", "category_name", "vertical") or "Marketplace"),
-        "commission": commission,
-        "epc": _pick(r, "epc", "epc_7d", "epc_30d"),
-        "aov": _aov_band(_pick(r, "aov", "average_order_value")) or "",
-        "cookie": _pick(r, "cookie_days", "cookie_duration", "cookie") or 30,
-        "status": _pick(r, "status", "access_status") or "available",
-        "note": (str(_pick(r, "description", "note") or "")[:80]),
-        "source": "cuelinks",
-    }
+def _norm(s: str) -> str:
+    return _re.sub(r"[^a-z0-9]", "", (s or "").lower())
 
 
-def fetch_campaigns(q: str = "", sort: str = "epc", limit: int = 60) -> dict:
-    """GET /campaigns — the LIVE Cuelinks market catalogue (normalised to the panel's shape).
-    Returns {ok, markets:[...]} or a status dict. Never raises."""
+def _is_percent(payout_type: str) -> bool:
+    pt = (payout_type or "").lower()
+    return "%" in pt or "sale" in pt or "order" in pt
+
+
+def _best_campaign_match(name: str, results: list[dict]) -> dict | None:
+    """Pick the campaign that best matches a curated market name (a fuzzy `q` search returns many —
+    e.g. 'boAt' also matches 'Boattrader'). Requires a solid name match; prefers % payouts."""
+    nn = _norm(name)
+    best, best_score = None, -1
+    for c in results:
+        if not isinstance(c, dict):
+            continue
+        ncn = _norm(c.get("name") or "")
+        if not ncn:
+            continue
+        if ncn == nn:
+            score = 100
+        elif ncn.startswith(nn) or nn.startswith(ncn):
+            score = 60
+        elif nn in ncn or ncn in nn:
+            score = 30
+        else:
+            score = 0
+        if _is_percent(c.get("payout_type") or ""):
+            score += 20
+        if score > best_score:
+            best_score, best = score, c
+    return best if best_score >= 30 else None
+
+
+def fetch_campaigns(q: str = "", limit: int = 20) -> dict:
+    """GET /campaigns — raw search by name (for a live merchant lookup). Returns {ok, markets:[...]}."""
     if not configured():
         return {"ok": False, "error": "CUELINKS_API_TOKEN not set."}
     try:
-        params = {"sort": sort, "per_page": max(1, min(limit, 500))}
+        params = {"per_page": max(1, min(limit, 100))}
         if q:
             params["q"] = q
         resp = requests.get(f"{_API_BASE}/campaigns", headers=_headers(), timeout=_TIMEOUT, params=params)
         if not resp.ok:
             return {"ok": False, "error": f"cuelinks v3 {resp.status_code}: {resp.text[:160]}"}
-        records = _records(resp.json())
-        markets = [m for m in (_map_campaign(r) for r in records if isinstance(r, dict)) if m and m.get("commission") is not None]
-        return {"ok": True, "count": len(markets), "markets": markets}
+        out = []
+        for c in _records(resp.json()):
+            if not isinstance(c, dict):
+                continue
+            cats = c.get("categories")
+            out.append({"id": str(c.get("id") or "").lower(), "name": (c.get("name") or "")[:40],
+                        "category": (cats[0].get("name") if isinstance(cats, list) and cats and isinstance(cats[0], dict) else ""),
+                        "payout": c.get("payout"), "payout_type": c.get("payout_type"),
+                        "epc": c.get("epc_7d"), "status": c.get("access_status")})
+        return {"ok": True, "count": len(out), "markets": out}
     except Exception as e:
         log.warning(f"[cuelinks] fetch_campaigns failed: {e}")
         return {"ok": False, "error": str(e)[:160]}
+
+
+def enrich_markets(markets: list[dict]) -> dict:
+    """Enrich curated markets with LIVE Cuelinks data (payout %, EPC, join status) by matching each
+    by name. Percentage payouts override the curated commission; category/AOV/note are kept. Returns
+    {ok, markets, matched}. Never raises — a market with no confident match keeps its curated values."""
+    if not configured():
+        return {"ok": False, "error": "CUELINKS_API_TOKEN not set."}
+    out, matched = [], 0
+    for m in markets:
+        merged = dict(m)
+        try:
+            resp = requests.get(f"{_API_BASE}/campaigns", headers=_headers(), timeout=_TIMEOUT,
+                                params={"q": m.get("name", ""), "per_page": 6})
+            if resp.ok:
+                c = _best_campaign_match(m.get("name", ""), _records(resp.json()))
+                if c:
+                    matched += 1
+                    merged["live_matched"] = True
+                    merged["join_status"] = c.get("access_status") or "open"
+                    merged["campaign_id"] = c.get("id")
+                    if c.get("epc_7d") not in (None, "", "0.0"):
+                        merged["epc"] = c.get("epc_7d")
+                    if _is_percent(c.get("payout_type") or "") and c.get("payout") not in (None, ""):
+                        try:
+                            merged["commission"] = round(float(str(c["payout"]).replace("%", "").strip()), 1)
+                        except Exception:
+                            pass
+        except Exception:
+            pass
+        out.append(merged)
+    return {"ok": True, "markets": out, "matched": matched}
 
 
 # ── link conversion (monetise any URL) ────────────────────────────────────────
