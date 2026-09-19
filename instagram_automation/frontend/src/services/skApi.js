@@ -71,6 +71,9 @@ export default {
   cuelinksRefresh:     () => sk.post('/cuelinks/campaigns/refresh').then(data),   // enrich markets with live payout/EPC/status
   cuelinksPing:        () => sk.post('/cuelinks/ping').then(data),
   cuelinksConvert:     (url) => sk.post('/cuelinks/convert', { url }).then(data),
+  // Flipkart Affiliate API — official product data + direct affiliate links
+  flipkartPing:        () => sk.post('/flipkart/ping').then(data),
+  flipkartSearch:      (q, count = 10) => sk.get('/flipkart/search', { params: { q, count } }).then(data),
   retailers:     () => sk.get('/retailers').then(data),
   // agents control panel (editable constraints, runtime overlay)
   agents:        () => sk.get('/agents').then(data),

@@ -1650,10 +1650,59 @@ function CuelinksPanel({ say }) {
   );
 }
 
+// ── Flipkart Affiliate API — official product data + direct affiliate links ──────────────────
+function FlipkartSection({ say }) {
+  const [status, setStatus] = useState(null);
+  const [q, setQ] = useState('');
+  const [items, setItems] = useState(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { skApi.flipkartPing().then(setStatus).catch(() => setStatus({ configured: false })); }, []);
+  const search = async () => {
+    if (q.trim().length < 2) return;
+    setBusy(true);
+    try { const r = await skApi.flipkartSearch(q.trim(), 10); if (r.ok) setItems(r.items || []); else say?.(r.error || 'Flipkart search failed', 'error'); }
+    catch { say?.('Flipkart search failed', 'error'); } finally { setBusy(false); }
+  };
+  const configured = status?.configured;
+  return (
+    <div className="panel p-4 flex flex-col gap-3">
+      <div>
+        <div className="eyebrow">🛒 Flipkart Affiliate API · official product data</div>
+        <div className="text-xs" style={{ color: 'var(--muted)' }}>{configured ? <span style={{ color: 'var(--ok)' }}>Connected — real prices, images & DIRECT affiliate-tracked links</span> : <span style={{ color: 'var(--faint)' }}>Not connected — add FLIPKART_AFFILIATE_ID + FLIPKART_AFFILIATE_TOKEN in .env</span>}</div>
+      </div>
+      {configured && (
+        <>
+          <div className="flex gap-2">
+            <input className="sk-input" style={{ flex: 1 }} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && search()} placeholder="Search Flipkart products — e.g. gaming laptop, running shoes" />
+            <button className="btn btn-sm" onClick={search} disabled={busy}>{busy ? <Spinner size={12} /> : <Icon name="bolt" size={12} />} Search</button>
+          </div>
+          {items && (items.length === 0 ? <Empty text="No Flipkart products found — try another keyword." /> : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+              {items.map((it) => (
+                <div key={it.asin} className="panel p-0 overflow-hidden" style={{ display: 'flex', flexDirection: 'column' }}>
+                  {it.image ? <img src={it.image} alt="" loading="lazy" style={{ width: '100%', height: 140, objectFit: 'contain', background: '#fff' }} /> : null}
+                  <div className="p-3" style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
+                    <div className="text-xs" style={{ fontWeight: 600, lineHeight: 1.3, maxHeight: 34, overflow: 'hidden' }}>{it.title}</div>
+                    <div className="flex items-center gap-2 text-xs font-mono"><b style={{ fontSize: 14 }}>{it.price}</b>{it.orig_price && <span style={{ textDecoration: 'line-through', color: 'var(--faint)' }}>{it.orig_price}</span>}{it.discount_pct != null && <span style={{ color: '#3fb950' }}>-{it.discount_pct}%</span>}</div>
+                    <div className="flex items-center gap-2 flex-wrap">{it.brand && <span className="style-tag">{it.brand}</span>}{it.rating != null && <span className="intel-chip">★ {it.rating}</span>}{it.in_stock === false && <span className="warn-tag">out of stock</span>}</div>
+                    <div style={{ flex: 1 }} />
+                    <a className="btn btn-sm" href={it.url} target="_blank" rel="noreferrer" style={{ justifyContent: 'center' }}><Icon name="ext" size={12} /> Affiliate link</a>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ))}
+        </>
+      )}
+    </div>
+  );
+}
+
 function AttributionPanel({ active, say }) {
   return (
     <div className="mb-24 flex flex-col gap-4">
       <CuelinksPanel say={say} />
+      <FlipkartSection say={say} />
       <NetworksSection say={say} />
     </div>
   );

@@ -1012,6 +1012,25 @@ def cuelinks_search(q: str = Query(..., min_length=2, max_length=60), limit: int
     return cuelinks.fetch_campaigns(q=q, limit=limit)
 
 
+# ── Flipkart Affiliate API — official product data + direct affiliate links ────────────────────
+
+@app.post("/api/flipkart/ping")
+def flipkart_ping() -> dict:
+    """Verify the Flipkart affiliate credentials (Fk-Affiliate-Id / Token)."""
+    from tools import flipkart
+    return flipkart.ping()
+
+
+@app.get("/api/flipkart/search")
+def flipkart_search(q: str = Query(..., min_length=2, max_length=80,
+                                   description="Keyword product search on Flipkart, e.g. 'gaming laptop'."),
+                    count: int = Query(default=10, ge=1, le=10)) -> dict:
+    """Search Flipkart's official catalogue → real products with prices, images and DIRECT
+    affiliate-tracked links. Same product shape as the Amazon results (drop-in)."""
+    from tools import flipkart
+    return flipkart.search_products(q, count=count)
+
+
 class CuelinksConvertReq(BaseModel):
     model_config = {"extra": "forbid"}
     url:        str
