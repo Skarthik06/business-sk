@@ -218,6 +218,62 @@ def enrich_markets(markets: list[dict]) -> dict:
     return {"ok": True, "markets": out, "matched": matched}
 
 
+# ── live offers / deals (the Cuelinks post source) ────────────────────────────
+def _map_offer(r: dict) -> dict | None:
+    """Map a Cuelinks offer to a normalised DEAL shape (also usable as a pipeline 'product')."""
+    if not isinstance(r, dict) or not r.get("title"):
+        return None
+    cats = [c.get("name") for c in (r.get("categories") or []) if isinstance(c, dict) and c.get("name")]
+    return {
+        "id":          str(r.get("id") or ""),
+        "title":       (r.get("title") or "").strip(),
+        "merchant":    (r.get("campaign_name") or "").strip(),
+        "category":    cats[0] if cats else "",
+        "categories":  cats,
+        "discount":    r.get("percent_off"),
+        "code":        (r.get("coupon_code") or "").strip(),
+        "offer_type":  r.get("offer_type") or "deal",
+        "url":         r.get("tracking_url") or "",
+        "description": (r.get("description") or "").strip(),
+        "ends":        r.get("end_date"),
+        "source":      "cuelinks",
+    }
+
+
+def fetch_offers(categories: list[str] | None = None, limit: int = 40, pages: int = 3) -> dict:
+    """GET /offers — the LIVE Cuelinks deals/coupons (the Cuelinks post source). Optionally keep
+    only offers in the given category names. Paginates to gather enough. Never raises.
+    Returns {ok, count, deals:[...]}."""
+    if not configured():
+        return {"ok": False, "error": "CUELINKS_API_TOKEN not set.", "deals": []}
+    want = {c.strip().lower() for c in (categories or []) if c and c.strip()}
+    out: list[dict] = []
+    try:
+        for pg in range(1, max(1, min(pages, 10)) + 1):
+            resp = requests.get(f"{_API_BASE}/offers", headers=_headers(), timeout=_TIMEOUT,
+                                params={"per_page": 100, "page": pg, "status": "live"})
+            if not resp.ok:
+                if pg == 1:
+                    return {"ok": False, "error": f"cuelinks v3 {resp.status_code}: {resp.text[:160]}", "deals": []}
+                break
+            recs = _records(resp.json())
+            if not recs:
+                break
+            for r in recs:
+                d = _map_offer(r)
+                if not d:
+                    continue
+                if want and not ({c.lower() for c in d["categories"]} & want):
+                    continue
+                out.append(d)
+            if len(out) >= limit or len(recs) < 100:
+                break
+        return {"ok": True, "count": len(out), "deals": out[:limit]}
+    except Exception as e:
+        log.warning(f"[cuelinks] fetch_offers failed: {e}")
+        return {"ok": False, "error": str(e)[:160], "deals": []}
+
+
 # ── link conversion (monetise any URL) ────────────────────────────────────────
 def convert_link(url: str, subids: list[str] | None = None, channel_id: str | None = None) -> dict:
     """POST /links/convert — turn a product URL into a tracked clnk.in affiliate link. Never raises."""

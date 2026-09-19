@@ -1012,6 +1012,129 @@ def cuelinks_search(q: str = Query(..., min_length=2, max_length=60), limit: int
     return cuelinks.fetch_campaigns(q=q, limit=limit)
 
 
+@app.get("/api/flipkart/generate")
+async def flipkart_generate(
+    q: str = Query(..., min_length=2, max_length=80, description="Product search on Flipkart."),
+    products_per_run: int = Query(default=8, ge=1, le=10),
+    min_rating: Optional[float] = Query(default=None, ge=0, le=5),
+    price_max: Optional[int] = Query(default=None, ge=0),
+    content: Optional[str] = Query(default=None),
+    audience: Optional[str] = Query(default=None),
+    brands: Optional[str] = Query(default=None),
+    attrs: Optional[str] = Query(default=None),
+) -> JSONResponse:
+    """CUELINKS · FLIPKART product engine — scrape Flipkart (official JSON, via premium proxy) →
+    soft-rank to the selections (same agentic thresholds as Amazon) → pgvector dedup (only NEW) →
+    AI copy → Cuelinks-monetise each link. Returns queue-ready posts for Post to IG. JSON only."""
+    from tools import flipkart_scrape
+    from tools.amazon import _finalize_pool
+    from rag.dedup import dedup_store
+    from chains.compose import compose_pins
+    from performance import cuelinks
+
+    aud = (audience or "").strip().lower()
+    query = f"{aud} {q.strip()}".strip() if aud and aud not in q.lower() else q.strip()
+    sc = flipkart_scrape.scrape_products(query, count=products_per_run * 4, max_pages=3)
+    if not sc.get("ok"):
+        return JSONResponse(status_code=200, content={"ok": False, "status": "error",
+                            "error": sc.get("error", "Flipkart scrape failed"), "items": []})
+    raw = sc.get("items", [])
+    quality: dict = {}
+    if min_rating is not None:
+        quality["min_rating"] = min_rating
+    if price_max is not None:
+        quality["price_max"] = price_max
+    if brands and brands.strip():
+        quality["brands"] = [b.strip() for b in brands.split(",") if b.strip()][:6]
+    if attrs and attrs.strip():
+        quality["attrs"] = [a.strip() for a in attrs.split(",") if a.strip()][:12]
+    pool = _finalize_pool(raw, quality, cap=40, need=products_per_run)
+    try:
+        new, dups = dedup_store.filter_unseen(pool)
+    except Exception:
+        new, dups = pool, []
+    picks = new[:products_per_run]
+    if not picks:
+        return JSONResponse(status_code=200, content={"ok": True, "status": "empty", "items": [],
+                            "note": "No fresh Flipkart products (all recently posted) — try another search."})
+    pins = await compose_pins(picks, [], [], [], count=len(picks), content_style=(content or "auto"))
+    items = []
+    for pin in pins:
+        prod = pin.get("product", {}) or {}
+        url = prod.get("url", "")
+        try:
+            conv = cuelinks.convert_link(url) if url else {}
+            pin["affiliate_link"] = conv.get("tracking_url") or url
+        except Exception:
+            pin["affiliate_link"] = url
+        it = _content_item(pin)
+        it["source"] = "flipkart"
+        items.append(it)
+    return JSONResponse(status_code=200, content={
+        "ok": len(items) > 0, "status": "done" if items else "empty",
+        "query": q, "source": "flipkart", "count": len(items), "items": items,
+        "caption": (items[0].get("summary") if items else ""),
+        "hashtags": (items[0].get("hashtags") if items else []),
+        "cover_title": (items[0].get("cover_title") if items else ""),
+        "cover_subtitle": (items[0].get("cover_subtitle") if items else ""),
+        "deduped": len(dups)})
+
+
+@app.post("/api/cuelinks/generate")
+async def cuelinks_generate(count: int = Query(default=8, ge=2, le=10,
+                                               description="How many deals (carousel slides) to build."),
+                            categories: Optional[str] = Query(default=None,
+                                               description="Comma-separated category names to focus on; blank = use the saved focus constraints, else all live deals.")) -> dict:
+    """CUELINKS DEALS ENGINE — pull LIVE Cuelinks offers → drop already-posted ones (pgvector dedup)
+    → AI writes the post copy → return queue-ready deal cards for Post to IG. JSON only."""
+    from performance import cuelinks
+    from performance import cuelinks_markets as cm
+    from chains.cuelinks_deals import compose_deal_post
+    from rag.dedup import dedup_store
+
+    cats = [c.strip() for c in (categories or "").split(",") if c.strip()]
+    if not cats:                                          # fall back to the saved planner focus
+        cats = (cm.get_constraints().get("focus_categories") or [])
+    res = cuelinks.fetch_offers(categories=cats, limit=count * 4)
+    if not res.get("ok"):
+        return {**res, "deals": []}
+    raw = res.get("deals", [])
+    # pgvector dedup — reuse the Amazon dedup store, keyed on a cl_<offer id> pseudo-ASIN.
+    tagged = [{**d, "asin": f"cl_{d['id']}", "title": d.get("title", "")} for d in raw if d.get("id")]
+    try:
+        new, dups = dedup_store.filter_unseen(tagged)
+    except Exception:
+        new, dups = tagged, []
+    picks = new[:count]
+    if not picks:
+        return {"ok": True, "count": 0, "deals": [], "caption": "", "hashtags": [],
+                "note": "No fresh deals (all recently posted) — try other categories or come back later."}
+    copy = await compose_deal_post(picks)
+    hooks = copy.get("hooks", [])
+    items = []
+    for i, d in enumerate(picks):
+        items.append({
+            "asin": f"cl_{d['id']}",
+            "product_title": d.get("title", ""),
+            "brand": d.get("merchant", ""),
+            "category": d.get("category", "") or "deals",
+            "discount_pct": d.get("discount"),
+            "coupon_code": d.get("code", ""),
+            "affiliate_link": d.get("url", ""),
+            "image_url": "",                              # deals have no product photo → brand-card render
+            "deal": True,
+            "hook": hooks[i] if i < len(hooks) else "",
+            "ends": d.get("ends"),
+            "summary": copy.get("caption", ""),
+            "content_tokens": copy.get("tokens", {}),
+        })
+    return {"ok": True, "count": len(items), "deals": items,
+            "caption": copy.get("caption", ""), "hashtags": copy.get("hashtags", []),
+            "cover_title": copy.get("cover_title", ""), "cover_subtitle": copy.get("cover_subtitle", ""),
+            "tokens": copy.get("tokens", {}), "ai": copy.get("ai", False),
+            "deduped": len(dups)}
+
+
 class CuelinksConvertReq(BaseModel):
     model_config = {"extra": "forbid"}
     url:        str
