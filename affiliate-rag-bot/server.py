@@ -1061,6 +1061,19 @@ async def flipkart_generate(
     items = []
     for pin in pins:
         prod = pin.get("product", {}) or {}
+        # Flatten the source product onto the pin (the shape _content_item reads).
+        pin["product_title"] = prod.get("title", "")
+        pin["asin"] = prod.get("asin", "")
+        pin["price"] = prod.get("price", "")
+        pin["orig_price"] = prod.get("orig_price", "")
+        pin["discount_pct"] = prod.get("discount_pct")
+        pin["rating"] = prod.get("rating")
+        pin["reviews"] = prod.get("reviews")
+        pin["bought_past_month"] = prod.get("bought_past_month", "")
+        pin["badge"] = prod.get("badge", "")
+        pin["image"] = prod.get("image", "")
+        pin["product_url"] = prod.get("url", "")
+        pin["category"] = prod.get("category", "") or "flipkart"
         url = prod.get("url", "")
         try:
             conv = cuelinks.convert_link(url) if url else {}
