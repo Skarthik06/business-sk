@@ -63,6 +63,11 @@ export default {
   networks:      (days = 30) => sk.get('/networks', { params: { days } }).then(data),
   networksImport: (network, rows) => sk.post('/networks/import', { network, rows }).then(data),
   cuelinksSync:  (days = 30) => sk.post('/networks/cuelinks/sync', null, { params: { days } }).then(data),
+  // Cuelinks affiliate panel — markets catalogue, constraints, active picks, AI planner
+  cuelinksMarkets:     (days = 30) => sk.get('/cuelinks/markets', { params: { days } }).then(data),
+  cuelinksConstraints: (patch) => sk.post('/cuelinks/constraints', patch).then(data),
+  cuelinksActive:      (body) => sk.post('/cuelinks/active', body).then(data),
+  cuelinksPlan:        (apply = false) => sk.post('/cuelinks/plan', null, { params: { apply } }).then(data),
   retailers:     () => sk.get('/retailers').then(data),
   // agents control panel (editable constraints, runtime overlay)
   agents:        () => sk.get('/agents').then(data),

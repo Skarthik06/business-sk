@@ -909,6 +909,82 @@ def networks_cuelinks_sync(days: int = 30) -> dict:
     return cuelinks.sync(max(1, min(days, 365)))
 
 
+# ── Cuelinks affiliate PANEL — market catalogue + AI planner agent + constraints ──────────────
+
+@app.get("/api/cuelinks/markets")
+def cuelinks_markets(days: int = 30) -> dict:
+    """The full Cuelinks panel state: the market catalogue (with active flags), categories, the
+    planner constraints, live-API status, and the earnings roll-up. One clean JSON payload."""
+    from performance import cuelinks_markets as cm
+    from performance.networks import network_store
+    from performance import cuelinks
+    d = max(1, min(days, 365))
+    summary = network_store.summary(d)
+    cl = next((n for n in summary.get("networks", []) if n.get("name") == "cuelinks"), {})
+    return {"ok": True, **cm.catalog(),
+            "cuelinks_api": cuelinks.configured(),
+            "earnings": {"clicks": cl.get("clicks", 0), "orders": cl.get("orders", 0),
+                         "earnings": cl.get("earnings", 0.0), "epc": cl.get("epc"),
+                         "has_data": cl.get("has_data", False), "days": d}}
+
+
+class CuelinksConstraintsReq(BaseModel):
+    model_config = {"extra": "forbid"}
+    focus_categories: Optional[list[str]] = None
+    commission_floor: Optional[float] = None
+    min_aov:          Optional[int] = None
+    max_active:       Optional[int] = None
+    goal:             Optional[str] = None
+    audience:         Optional[str] = None
+    content_style:    Optional[str] = None
+
+
+@app.post("/api/cuelinks/constraints")
+def cuelinks_set_constraints(body: CuelinksConstraintsReq) -> dict:
+    """Save the planner constraints (only the essential selections). Returns the merged result."""
+    from performance import cuelinks_markets as cm
+    patch = {k: v for k, v in body.model_dump().items() if v is not None}
+    return {"ok": True, "constraints": cm.set_constraints(patch)}
+
+
+class CuelinksActiveReq(BaseModel):
+    model_config = {"extra": "forbid"}
+    ids:       Optional[list[str]] = None      # set the full active list
+    toggle:    Optional[str] = None            # or flip one market id
+
+
+@app.post("/api/cuelinks/active")
+def cuelinks_set_active(body: CuelinksActiveReq) -> dict:
+    """Activate/deactivate markets — either set the whole list (`ids`) or `toggle` one."""
+    from performance import cuelinks_markets as cm
+    if body.toggle:
+        active = cm.toggle_active(body.toggle)
+    else:
+        active = cm.set_active(body.ids or [])
+    return {"ok": True, "active": active, "active_count": len(active)}
+
+
+@app.post("/api/cuelinks/plan")
+async def cuelinks_plan(apply: bool = Query(default=False, description="If true, set the AI's picks as the active markets.")) -> dict:
+    """Run the AI cuelinks-planner agent over the catalogue + current constraints → a ranked plan
+    (picks with reason + content angle + priority) and the exact token usage. JSON only."""
+    from performance import cuelinks_markets as cm
+    from chains.cuelinks_planner import plan_markets
+    cat = cm.catalog()
+    plan = await plan_markets(cat["markets"], cat["constraints"])
+    applied = None
+    if apply and plan.get("picks"):
+        applied = cm.set_active([p["id"] for p in plan["picks"]])
+    # enrich picks with the market's own facts so the UI needs no second lookup
+    by_id = {m["id"]: m for m in cat["markets"]}
+    for p in plan.get("picks", []):
+        m = by_id.get(p["id"], {})
+        p["name"] = m.get("name", p["id"]); p["category"] = m.get("category", "")
+        p["commission"] = m.get("commission"); p["aov"] = m.get("aov")
+    return {"ok": True, "constraints": cat["constraints"], **plan,
+            "applied_active": applied}
+
+
 # ── Universal Search — AI-inferred, per-product filter dimensions ─────────────
 
 @app.get("/api/search/filters")
@@ -1000,6 +1076,7 @@ AGENT_ROSTER = [
     {"name": "creative-copywriter", "role": "AI cover headline, clean slide names + catchy deal-sticker words (one call)"},
     {"name": "still-set-renderer", "role": "Slide design, product collage cover, cutout + non-repeating covers"},
     {"name": "attribution-analyst", "role": "Real earnings per network + product (Cuelinks/Amazon/…); closes the results loop"},
+    {"name": "cuelinks-planner", "role": "AI Cuelinks strategist: pre-filters the market catalogue by the constraints, then ranks which markets to activate with a reason + content angle each (JSON, one call)"},
 ]
 
 

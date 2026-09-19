@@ -204,6 +204,19 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
   });
   const copy = (t, l) => navigator.clipboard?.writeText(t).then(() => say(`${l} copied`)).catch(() => say('Copy failed', 'error'));
 
+  // Discard scraped products — drop them from this Review AND the Post-to-IG queue, so they are
+  // never posted and never reach the storefront (the store only ever shows POSTED products).
+  const discardProduct = (gid, asin) => {
+    setGroups((gs) => (gs || []).map((g) => (g.id === gid ? { ...g, products: (g.products || []).filter((p) => p.asin !== asin) } : g)).filter((g) => (g.products || []).length));
+    setQueue((q) => (q || []).map((g) => (g.id === gid ? { ...g, products: (g.products || []).filter((p) => p.asin !== asin) } : g)).filter((g) => (g.products || []).length));
+    say('Discarded — removed from this post and kept out of the store');
+  };
+  const discardGroup = (gid) => {
+    setGroups((gs) => (gs || []).filter((g) => g.id !== gid));
+    setQueue((q) => (q || []).filter((g) => g.id !== gid));
+    say('Post discarded — it won’t be posted or added to the store');
+  };
+
   const run = async () => {
     if (!jobs.length) return say('Select a category or type a product to search', 'error');
     if (postCount > 10) return say('Instagram allows up to 10 posts — deselect a few subcategories', 'error');
@@ -446,7 +459,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
           {total === 0 ? <Empty text="No new products (deduped). Try other subcategories or lower the quality filters." /> : (
             (groups.filter((g) => g.products.length)).map((g) => (
               <div key={g.id} className="mb-6">
-                <div className="group-head"><span className="chip-sk on" style={{ textTransform: 'capitalize' }}>{g.label}</span><span className="text-xs" style={{ color: 'var(--faint)' }}>{g.products.length} products · 1 post · 1 caption</span>{g.content_style && g.content_style !== 'UNKNOWN' && <span className="style-tag">{g.content_style.replace(/_/g, ' ').toLowerCase()}</span>}{g.products[0]?.content_tokens?.total ? <span className="style-tag" title={`AI used ${g.products[0].content_tokens.total} tokens (${g.products[0].content_tokens.input}→${g.products[0].content_tokens.output}) to write this post`}>🧠 {g.products[0].content_tokens.total} tok</span> : null}{(g.warnings || []).length > 0 && <span className="warn-tag" title={g.warnings.join('\n')}>⚠ {g.warnings.length}</span>}</div>
+                <div className="group-head"><span className="chip-sk on" style={{ textTransform: 'capitalize' }}>{g.label}</span><span className="text-xs" style={{ color: 'var(--faint)' }}>{g.products.length} products · 1 post · 1 caption</span>{g.content_style && g.content_style !== 'UNKNOWN' && <span className="style-tag">{g.content_style.replace(/_/g, ' ').toLowerCase()}</span>}{g.products[0]?.content_tokens?.total ? <span className="style-tag" title={`AI used ${g.products[0].content_tokens.total} tokens (${g.products[0].content_tokens.input}→${g.products[0].content_tokens.output}) to write this post`}>🧠 {g.products[0].content_tokens.total} tok</span> : null}{(g.warnings || []).length > 0 && <span className="warn-tag" title={g.warnings.join('\n')}>⚠ {g.warnings.length}</span>}<span className="flex-1" /><button className="btn btn-sm btn-ghost" onClick={() => discardGroup(g.id)} title="Discard this whole post — it won’t be posted or added to the store" style={{ color: 'var(--danger)' }}><Icon name="x" size={12} /> Discard post</button></div>
                 {g.caption && (
                   <div className="panel p-3 mb-3" style={{ background: 'var(--panel-2)' }}>
                     <div className="flex items-center gap-2 mb-1"><span className="eyebrow">Carousel caption</span><span className="flex-1" /><button className="btn btn-sm btn-ghost" onClick={() => copy(g.caption + '\n\n' + (g.hashtags || []).map((h) => '#' + h).join(' '), 'Caption')}><Icon name="quote" size={12} /> Copy</button></div>
@@ -455,7 +468,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
                   </div>
                 )}
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-                  {g.products.map((it, i) => <ProductCard key={it.asin + i} it={it} copy={copy} fav={isFav(it.asin)} onFav={() => toggleFav(it)} say={say} />)}
+                  {g.products.map((it, i) => <ProductCard key={it.asin + i} it={it} copy={copy} fav={isFav(it.asin)} onFav={() => toggleFav(it)} onDiscard={() => discardProduct(g.id, it.asin)} say={say} />)}
                 </div>
               </div>
             ))
@@ -1140,7 +1153,7 @@ function ChipSelect({ label, value, options, onChange, title }) {
   );
 }
 
-function ProductCard({ it, copy, fav, onFav, say }) {
+function ProductCard({ it, copy, fav, onFav, onDiscard, say }) {
   const [why, setWhy] = useState(false);
   const caption = `${it.summary || ''}\n\n${(it.hashtags || []).map((h) => '#' + h).join(' ')}`.trim();
   const sendToIG = () => { copy(`${caption}\n\nImage: ${it.image_url}`, 'Caption+image'); say('Copied — paste into Custom Poster', 'ok'); };
@@ -1155,6 +1168,7 @@ function ProductCard({ it, copy, fav, onFav, say }) {
         {it.image_url ? <img src={hiRes(it.image_url)} alt="" loading="lazy" style={{ width: '100%', height: 160, objectFit: 'contain', background: '#fff' }} /> : <div style={{ height: 160, background: 'var(--panel-2)' }} />}
         {wTier && <span className={cx('tier-badge', 'tier-' + wTier)} title={`Winner score ${wScore}/100 · intelligence×confidence`}>🏆 {wTier} · {wScore}</span>}
         <button className="fav-btn" onClick={onFav} title="Favorite" style={{ color: fav ? 'var(--amber)' : '#fff' }}><Icon name="spark" size={16} /></button>
+        {onDiscard && <button className="fav-btn" onClick={onDiscard} title="Discard this product — remove it from the post and keep it out of the store" style={{ right: 44, color: '#fff' }}><Icon name="x" size={16} /></button>}
       </div>
       <div className="p-3.5" style={{ display: 'flex', flexDirection: 'column', gap: 7, flex: 1 }}>
         <div className="flex items-center gap-2 flex-wrap text-xs font-mono" style={{ color: 'var(--muted)' }}>
@@ -1477,9 +1491,158 @@ function NetworksSection({ say }) {
   );
 }
 
+// ── Cuelinks affiliate panel — market catalogue + AI planner agent + constraints ─────────────
+const CL_GOALS = [['balanced', 'Balanced'], ['commission', 'Max commission'], ['volume', 'High volume']];
+const CL_AUD = [['', 'Everyone'], ['men', 'Men'], ['women', 'Women'], ['kids', 'Kids']];
+const CL_STYLES = ['auto', 'DEAL_DROP', 'LISTICLE', 'STORY', 'PREMIUM', 'BUDGET', 'VIRAL_FIND'];
+
+function CuelinksPanel({ say }) {
+  const [d, setD] = useState(null);            // catalogue payload {markets, categories, constraints, earnings…}
+  const [c, setC] = useState(null);            // local editable constraints
+  const [plan, setPlan] = useState(null);      // AI plan result
+  const [planning, setPlanning] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [catFilter, setCatFilter] = useState('all');
+
+  const load = () => skApi.cuelinksMarkets(30).then((r) => { setD(r); setC(r.constraints); }).catch(() => setD(null));
+  useEffect(() => { load(); }, []);
+
+  const patchC = (k, v) => setC((x) => ({ ...x, [k]: v }));
+  const toggleCat = (cat) => setC((x) => { const cur = x.focus_categories || []; return { ...x, focus_categories: cur.includes(cat) ? cur.filter((y) => y !== cat) : [...cur, cat] }; });
+  const saveConstraints = async () => {
+    setSaving(true);
+    try { const r = await skApi.cuelinksConstraints(c); if (r.ok) { setC(r.constraints); say?.('Constraints saved — the AI planner will use these'); } }
+    catch { say?.('Save failed', 'error'); } finally { setSaving(false); }
+  };
+  const toggleMarket = async (id) => {
+    try {
+      const r = await skApi.cuelinksActive({ toggle: id });
+      if (r.ok) setD((x) => ({ ...x, markets: x.markets.map((m) => (m.id === id ? { ...m, active: r.active.includes(id) } : m)), active_count: r.active_count }));
+    } catch { say?.('Failed', 'error'); }
+  };
+  const runPlan = async (apply = false) => {
+    setPlanning(true);
+    try {
+      const r = await skApi.cuelinksPlan(apply);
+      if (r.ok) { setPlan(r); if (apply) load(); say?.(apply ? `Applied — ${r.picks?.length || 0} markets set active` : `AI ranked ${r.picks?.length || 0} markets`); }
+      else say?.('Plan failed', 'error');
+    } catch { say?.('Plan failed', 'error'); } finally { setPlanning(false); }
+  };
+
+  if (!d || !c) return <div className="panel p-4"><div className="eyebrow">Cuelinks · AI affiliate markets</div><div className="text-xs mt-2 flex items-center gap-2" style={{ color: 'var(--muted)' }}><Spinner size={12} /> Loading catalogue…</div></div>;
+  const e = d.earnings || {};
+  const cats = d.categories || [];
+  const markets = (d.markets || []).filter((m) => catFilter === 'all' || m.category === catFilter);
+
+  return (
+    <div className="panel p-4 flex flex-col gap-4">
+      {/* header */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <div className="eyebrow">🧠 Cuelinks · AI affiliate markets</div>
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>{d.active_count}/{d.total} markets active · one Cuelinks redirect monetises them all · {d.cuelinks_api ? <span style={{ color: 'var(--ok)' }}>API connected</span> : <span style={{ color: 'var(--faint)' }}>API not set (import earnings manually)</span>}</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="stat-tile" style={{ padding: '6px 12px' }}><div className="stat-v" style={{ fontSize: 18 }}>{e.has_data ? '₹' + e.earnings : '—'}</div><div className="stat-k">Cuelinks 30d</div></div>
+        </div>
+      </div>
+
+      {/* constraints — the essential selections that steer the AI planner */}
+      <div className="panel p-3" style={{ background: 'var(--panel-2)' }}>
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <div className="eyebrow">Constraints — the agent obeys these</div>
+          <button className="btn btn-sm" onClick={saveConstraints} disabled={saving}>{saving ? <Spinner size={12} /> : <Icon name="check" size={12} />} Save constraints</button>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <div className="ctrl-card-label" style={{ marginBottom: 5 }}>Goal</div>
+            <div className="ctrl-chips">
+              {CL_GOALS.map(([k, l]) => <button key={k} type="button" className={cx('chip-sk', c.goal === k && 'on')} onClick={() => patchC('goal', k)}>{l}</button>)}
+            </div>
+            <div className="ctrl-card-label" style={{ margin: '10px 0 5px' }}>Audience</div>
+            <div className="ctrl-chips">
+              {CL_AUD.map(([k, l]) => <button key={k || 'all'} type="button" className={cx('chip-sk', (c.audience || '') === k && 'on')} onClick={() => patchC('audience', k)}>{l}</button>)}
+            </div>
+            <div className="ctrl-card-label" style={{ margin: '10px 0 5px' }}>Caption style</div>
+            <select className="sk-input" style={{ width: '100%' }} value={c.content_style || 'auto'} onChange={(ev) => patchC('content_style', ev.target.value)}>
+              {CL_STYLES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ').toLowerCase()}</option>)}
+            </select>
+          </div>
+          <div className="flex flex-col gap-2">
+            <Slider label={`Commission floor: ${c.commission_floor}%`} min={0} max={15} step={0.5} value={c.commission_floor} onChange={(v) => patchC('commission_floor', v)} full />
+            <Slider label={`Min AOV: ₹${Number(c.min_aov || 0).toLocaleString()}`} min={0} max={5000} step={100} value={c.min_aov || 0} onChange={(v) => patchC('min_aov', v)} full />
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-xs" style={{ color: 'var(--faint)' }}>Max active markets</span>
+              <button className="mini" onClick={() => patchC('max_active', Math.max(1, (c.max_active || 8) - 1))}>−</button>
+              <b style={{ minWidth: 20, textAlign: 'center', display: 'inline-block' }}>{c.max_active}</b>
+              <button className="mini" onClick={() => patchC('max_active', Math.min(d.total, (c.max_active || 8) + 1))}>+</button>
+            </div>
+          </div>
+        </div>
+        <div className="ctrl-card-label" style={{ margin: '12px 0 5px' }}>Focus categories (optional — tap to include; none = all)</div>
+        <div className="ctrl-chips">
+          {cats.map((cat) => <button key={cat} type="button" className={cx('opt-card', (c.focus_categories || []).includes(cat) && 'on')} onClick={() => toggleCat(cat)}>{cat}</button>)}
+        </div>
+      </div>
+
+      {/* AI planner */}
+      <div className="panel p-3" style={{ borderColor: 'var(--accent)' }}>
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+          <div className="eyebrow" style={{ color: 'var(--accent)' }}>AI planner · cuelinks-planner agent</div>
+          <div className="flex items-center gap-2">
+            {plan?.tokens?.total ? <span className="text-xs font-mono" style={{ color: 'var(--muted)' }}>🧠 {plan.tokens.total} tok</span> : null}
+            <button className="btn btn-sm btn-ghost" onClick={() => runPlan(false)} disabled={planning}>{planning ? <Spinner size={12} /> : <Icon name="spark" size={12} />} AI plan</button>
+            <button className="btn btn-sm" onClick={() => runPlan(true)} disabled={planning} title="Run the AI plan and set its picks as the active markets">Plan &amp; apply</button>
+          </div>
+        </div>
+        {!plan && <div className="text-xs" style={{ color: 'var(--faint)' }}>Ranks which markets to activate for your constraints — each with a reason and a content angle. One structured AI call, JSON only.</div>}
+        {plan && (
+          <div className="flex flex-col gap-2 mt-1">
+            {plan.summary && <div className="text-xs" style={{ color: 'var(--muted)' }}>{plan.ai ? '' : '(deterministic) '}{plan.summary}</div>}
+            {(plan.picks || []).map((p) => (
+              <div key={p.id} className="acct-row" style={{ alignItems: 'flex-start', gap: 10 }}>
+                <span className="prog-badge" style={{ minWidth: 22, textAlign: 'center' }}>{p.priority}</span>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="flex items-center gap-2 flex-wrap"><b style={{ fontSize: 13 }}>{p.name}</b><span className="style-tag">{p.category}</span><span className="text-xs font-mono" style={{ color: 'var(--accent)' }}>{p.commission}% · {p.aov}</span></div>
+                  <div className="text-xs" style={{ color: 'var(--muted)' }}>{p.reason}</div>
+                  {p.angle && <div className="text-xs" style={{ color: '#79c0ff' }}>💡 {p.angle}</div>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* markets catalogue */}
+      <div>
+        <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <div className="eyebrow">Available markets ({d.total})</div>
+          <div className="ctrl-chips">
+            <button type="button" className={cx('chip-sk', catFilter === 'all' && 'on')} onClick={() => setCatFilter('all')}>All</button>
+            {cats.map((cat) => <button key={cat} type="button" className={cx('chip-sk', catFilter === cat && 'on')} onClick={() => setCatFilter(cat)}>{cat}</button>)}
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {markets.map((m) => (
+            <div key={m.id} className="panel p-3" style={{ borderColor: m.active ? 'var(--accent)' : 'var(--border)' }}>
+              <div className="flex items-center justify-between gap-2 mb-1">
+                <b style={{ fontSize: 14 }}>{m.name}</b>
+                <button className={cx('btn', 'btn-sm', !m.active && 'btn-ghost')} onClick={() => toggleMarket(m.id)}>{m.active ? '✓ Active' : 'Activate'}</button>
+              </div>
+              <div className="text-xs font-mono" style={{ color: 'var(--muted)' }}>{m.category} · <span style={{ color: 'var(--accent)' }}>{m.commission}%</span> · AOV {m.aov} · {m.cookie}d</div>
+              <div className="text-xs mt-1" style={{ color: 'var(--faint)' }}>{m.note}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AttributionPanel({ active, say }) {
   return (
     <div className="mb-24 flex flex-col gap-4">
+      <CuelinksPanel say={say} />
       <NetworksSection say={say} />
     </div>
   );
