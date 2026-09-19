@@ -29,9 +29,11 @@ class DealCopy(BaseModel):
 SYSTEM = (
     "You are a witty Indian shopping-deals copywriter for an Instagram page. You are given a list "
     "of LIVE deals (merchant · category · discount% · coupon). Write the post copy: a cover "
-    "headline + subtitle, ONE carousel caption with a soft CTA to comment for the link, relevant "
-    "hashtags, and ONE short hook per deal in the SAME ORDER. Be truthful — use only the given "
-    "discounts and merchants, never invent numbers. No price is shown. Return JSON only."
+    "headline + subtitle, ONE carousel caption, relevant hashtags, and ONE short hook per deal in "
+    "the SAME ORDER. The caption MUST end with this CTA idea: FOLLOW the page and comment 'LINK' to "
+    "get the product + store links by DM (DMs go to followers only), and note that coupons + the "
+    "store link are in the bio. NEVER print an actual coupon code (codes are revealed only in the "
+    "store). Be truthful — use only the given discounts/merchants, never invent numbers. JSON only."
 )
 HUMAN = "Deals (in order):\n{deals}\nWrite the post copy (hooks in the same order)."
 
@@ -55,7 +57,7 @@ def _fallback(deals: list[dict]) -> dict:
     return {
         "cover_title": "Today's Best Deals",
         "cover_subtitle": f"{len(deals)} hand-picked offers",
-        "caption": "Fresh deals just dropped 🛍️ Comment “LINK” and we’ll DM you every offer. Save now — these don’t last.",
+        "caption": "Fresh deals just dropped 🛍️ Follow us + comment “LINK” and we’ll DM you the links (DMs go to followers only). Coupons + store link are in the bio 👆",
         "hashtags": ["deals", "offers", "shopping", "discount", "india", "sale", "coupons", "shopnow"],
         "hooks": hooks,
         "tokens": {"input": 0, "output": 0, "total": 0},

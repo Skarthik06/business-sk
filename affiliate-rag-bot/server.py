@@ -757,6 +757,7 @@ def record_post(body: RecordPostRequest) -> dict:
         "orig_price": p.get("orig_price", ""), "discount_pct": p.get("discount_pct"),
         "rating": p.get("rating"), "reviews": p.get("reviews"),
         "source": (p.get("source") or "amazon"),        # which store — for storefront categorisation
+        "coupon_code": (p.get("coupon_code") or ""),     # deal coupon — revealed IN the store, never on the post
     } for p in (body.products or [])]
     rec = post_store.record(body.category, minimal, body.media_id, body.permalink,
                             body.caption, status=body.status, content_style=body.content_style)
@@ -1390,11 +1391,17 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
             proof.append(f'{escape(str(reviews))} reviews')
         proof_html = f'<div class="proof">{" · ".join(proof)}</div>' if proof else ""
         meta = (f'<span class="orig">{orig}</span>' if orig else "") + (f'<span class="off">-{disc}%</span>' if disc else "")
+        # Coupon code lives ONLY in the store — a click reveals it (and doesn't follow the card link).
+        coupon = escape((p.get("coupon_code") or "").strip())
+        coupon_html = (f'<span class="coupon" onclick="event.preventDefault();event.stopPropagation();this.classList.add(\'shown\')">'
+                       f'<span class="cget">🎟️ Get coupon code</span>'
+                       f'<span class="ccode">{coupon}</span></span>') if coupon else ""
         return f"""<a class="card reveal{' feat' if featured else ''}" href="{link}" target="_blank" rel="nofollow noopener sponsored"
           data-cat="{escape(cat)}" data-src="{escape(source)}" data-title="{title.lower()}" data-disc="{disc}" data-price="{_num(p.get('price'))}" data-rating="{_num(rating)}">
           <div class="imgwrap"><img loading="{'eager' if featured else 'lazy'}" src="{img}" alt="">{f'<span class="badge">-{disc}% OFF</span>' if disc else ''}<span class="store store-{escape(source)}">{store}</span></div>
           <div class="body"><div class="title">{title}</div>{proof_html}
             <div class="prices"><span class="price">{price}</span>{meta}</div>
+            {coupon_html}
             <span class="btn">Shop on {store} →</span></div>
         </a>"""
 
@@ -1459,6 +1466,10 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
  .schip{{flex:none;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--muted);background:#fff;border:1.5px solid var(--line);border-radius:100px;padding:7px 14px;cursor:pointer;display:flex;gap:6px;align-items:center;white-space:nowrap;transition:.15s}}
  .schip.on{{color:#fff;background:var(--ink);border-color:var(--ink)}} .schip b{{opacity:.7}}
  .srcbar{{padding-top:0}}
+ .coupon{{display:inline-flex;align-items:center;gap:8px;margin-top:8px;border:1.5px dashed var(--accent);border-radius:10px;padding:8px 14px;cursor:pointer;background:#fff;align-self:flex-start}}
+ .coupon .cget{{font:700 13px 'Space Mono',monospace;color:var(--accent)}}
+ .coupon .ccode{{display:none;font:700 15px 'Space Mono',monospace;letter-spacing:.14em;color:var(--ink)}}
+ .coupon.shown{{background:var(--accent)}} .coupon.shown .cget{{display:none}} .coupon.shown .ccode{{display:inline}}
  .body{{padding:13px 14px 15px;display:flex;flex-direction:column;gap:7px;flex:1}}
  .title{{font-size:14px;line-height:1.32;font-weight:600;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}}
  .proof{{font:700 11px 'Space Mono',monospace;color:var(--muted)}}

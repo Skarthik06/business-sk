@@ -329,7 +329,8 @@ async def compose_pins(
     caption = caption.replace("👆", " ")
     caption = re.sub(r"[ \t]+", " ", caption)
     caption = re.sub(r"\n{3,}", "\n\n", caption).strip(" .-•\n")
-    caption = f"{caption}\n\n💬 Comment for the link · shop in bio 👆" if caption else "💬 Comment for the link · shop in bio 👆"
+    _cta = "💬 Follow + comment “LINK” for the links · shop in bio 👆"
+    caption = f"{caption}\n\n{_cta}" if caption else _cta
     caption = _bold_caption(caption)                     # bold names/prices/discounts for IG
 
     # Phase 4: curated hashtag bank merge (consistent reach spine) + #ad disclosure.

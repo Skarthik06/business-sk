@@ -1116,27 +1116,32 @@ def _deal_logo(brand: str, P: Dict[str, str], *, big: bool = False) -> str:
 
 
 def _deal_card2(p, P, handle):
-    """A single Cuelinks DEAL slide — merchant logo + discount + offer hook + coupon code + CTA.
-    No product photo needed (deals are store-level), so the brand mark carries the visual."""
+    """A single Cuelinks DEAL slide — merchant logo + discount + offer hook. The coupon CODE is
+    NEVER printed on the post (it lives in the store, revealed there); the card only teases that a
+    coupon exists, points to the store link in bio, and nudges follow + comment for the link."""
     brand = _brand(p) or "Store"
     off = _discount_pct(p) or 0
-    code = str(p.get("coupon_code") or "").strip()
+    has_code = bool(str(p.get("coupon_code") or "").strip())
     hook = _esc((p.get("hook") or _clean_title(p, limit=64)))
     big_off = (f'<div class="megaoff" style="font-size:150px">{off}%<span style="font-size:52px"> OFF</span></div>'
                if off else '<div class="megaoff" style="font-size:100px">Deal Drop</div>')
-    code_row = (f'<div style="display:flex;align-items:center;gap:16px"><span class="chip">USE CODE</span>'
-                f'<span style="font-family:{_MONO};font-weight:700;font-size:40px;letter-spacing:.1em;color:{P["text"]};'
-                f'border:2px dashed {P["tint"]};border-radius:12px;padding:10px 26px">{_esc(code)}</span></div>') if code else ""
+    coupon_teaser = ('<div style="display:inline-flex;align-items:center;gap:14px;background:#FFFFFFF0;'
+                     f'border:2px dashed {P["tint"]};border-radius:14px;padding:14px 26px">'
+                     f'<span style="font-size:34px">🎟️</span>'
+                     f'<span style="font-family:{_MONO};font-weight:700;font-size:26px;color:{P["text"]}">Coupon available in the store</span></div>') if has_code else ""
     inner = f"""
   <div class="placard"><span class="kick">Deal Drop</span><span class="code">SK · CUELINKS</span></div>
   <span class="spark" style="top:150px;right:110px">✦</span>
-  <div style="position:absolute;left:60px;right:60px;top:190px;z-index:2;display:flex;flex-direction:column;gap:30px;align-items:flex-start">
+  <div style="position:absolute;left:60px;right:60px;top:180px;z-index:2;display:flex;flex-direction:column;gap:26px;align-items:flex-start">
     {_deal_logo(brand, P, big=True)}
     {big_off}
     <div class="pname" style="font-size:40px;max-width:920px">{hook}</div>
-    {code_row}
+    {coupon_teaser}
   </div>
-  <div style="position:absolute;left:60px;bottom:130px;z-index:2"><span class="cta">Shop {_esc(brand)} →</span></div>
+  <div style="position:absolute;left:60px;right:60px;bottom:120px;z-index:2;display:flex;flex-direction:column;gap:12px">
+    <div style="font-family:{_MONO};font-weight:700;font-size:24px;color:{P['tint']}">👉 Follow + comment “LINK” to get it</div>
+    <span class="cta">🔗 Store link in bio →</span>
+  </div>
 """
     return _page2(P, inner, handle=handle)
 
@@ -1173,12 +1178,12 @@ def _closer2(P, handle):
   <span class="spark" style="top:150px;right:120px">✦</span><span class="spark" style="bottom:170px;left:110px;font-size:30px">✧</span>
   <div style="position:absolute;inset:140px 60px;z-index:2;display:flex;flex-direction:column;justify-content:center;gap:24px">
     <div class="serif" style="font-size:92px;line-height:.96;text-align:center;margin-bottom:6px">Want these deals?</div>
-    {row('💬', 'Comment “LINK”', "we’ll DM you every product link")}
-    {row('🔗', 'Tap the link in bio', 'shop all picks in one place')}
-    {row('➕', f'Follow {_esc(handle)}', 'daily deals · new drops · great finds')}
+    {row('➕', f'Follow {_esc(handle)}', 'follow first — DMs go to followers only')}
+    {row('💬', 'Comment “LINK”', "we’ll DM you every product + store link")}
+    {row('🔗', 'Tap the link in bio', 'shop all picks + grab coupons in the store')}
   </div>
 """
-    return _page2(P, inner, foot_right="COMMENT → DM", handle=handle)
+    return _page2(P, inner, foot_right="FOLLOW + COMMENT → DM", handle=handle)
 
 
 # The six Instagram-worthy per-product templates the renderer agent chooses between.
