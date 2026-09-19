@@ -68,6 +68,7 @@ export default {
   cuelinksConstraints: (patch) => sk.post('/cuelinks/constraints', patch).then(data),
   cuelinksActive:      (body) => sk.post('/cuelinks/active', body).then(data),
   cuelinksPlan:        (apply = false) => sk.post('/cuelinks/plan', null, { params: { apply } }).then(data),
+  cuelinksGenerate:    (count = 8) => sk.post('/cuelinks/generate', null, { params: { count, use_active: true } }).then(data),   // deals from active markets
   // Flipkart product engine (scrape Flipkart -> soft-rank -> dedup -> AI -> Cuelinks links)
   flipkartGenerate:    (opts = {}) => sk.get('/flipkart/generate', { params: {
       q: opts.q, products_per_run: opts.count || 8,

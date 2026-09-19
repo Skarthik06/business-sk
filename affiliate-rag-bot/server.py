@@ -1108,22 +1108,41 @@ async def flipkart_generate(
 @app.post("/api/cuelinks/generate")
 async def cuelinks_generate(count: int = Query(default=8, ge=2, le=10,
                                                description="How many deals (carousel slides) to build."),
+                            use_active: bool = Query(default=True,
+                                               description="Prefer deals from the ACTIVE markets (the planner's picks), backfilling with other live deals."),
                             categories: Optional[str] = Query(default=None,
-                                               description="Comma-separated category names to focus on; blank = use the saved focus constraints, else all live deals.")) -> dict:
-    """CUELINKS DEALS ENGINE — pull LIVE Cuelinks offers → drop already-posted ones (pgvector dedup)
-    → AI writes the post copy → return queue-ready deal cards for Post to IG. JSON only."""
+                                               description="Comma-separated category names to focus on; blank = use active markets / all live deals.")) -> dict:
+    """CUELINKS DEALS ENGINE — pull LIVE Cuelinks offers → PREFER the active markets (so the AI
+    planner's picks actually drive what's posted) → drop already-posted ones (pgvector dedup) → AI
+    writes the post copy → return queue-ready deal cards for Post to IG. JSON only."""
     from performance import cuelinks
     from performance import cuelinks_markets as cm
     from chains.cuelinks_deals import compose_deal_post
     from rag.dedup import dedup_store
 
     cats = [c.strip() for c in (categories or "").split(",") if c.strip()]
-    if not cats:                                          # fall back to the saved planner focus
-        cats = (cm.get_constraints().get("focus_categories") or [])
-    res = cuelinks.fetch_offers(categories=cats, limit=count * 4)
+    # ALL live deals (no hard category filter — the offers taxonomy differs from ours), then we
+    # soft-rank toward the active markets so a post is never starved.
+    res = cuelinks.fetch_offers(categories=cats or None, limit=max(count * 8, 60))
     if not res.get("ok"):
         return {**res, "deals": []}
     raw = res.get("deals", [])
+    # Soft-preference: deals whose merchant/category matches an ACTIVE market rank first (the
+    # planner's activation now steers the post), the rest backfill so the count is always met.
+    active = {m["id"]: m for m in cm.catalog()["markets"] if m.get("active")}
+    import re as _re
+    def _norm(s): return _re.sub(r"[^a-z0-9]", "", (s or "").lower())
+    active_names = {_norm(m["name"]) for m in active.values()} | set(active.keys())
+    active_cats = {(m.get("category") or "").lower() for m in active.values()}
+    def _match(d):
+        mn = _norm(d.get("merchant", ""))
+        if any(a and (a in mn or mn in a) for a in active_names):
+            return 2
+        if (d.get("category") or "").lower() in active_cats:
+            return 1
+        return 0
+    if use_active and active:
+        raw = sorted(raw, key=_match, reverse=True)
     # pgvector dedup — reuse the Amazon dedup store, keyed on a cl_<offer id> pseudo-ASIN.
     tagged = [{**d, "asin": f"cl_{d['id']}", "title": d.get("title", "")} for d in raw if d.get("id")]
     try:

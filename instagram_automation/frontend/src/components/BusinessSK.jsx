@@ -1608,6 +1608,9 @@ function CuelinksPanel({ say, setQueue }) {
   const [c, setC] = useState(null);            // local editable constraints
   const [plan, setPlan] = useState(null);      // AI plan result
   const [planning, setPlanning] = useState(false);
+  const [dealBusy, setDealBusy] = useState(false);
+  const [dealGroup, setDealGroup] = useState(null);
+  const [dealCount, setDealCount] = useState(8);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [catFilter, setCatFilter] = useState('all');
@@ -1644,6 +1647,21 @@ function CuelinksPanel({ say, setQueue }) {
       else say?.('Plan failed', 'error');
     } catch { say?.('Plan failed', 'error'); } finally { setPlanning(false); }
   };
+  // Generate a DEALS post from the active markets → Post-to-IG queue (needs setQueue).
+  const genDeals = async () => {
+    setDealBusy(true);
+    try {
+      const r = await skApi.cuelinksGenerate(dealCount);
+      if (r.ok && (r.deals || []).length) {
+        const products = r.deals;
+        const g = { id: 'cuelinks-deals', label: 'Cuelinks Deals', category: 'deals', products, caption: r.caption || '', hashtags: r.hashtags || [], content_style: '', cover_tags: [] };
+        setDealGroup(g);
+        setQueue && setQueue((prev) => [...(prev || []).filter((x) => x.id !== g.id), g]);
+        say?.(`Generated ${products.length} deals → sent to Post to IG`);
+      } else say?.(r.note || r.error || 'No fresh deals right now', 'error');
+    } catch { say?.('Deals generate failed', 'error'); } finally { setDealBusy(false); }
+  };
+  const clearDeals = () => { setDealGroup(null); setQueue && setQueue((prev) => (prev || []).filter((x) => x.id !== 'cuelinks-deals')); };
 
   if (!d || !c) return <div className="panel p-4"><div className="eyebrow">Cuelinks · AI affiliate markets</div><div className="text-xs mt-2 flex items-center gap-2" style={{ color: 'var(--muted)' }}><Spinner size={12} /> Loading catalogue…</div></div>;
   const e = d.earnings || {};
@@ -1731,6 +1749,28 @@ function CuelinksPanel({ say, setQueue }) {
             ))}
           </div>
         )}
+        {/* Turn the active markets (the planner's picks) into an actual deals post */}
+        <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className="text-xs" style={{ color: 'var(--muted)' }}>Turn your <b>{d.active_count}</b> active markets into a live deals post →</div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs" style={{ color: 'var(--faint)' }}>deals</span>
+              <button className="mini" onClick={() => setDealCount((n) => Math.max(3, n - 1))}>−</button>
+              <b style={{ minWidth: 18, textAlign: 'center', display: 'inline-block' }}>{dealCount}</b>
+              <button className="mini" onClick={() => setDealCount((n) => Math.min(10, n + 1))}>+</button>
+              {dealGroup && <button className="btn btn-sm btn-ghost" onClick={clearDeals} style={{ color: 'var(--danger)' }}><Icon name="x" size={12} /> Clear</button>}
+              <button className="btn btn-sm" onClick={genDeals} disabled={dealBusy || !setQueue}>{dealBusy ? <Spinner size={12} /> : <Icon name="bolt" size={12} />} Generate deals post</button>
+            </div>
+          </div>
+          {dealGroup && (
+            <div className="mt-2">
+              <span className="prog-badge">✓ {dealGroup.products.length} deals → Post to IG</span>
+              <div className="flex flex-wrap gap-2 mt-2">
+                {dealGroup.products.map((it) => <span key={it.asin} className="style-tag">{it.brand}{it.discount_pct ? ` -${it.discount_pct}%` : ''}{it.coupon_code ? ` · ${it.coupon_code}` : ''}</span>)}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* markets catalogue */}
