@@ -1009,6 +1009,88 @@ def _proof2(p, img, P, handle):
     return _page2(P, inner, handle=handle)
 
 
+def _lookbook2(p, img, P, handle):
+    """Full-bleed LOOKBOOK — the product fills the frame under a soft scrim, with the name + price
+    overlaid at the foot. Editorial, lifestyle, scroll-stopping (great for fashion/home/beauty)."""
+    inner = f"""
+  <div class="placard" style="position:absolute;left:60px;right:60px;top:96px;z-index:4"><span class="kick" style="color:#fff">The Look</span><span class="code" style="color:#FFFFFFCC">SK · LOOKBOOK</span></div>
+  <div class="stage" style="position:absolute;left:40px;right:40px;top:88px;bottom:88px;z-index:1;border-radius:30px"><img src="{img}" style="width:90%;height:90%"></div>
+  <div style="position:absolute;left:40px;right:40px;bottom:88px;height:440px;z-index:2;border-radius:0 0 30px 30px;background:linear-gradient(to top,rgba(24,22,18,.86) 8%,rgba(24,22,18,.45) 48%,rgba(24,22,18,0) 100%)"></div>
+  <div style="position:absolute;left:80px;right:80px;bottom:150px;z-index:3;display:flex;flex-direction:column;gap:20px">
+    <div class="serif" style="font-size:62px;line-height:1.0;color:#fff;max-width:900px">{_multiline(_clean_title(p, limit=62))}</div>
+    <div style="display:flex;align-items:flex-end;gap:22px;flex-wrap:wrap">{_pricecard(p)}</div>
+  </div>
+"""
+    return _page2(P, inner, handle=handle)
+
+
+def _feature_points(p: Dict[str, Any]) -> List[str]:
+    """3-4 short, TRUTHFUL selling points derived from the product's own data (never invented)."""
+    pts: List[str] = []
+    off = _discount_pct(p) or 0
+    if off >= 15:
+        pts.append(f"{off}% off right now")
+    r = _num(p.get("rating"))
+    if r:
+        pts.append(f"Rated {r}★ by shoppers")
+    rv = _num(p.get("reviews"))
+    if rv and rv >= 50:
+        pts.append(f"{_fmt_count(rv)} verified ratings")
+    b = _badge_text(p)
+    if b:
+        pts.append(_esc(b))
+    dem = _clean_count(p.get("bought_past_month"))
+    if dem and any(c in dem for c in "+KkMm0123456789"):
+        pts.append(f"{_fmt_count(dem)} bought recently")
+    if not pts:
+        pts.append("Hand-picked by the editor")
+    pts.append("Live on Amazon.in")
+    return pts[:4]
+
+
+def _feature2(p, img, P, handle):
+    """WHY-WE-LOVE-IT — product on the left, a numbered list of real reasons on the right. Reads
+    like a mini review; strong for well-rated / spec-y products."""
+    t = P["tint"]
+    pts = _feature_points(p)
+    items = "".join(
+        f'<div style="display:flex;align-items:flex-start;gap:18px">'
+        f'<div style="flex:none;width:52px;height:52px;border-radius:14px;background:{t};color:#fff;'
+        f'font-family:{_MONO};font-weight:700;font-size:26px;display:flex;align-items:center;justify-content:center">{i+1}</div>'
+        f'<div style="font-family:{_SANS};font-weight:600;font-size:30px;color:{P["text"]};line-height:1.2;padding-top:6px">{f}</div></div>'
+        for i, f in enumerate(pts))
+    inner = f"""
+  <div class="placard"><span class="kick">Why we love it</span><span class="code">SK · PICK</span></div>
+  <div class="stage" style="position:absolute;left:48px;top:150px;width:470px;height:620px;z-index:1"><img src="{img}"></div>
+  <div style="position:absolute;right:56px;top:172px;width:470px;z-index:2;display:flex;flex-direction:column;gap:26px">
+    <div class="pname" style="font-size:40px">{_esc(_clean_title(p, limit=52))}</div>
+    <div style="display:flex;flex-direction:column;gap:18px">{items}</div>
+    {_pricecard(p)}
+  </div>
+"""
+    return _page2(P, inner, handle=handle)
+
+
+def _savings2(p, img, P, handle):
+    """SAVINGS hero — leads with the rupee amount saved (or % when there's no MRP). Product to the
+    right; the big number does the selling. Distinct from Spotlight (which leads with % off)."""
+    pr = _num(p.get("price")); mr = _num(p.get("orig_price") or p.get("mrp"))
+    saved = int(round(mr - pr)) if (pr and mr and mr > pr) else 0
+    big = f"₹{_indian_group(saved)}" if saved >= 300 else f"{_discount_pct(p) or 0}%"
+    inner = f"""
+  <div class="placard"><span class="kick">You Save</span><span class="code">SK · SAVINGS</span></div>
+  <span class="spark" style="top:150px;left:120px;font-size:30px">✧</span>
+  <div class="stage" style="position:absolute;right:48px;top:170px;width:500px;height:560px;z-index:1"><img src="{img}"></div>
+  <div style="position:absolute;left:60px;top:230px;z-index:2;max-width:560px;display:flex;flex-direction:column;gap:6px">
+    <div class="serif" style="font-size:46px;font-style:italic;color:{P['muted']}">you save</div>
+    <div class="megaoff" style="font-size:158px">{big}</div>
+    <div class="pname" style="font-size:36px;max-width:540px;margin-top:12px">{_esc(_clean_title(p, limit=58))}</div>
+  </div>
+  <div style="position:absolute;left:60px;bottom:140px;z-index:2;display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">{_pricecard(p)}{_side_chips(p, P)}</div>
+"""
+    return _page2(P, inner, handle=handle)
+
+
 def _closer2(P, handle):
     """Elegant final CTA: comment→auto-DM (any comment triggers the DM link), link in
     bio, and a follow nudge for the account."""
@@ -1033,15 +1115,57 @@ def _closer2(P, handle):
     return _page2(P, inner, foot_right="COMMENT → DM", handle=handle)
 
 
-def _pick_tmpl(p: Dict[str, Any]) -> str:
-    """Auto-choose a per-product template from its real data."""
+# The six Instagram-worthy per-product templates the renderer agent chooses between.
+_PROD_TEMPLATES = ("spotlight", "savings", "proof", "feature", "editorial", "lookbook")
+
+
+def _template_scores(p: Dict[str, Any]) -> Dict[str, float]:
+    """Fit each template to the product's REAL signals (discount depth, savings ₹, rating,
+    reviews, badge). Higher = better suited. The renderer agent ranks these."""
     off = _discount_pct(p) or 0
     reviews = _num(p.get("reviews")) or 0
-    if off >= 50:
-        return "spotlight"
-    if _badge_text(p) or reviews >= 500:
-        return "proof"
-    return "editorial"
+    rating = _num(p.get("rating")) or 0
+    pr = _num(p.get("price")); mr = _num(p.get("orig_price") or p.get("mrp"))
+    saved = (mr - pr) if (mr and pr and mr > pr) else 0
+    badge = 1 if _badge_text(p) else 0
+    return {
+        "spotlight": (26 + (off - 30) * 1.5) if off >= 40 else off * 0.4,
+        "savings":   (16 + min(saved / 60.0, 46)) if saved >= 500 else off * 0.2,
+        "proof":     14 + reviews / 45.0 + rating * 6 + badge * 16,
+        "feature":   16 + rating * 4 + (10 if reviews >= 50 else 0) + badge * 8,
+        "editorial": 22.0,                                   # always a clean, safe hero
+        "lookbook":  21.0,                                   # lifestyle default, high visual appeal
+    }
+
+
+def _pick_tmpl(p: Dict[str, Any]) -> str:
+    """Single best-fit template for one product (used for the 1-product carousel)."""
+    return max(_template_scores(p).items(), key=lambda kv: kv[1])[0]
+
+
+def _plan_templates(products: List[Dict[str, Any]]) -> List[str]:
+    """AGENTIC template planning (the still-set-renderer agent): score each of the six templates
+    against every product, then assign the best while ENFORCING VARIETY — no template twice in a
+    row and the six spread across the set — so a carousel never looks repetitive. Deterministic
+    (same products → same plan), grounded in the product's own data."""
+    out: List[str] = []
+    counts: Dict[str, int] = {}
+    for p in products:
+        sc = _template_scores(p)
+        prev = out[-1] if out else ""
+        prev2 = out[-2] if len(out) >= 2 else ""
+        def _adj(name: str, base: float) -> float:
+            pen = 0.0
+            if name == prev:
+                pen += 40                                    # never repeat back-to-back
+            if name == prev2:
+                pen += 14
+            pen += counts.get(name, 0) * 7                   # spread usage across the six
+            return base - pen
+        choice = max(sc.items(), key=lambda kv: _adj(kv[0], kv[1]))[0]
+        out.append(choice)
+        counts[choice] = counts.get(choice, 0) + 1
+    return out
 
 
 # ── the planner: product count + arc → slide specs ────────────────────────────
@@ -1060,6 +1184,7 @@ def plan_slides(products: List[Dict[str, Any]], *, category: str = "", arc: str 
         p = products[0]
         specs.append({"tmpl": _pick_tmpl(p), "products": [p], "kick": kick})
         return specs
+    _tmpls = _plan_templates(products[:8])          # agentic: fit-scored + variety-enforced
     # teaser cover → one slide per product → closer (Instagram hard-caps at 10 slides)
     # Cover copy priority: explicit theme (user override) → AI-written cover_title from the
     # composer → deterministic fallback. Same for the subtitle.
@@ -1070,8 +1195,8 @@ def plan_slides(products: List[Dict[str, Any]], *, category: str = "", arc: str 
     specs.append({"tmpl": "cover", "products": products[:3], "kick": kick,
                   "title": cover_title, "subtitle": cover_sub,
                   "all": products[:10], "cover_tags": cover_tags or []})
-    for p in products[:8]:
-        specs.append({"tmpl": _pick_tmpl(p), "products": [p], "kick": kick})
+    for p, tm in zip(products[:8], _tmpls):
+        specs.append({"tmpl": tm, "products": [p], "kick": kick})
     specs.append({"tmpl": "closer", "products": [], "kick": kick, "handle": handle})
     return specs[:10]
 
@@ -1202,7 +1327,8 @@ def _render_htmls(htmls: List[str], out_dir: Path, cdn_prefix: str, slug: str) -
 
 
 _TMPL_LABEL = {"cover": "Teaser cover", "spotlight": "Price-Drop Spotlight",
-               "editorial": "Editorial Hero", "proof": "Social-Proof", "closer": "Shop-the-set CTA"}
+               "savings": "Savings Hero", "editorial": "Editorial Hero", "proof": "Social-Proof",
+               "feature": "Why-We-Love-It", "lookbook": "Lookbook", "closer": "Shop-the-set CTA"}
 
 
 def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_dir: Path,
@@ -1253,8 +1379,14 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
                                  cover_tags=sp.get("cover_tags", [])))
         elif t == "spotlight":
             htmls.append(_spotlight2(ps[0], imgs[0], P, handle))
+        elif t == "savings":
+            htmls.append(_savings2(ps[0], imgs[0], P, handle))
         elif t == "proof":
             htmls.append(_proof2(ps[0], imgs[0], P, handle))
+        elif t == "feature":
+            htmls.append(_feature2(ps[0], imgs[0], P, handle))
+        elif t == "lookbook":
+            htmls.append(_lookbook2(ps[0], imgs[0], P, handle))
         elif t == "closer":
             htmls.append(_closer2(P, sp.get("handle", handle)))
         else:                                          # "editorial" + any fallback

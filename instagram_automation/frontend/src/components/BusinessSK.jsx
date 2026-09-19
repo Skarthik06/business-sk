@@ -19,7 +19,7 @@ const VIEW_TAB = {
 const TAB_TITLE = {
   overview: 'Overview', generate: 'Affiliate', winners: 'Winners', trends: 'Trends',
   intel: 'Intelligence', calendar: 'Content Calendar', post: 'Content Studio',
-  hub: 'Storefront', attribution: 'Attribution', revenue: 'Revenue', agents: 'Agents', accounts: 'Accounts', history: 'History',
+  hub: 'Storefront', attribution: 'Cuelinks Affiliate', revenue: 'Revenue', agents: 'Agents', accounts: 'Accounts', history: 'History',
 };
 const TAB_KICKER = {
   overview: 'Your affiliate operation at a glance — status, winners, and what to do next.',
@@ -30,7 +30,7 @@ const TAB_KICKER = {
   calendar: 'Your publishing queue and the suggested weekly plan.',
   post: 'Review the batch from Discover, choose an account, and publish.',
   hub: 'Your public Amazon page — the link for your Instagram bio.',
-  attribution: 'Real earnings by affiliate network (Cuelinks · Amazon · Flipkart · Myntra) + top-earning products.',
+  attribution: 'Cuelinks affiliate markets — AI planner, live payouts, constraints + real earnings across every network.',
   revenue: 'The post funnel and measured results — log a post to power the learning loop.',
   agents: 'Every capability is an agent — tune its constraints live, no restart.',
   accounts: 'Your affiliate program accounts, stored encrypted with your .ragskey.',

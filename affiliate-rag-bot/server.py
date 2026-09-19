@@ -1115,7 +1115,7 @@ AGENT_ROSTER = [
     {"name": "search-planner", "role": "Universal search: AGENTIC AI-inferred per-product filters (call→validate→refine→retry, never fails, never generic) → refine query + soft-rank"},
     {"name": "product-scorer", "role": "Multi-score ranking + tiers"},
     {"name": "creative-copywriter", "role": "AI cover headline, clean slide names + catchy deal-sticker words (one call)"},
-    {"name": "still-set-renderer", "role": "Slide design, product collage cover, cutout + non-repeating covers"},
+    {"name": "still-set-renderer", "role": "Slide design: agentic 6-template selection (Spotlight/Savings/Social-Proof/Why-We-Love-It/Editorial/Lookbook, fit-scored per product + variety-enforced), collage cover, cutout + non-repeating covers"},
     {"name": "attribution-analyst", "role": "Real earnings per network + product (Cuelinks/Amazon/…); closes the results loop"},
     {"name": "cuelinks-planner", "role": "AI Cuelinks strategist: pre-filters the market catalogue by the constraints, then ranks which markets to activate with a reason + content angle each (JSON, one call)"},
 ]
