@@ -1121,20 +1121,23 @@ _PROD_TEMPLATES = ("spotlight", "savings", "proof", "feature", "editorial", "loo
 
 def _template_scores(p: Dict[str, Any]) -> Dict[str, float]:
     """Fit each template to the product's REAL signals (discount depth, savings ₹, rating,
-    reviews, badge). Higher = better suited. The renderer agent ranks these."""
+    reviews, badge). BOUNDED + comparable (~16–62 each) so the variety penalties in the planner
+    actually shape the mix. Higher = better suited. The renderer agent ranks these."""
+    import math
     off = _discount_pct(p) or 0
     reviews = _num(p.get("reviews")) or 0
     rating = _num(p.get("rating")) or 0
     pr = _num(p.get("price")); mr = _num(p.get("orig_price") or p.get("mrp"))
     saved = (mr - pr) if (mr and pr and mr > pr) else 0
-    badge = 1 if _badge_text(p) else 0
+    badge = 6 if _badge_text(p) else 0
+    rev_s = math.log10(reviews + 1) * 8                      # 0..~40, bounded (no runaway)
     return {
-        "spotlight": (26 + (off - 30) * 1.5) if off >= 40 else off * 0.4,
-        "savings":   (16 + min(saved / 60.0, 46)) if saved >= 500 else off * 0.2,
-        "proof":     14 + reviews / 45.0 + rating * 6 + badge * 16,
-        "feature":   16 + rating * 4 + (10 if reviews >= 50 else 0) + badge * 8,
-        "editorial": 22.0,                                   # always a clean, safe hero
-        "lookbook":  21.0,                                   # lifestyle default, high visual appeal
+        "spotlight": 22 + min(off, 80) * 0.5,                # rises with % off
+        "savings":   22 + min(saved / 200.0, 32),            # rises with ₹ saved
+        "proof":     16 + rev_s * 0.55 + rating * 3,         # social proof: reviews + rating
+        "feature":   26 + rating * 3 + badge,                # well-rated / badged
+        "editorial": 30.0,                                   # clean neutral hero
+        "lookbook":  30.0,                                   # lifestyle neutral, high visual appeal
     }
 
 
@@ -1157,10 +1160,10 @@ def _plan_templates(products: List[Dict[str, Any]]) -> List[str]:
         def _adj(name: str, base: float) -> float:
             pen = 0.0
             if name == prev:
-                pen += 40                                    # never repeat back-to-back
+                pen += 100                                   # never repeat back-to-back
             if name == prev2:
-                pen += 14
-            pen += counts.get(name, 0) * 7                   # spread usage across the six
+                pen += 30
+            pen += counts.get(name, 0) * 14                  # spread usage across the six
             return base - pen
         choice = max(sc.items(), key=lambda kv: _adj(kv[0], kv[1]))[0]
         out.append(choice)
