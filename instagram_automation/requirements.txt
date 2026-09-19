@@ -38,3 +38,5 @@ jsonschema==4.23.0            # deterministic Property Knowledge Model validatio
 # --- Config & security ---
 python-dotenv==1.2.1
 cryptography==48.0.0          # encrypts IG tokens at rest in the rags store
+
+redis>=5.0

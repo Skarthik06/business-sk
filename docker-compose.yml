@@ -69,6 +69,7 @@ services:
       DATABASE_URL: ${SUPABASE_DB_URL:-postgresql://instagram:instagram@db:5432/instagram_business}
       LEGACY_SQLITE_DB: /app/legacy/posts.db
       BUSINESS_USE_DOCLING: "1"
+      REDIS_URL: redis://redis:6379/0        # follow-gate pending-unlock store (scales across users)
     volumes:
       - ./instagram_automation/app:/app/app
       - docling_cache:/root/.cache
@@ -83,6 +84,22 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_started
+
+  # ── Redis — follow-gate pending-unlock state (two-step comment→DM) ─────────
+  redis:
+    image: redis:7-alpine
+    container_name: business_sk_redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "128mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
 
   frontend:
     image: node:20-alpine
@@ -154,4 +171,5 @@ volumes:
   ig_frontend_node_modules:
   hf_cache:
   caddy_data:
+  redisdata:
   caddy_config:

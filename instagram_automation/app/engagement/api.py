@@ -948,13 +948,21 @@ def _dispatch(account_id: int, action: R.Action, event: R.InboundEvent, text: st
         if action.type == "REPLY_TO_COMMENT" and event.comment_id:
             r = _reply_with_retry(token, event.comment_id, text)
         elif action.type == "SEND_DM" and event.comment_id:
-            # If this is an affiliate post, DM PRODUCT CARDS (image + Shop Now + See All Products)
-            # — the HaulPack look — instead of a plain text link. Falls back to text otherwise.
-            products = store.affiliate_products_for_media(account_id, event.post_id) if event.post_id else []
-            if products:
-                r = service.private_reply_cards(token, ig_id, event.comment_id, products, _storefront_url())
+            from app.engagement import follow_gate as _fg
+            if _fg.enabled() and event.user_id:
+                # FOLLOW-GATE step 1: DM a strong follow nudge (comment→DM) and stash a pending
+                # unlock keyed by the commenter's IGSID. The real links go out only after they
+                # reply in DM (step 2 in process_event). Redis-backed → scales across many users.
+                handle = (account or {}).get("ig_username") or (account or {}).get("username") or (account or {}).get("label")
+                r = service.private_reply(token, ig_id, event.comment_id, _fg.first_message(handle))
+                _fg.set_pending(account_id, event.user_id, {"post_id": event.post_id, "comment_id": event.comment_id})
             else:
-                r = service.private_reply(token, ig_id, event.comment_id, text)
+                # Gate off → original behavior: DM PRODUCT CARDS (or text) straight away.
+                products = store.affiliate_products_for_media(account_id, event.post_id) if event.post_id else []
+                if products:
+                    r = service.private_reply_cards(token, ig_id, event.comment_id, products, _storefront_url())
+                else:
+                    r = service.private_reply(token, ig_id, event.comment_id, text)
         elif action.type == "SEND_DM" and event.user_id:
             products = store.affiliate_products_for_media(account_id, event.post_id) if event.post_id else []
             if products:
@@ -971,11 +979,47 @@ def _dispatch(account_id: int, action: R.Action, event: R.InboundEvent, text: st
         return ("RATE_LIMITED" if retryable else "FAILED"), None, str(e.code), e.message
 
 
+def _follow_gate_unlock(account_id: int, account: Dict[str, Any], user_id: str,
+                        pend: Dict[str, Any], persist: bool) -> Dict[str, Any]:
+    """FOLLOW-GATE step 2: the pending user replied in DM → send the real product/store links now."""
+    from app.engagement import follow_gate as _fg
+    acct = rags.get_account(account_id, with_secret=True) or account or {}
+    token = acct.get("ig_access_token"); ig_id = acct.get("ig_business_id")
+    post_id = (pend or {}).get("post_id")
+    status, ref, err = "SKIPPED", None, None
+    if _LIVE and token:
+        products = store.affiliate_products_for_media(account_id, post_id) if post_id else []
+        try:
+            if products:
+                r = service.send_product_cards(token, ig_id, {"id": user_id}, products, _storefront_url())
+            else:
+                r = service.send_dm(token, ig_id, user_id, _fg.unlock_message())
+            status, ref = "SUCCESS", str(r.get("id") or "")
+        except service.GraphError as e:
+            status, err = "FAILED", e.message
+    if persist and status == "SUCCESS":
+        try:
+            store.record_dm(account_id, user_id, _fg.unlock_message(), ref, direction="out", source_post_id=post_id)
+        except Exception:
+            pass
+    return {"matched_rules": 0, "follow_gate": "UNLOCK",
+            "executions": [{"action": "FOLLOW_GATE_UNLOCK", "status": status, "error": err}]}
+
+
 def process_event(account_id: int, event: R.InboundEvent, event_id: Optional[int],
                   dry: bool = False, persist: bool = True) -> Dict[str, Any]:
     """Evaluate rules for one event and dispatch actions. Idempotent + logged.
     persist=False (used by /simulate) previews without writing execution rows."""
     account = rags.get_account(account_id) or {}
+    # FOLLOW-GATE step 2: a DM reply from a user who has a pending unlock → send the links now
+    # (before normal rule processing), then stop. Atomic pop → never double-sends.
+    if not dry and event.trigger_type == "DM_RECEIVED":
+        from app.engagement import follow_gate as _fg
+        if _fg.enabled():
+            uid = event.user_id or event.conversation_id
+            pend = _fg.pop_pending(account_id, uid)
+            if pend:
+                return _follow_gate_unlock(account_id, account, uid, pend, persist)
     engine_rules = store.load_engine_rules(account_id)
     # HARD ISOLATION: a comment/DM on an AFFILIATE (Business-SK) post fires ONLY that post's
     # own post-scoped rule — never an account-wide rule (e.g. the Business-JK real-estate
