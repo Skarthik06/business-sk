@@ -102,7 +102,7 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
       <div style={show('winners')}><WinnersPanel active={tab === 'winners'} say={say} /></div>
       <div style={show('trends')}><TrendsPanel active={tab === 'trends'} cats={cats} /></div>
       <div style={show('intel')}><IntelligencePanel active={tab === 'intel'} /></div>
-      <div style={show('attribution')}><AttributionPanel active={tab === 'attribution'} say={say} /></div>
+      <div style={show('attribution')}><AttributionPanel active={tab === 'attribution'} say={say} setQueue={setQueue} /></div>
       <div style={show('revenue')}><RevenuePanel active={tab === 'revenue'} say={say} /></div>
       <div style={show('calendar')}><CalendarPanel active={tab === 'calendar'} say={say} /></div>
       <div style={show('agents')}><AgentsPanel active={tab === 'agents'} say={say} /></div>
@@ -1496,7 +1496,114 @@ const CL_GOALS = [['balanced', 'Balanced'], ['commission', 'Max commission'], ['
 const CL_AUD = [['', 'Everyone'], ['men', 'Men'], ['women', 'Women'], ['kids', 'Kids']];
 const CL_STYLES = ['auto', 'DEAL_DROP', 'LISTICLE', 'STORY', 'PREMIUM', 'BUDGET', 'VIRAL_FIND'];
 
-function CuelinksPanel({ say }) {
+// Flipkart product engine — Amazon-style panel that scrapes Flipkart, ranks to the selections,
+// dedups (pgvector), writes AI copy + Cuelinks links, and sends the post to the Post-to-IG queue.
+function FlipkartGenerate({ say, setQueue }) {
+  const [q, setQ] = useState('');
+  const [count, setCount] = useState(8);
+  const [dims, setDims] = useState([]);
+  const [picks, setPicks] = useState({});
+  const [loadingF, setLoadingF] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [group, setGroup] = useState(null);
+  useEffect(() => {
+    const s = q.trim();
+    if (s.length < 2) { setDims([]); setPicks({}); return; }
+    setLoadingF(true);
+    const t = setTimeout(() => {
+      skApi.searchFilters(s).then((d) => setDims(d.filters || [])).catch(() => setDims([])).finally(() => setLoadingF(false));
+    }, 650);
+    return () => clearTimeout(t);
+  }, [q]);
+  const isBrand = (n) => /\b(brand|make|label|manufacturer)\b/i.test(n || '');
+  const pick = (dim, opt) => setPicks((p) => { const cur = p[dim] || []; return { ...p, [dim]: cur.includes(opt) ? cur.filter((x) => x !== opt) : [...cur, opt] }; });
+  const brandDim = Object.keys(picks).find(isBrand);
+  const brandSel = (brandDim ? picks[brandDim] : []).filter(Boolean);
+  const attrSel = Object.entries(picks).filter(([k]) => !isBrand(k)).flatMap(([, v]) => v).filter(Boolean);
+  const gen = async () => {
+    if (q.trim().length < 2) return say?.('Type a product to search Flipkart', 'error');
+    setRunning(true);
+    try {
+      const r = await skApi.flipkartGenerate({ q: q.trim(), count, brands: brandSel, attrs: attrSel });
+      if (r.ok && (r.items || []).length) {
+        const products = (r.items || []).map((it) => ({ ...it, category: 'flipkart' }));
+        const g = { id: 'flipkart-' + q.trim().slice(0, 20), label: 'Flipkart · ' + q.trim().slice(0, 22), category: 'flipkart', products, caption: r.caption || '', hashtags: r.hashtags || [], content_style: '', cover_tags: [...brandSel.slice(0, 2), ...attrSel.slice(0, 2)].slice(0, 5) };
+        setGroup(g);
+        setQueue((prev) => [...(prev || []).filter((x) => x.id !== g.id), g]);
+        say?.(`Generated ${products.length} Flipkart products → sent to Post to IG`);
+      } else say?.(r.note || r.error || 'No fresh Flipkart products found', 'error');
+    } catch { say?.('Flipkart generate failed', 'error'); } finally { setRunning(false); }
+  };
+  const discard = (asin) => setGroup((g) => {
+    if (!g) return g;
+    const ng = { ...g, products: g.products.filter((p) => p.asin !== asin) };
+    setQueue((prev) => (prev || []).map((x) => (x.id === ng.id ? ng : x)).filter((x) => x.products.length));
+    return ng.products.length ? ng : null;
+  });
+  const clearAll = () => { setGroup((g) => { if (g) setQueue((prev) => (prev || []).filter((x) => x.id !== g.id)); return null; }); };
+
+  return (
+    <div className="panel p-4" style={{ borderColor: 'var(--accent)', background: 'var(--panel-2)' }}>
+      <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+        <div>
+          <div className="eyebrow" style={{ color: 'var(--accent)' }}>🛒 Flipkart products · Cuelinks-monetised</div>
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>Scrapes Flipkart, ranks to your filters, dedups (only new), writes AI copy + Cuelinks links → Post to IG.</div>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs" style={{ color: 'var(--faint)' }}>products</span>
+          <button className="mini" onClick={() => setCount((n) => Math.max(3, n - 1))}>−</button>
+          <b style={{ minWidth: 20, textAlign: 'center', display: 'inline-block' }}>{count}</b>
+          <button className="mini" onClick={() => setCount((n) => Math.min(10, n + 1))}>+</button>
+        </div>
+      </div>
+      <div className="flex gap-2">
+        <input className="sk-input" style={{ flex: 1 }} value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && gen()} placeholder="Search Flipkart — e.g. running shoes, kurta set, air fryer" />
+        <button className="btn btn-sm" onClick={gen} disabled={running}>{running ? <Spinner size={12} /> : <Icon name="bolt" size={12} />} Generate</button>
+      </div>
+      {loadingF && <div className="text-xs mt-2 flex items-center gap-2" style={{ color: 'var(--muted)' }}><Spinner size={11} /> AI is reading your product…</div>}
+      {dims.length > 0 && (
+        <div className="mt-3 flex flex-col gap-2">
+          <div className="text-xs" style={{ color: 'var(--faint)' }}>Refine (optional) — brand = exact, others rank:</div>
+          {dims.map((dd) => (
+            <div key={dd.name}>
+              <div className="ctrl-card-label" style={{ marginBottom: 5 }}>{dd.name}</div>
+              <div className="ctrl-chips">
+                {dd.options.map((o) => <button key={o} type="button" className={cx('opt-card', (picks[dd.name] || []).includes(o) && 'on')} onClick={() => pick(dd.name, o)}>{o}</button>)}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {group && (
+        <div className="mt-3">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="prog-badge">✓ {group.products.length} products → Post to IG</span>
+            <span className="flex-1" />
+            <button className="btn btn-sm btn-ghost" onClick={gen} disabled={running} title="Re-scrape fresh Flipkart products"><Icon name="bolt" size={12} /> Refresh</button>
+            <button className="btn btn-sm btn-ghost" onClick={clearAll} style={{ color: 'var(--danger)' }} title="Remove this post from the queue"><Icon name="x" size={12} /> Clear</button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+            {group.products.map((it) => (
+              <div key={it.asin} className="panel p-0 overflow-hidden" style={{ display: 'flex', flexDirection: 'column' }}>
+                <div style={{ position: 'relative' }}>
+                  {it.image_url ? <img src={it.image_url} alt="" loading="lazy" style={{ width: '100%', height: 130, objectFit: 'contain', background: '#fff' }} /> : <div style={{ height: 130, background: 'var(--panel)' }} />}
+                  <button className="fav-btn" onClick={() => discard(it.asin)} title="Discard this product" style={{ color: '#fff' }}><Icon name="x" size={15} /></button>
+                </div>
+                <div className="p-3" style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
+                  <div className="text-xs" style={{ fontWeight: 600, lineHeight: 1.3, maxHeight: 34, overflow: 'hidden' }}>{it.product_title}</div>
+                  <div className="flex items-center gap-2 text-xs font-mono"><b style={{ fontSize: 14 }}>{it.price}</b>{it.orig_price && <span style={{ textDecoration: 'line-through', color: 'var(--faint)' }}>{it.orig_price}</span>}{it.discount_pct != null && <span style={{ color: '#3fb950' }}>-{it.discount_pct}%</span>}</div>
+                  <a className="btn btn-sm" href={it.affiliate_link} target="_blank" rel="noreferrer" style={{ justifyContent: 'center' }}><Icon name="ext" size={12} /> Cuelinks link</a>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function CuelinksPanel({ say, setQueue }) {
   const [d, setD] = useState(null);            // catalogue payload {markets, categories, constraints, earnings…}
   const [c, setC] = useState(null);            // local editable constraints
   const [plan, setPlan] = useState(null);      // AI plan result
@@ -1542,9 +1649,12 @@ function CuelinksPanel({ say }) {
   const e = d.earnings || {};
   const cats = d.categories || [];
   const markets = (d.markets || []).filter((m) => catFilter === 'all' || m.category === catFilter);
+  const flipkartActive = (d.markets || []).some((m) => m.id === 'flipkart' && m.active);
 
   return (
     <div className="panel p-4 flex flex-col gap-4">
+      {/* Flipkart product engine — appears when the Flipkart market is activated */}
+      {flipkartActive && setQueue && <FlipkartGenerate say={say} setQueue={setQueue} />}
       {/* header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
@@ -1650,10 +1760,10 @@ function CuelinksPanel({ say }) {
   );
 }
 
-function AttributionPanel({ active, say }) {
+function AttributionPanel({ active, say, setQueue }) {
   return (
     <div className="mb-24 flex flex-col gap-4">
-      <CuelinksPanel say={say} />
+      <CuelinksPanel say={say} setQueue={setQueue} />
       <NetworksSection say={say} />
     </div>
   );

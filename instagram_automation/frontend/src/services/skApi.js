@@ -68,6 +68,16 @@ export default {
   cuelinksConstraints: (patch) => sk.post('/cuelinks/constraints', patch).then(data),
   cuelinksActive:      (body) => sk.post('/cuelinks/active', body).then(data),
   cuelinksPlan:        (apply = false) => sk.post('/cuelinks/plan', null, { params: { apply } }).then(data),
+  // Flipkart product engine (scrape Flipkart -> soft-rank -> dedup -> AI -> Cuelinks links)
+  flipkartGenerate:    (opts = {}) => sk.get('/flipkart/generate', { params: {
+      q: opts.q, products_per_run: opts.count || 8,
+      ...(opts.min_rating != null ? { min_rating: opts.min_rating } : {}),
+      ...(opts.price_max != null ? { price_max: opts.price_max } : {}),
+      ...(opts.content && opts.content !== 'auto' ? { content: opts.content } : {}),
+      ...(opts.audience ? { audience: opts.audience } : {}),
+      ...(opts.brands && opts.brands.length ? { brands: opts.brands.join(',') } : {}),
+      ...(opts.attrs && opts.attrs.length ? { attrs: opts.attrs.join(',') } : {}),
+    } }).then(data),
   cuelinksRefresh:     () => sk.post('/cuelinks/campaigns/refresh').then(data),   // enrich markets with live payout/EPC/status
   cuelinksPing:        () => sk.post('/cuelinks/ping').then(data),
   cuelinksConvert:     (url) => sk.post('/cuelinks/convert', { url }).then(data),
