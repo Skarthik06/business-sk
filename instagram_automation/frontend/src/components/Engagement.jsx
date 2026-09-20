@@ -89,6 +89,14 @@ export default function Engagement({ notify }) {
   const [chart, setChart] = useState(null);
   const [chartDays, setChartDays] = useState(7);
   const [topPosts, setTopPosts] = useState([]);
+  const [fgate, setFgate] = useState(null);        // official follow-gate status
+  const loadFgate = useCallback(() => { api.followGateStatus().then(setFgate).catch(() => setFgate(null)); }, []);
+  useEffect(() => { loadFgate(); const id = setInterval(loadFgate, 30000); return () => clearInterval(id); }, [loadFgate]);
+  const toggleFgate = async () => {
+    if (!fgate) return;
+    try { const r = await api.followGateToggle(!fgate.official); setFgate((f) => ({ ...f, official: r.official })); notify?.(r.official ? 'Follow gate ON — links go only to verified followers' : 'Follow gate OFF — links go to everyone who comments'); }
+    catch { notify?.('Toggle failed', 'error'); }
+  };
   const [scopePosts, setScopePosts] = useState([]);   // published posts for the scope dropdown
   const [leads, setLeads] = useState({ leads: [], stats: {}, statuses: [] });
   const [leadFilter, setLeadFilter] = useState('');
@@ -320,6 +328,34 @@ export default function Engagement({ notify }) {
           {tab === 'automations' && !form && <button className="btn btn-accent btn-sm" onClick={() => setForm(BLANK())}><Icon name="plus" size={15} /> Create Automation</button>}
         </div>
       </div>
+
+      {/* Official follow gate — is_user_follow_business (compliant, no provider) */}
+      {fgate && (
+        <div className="panel p-4 mb-4" style={{ borderColor: fgate.official ? 'var(--accent)' : 'var(--border)' }}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="eyebrow" style={{ color: fgate.official ? 'var(--accent)' : 'var(--muted)' }}>🔒 Official follow gate</div>
+              <div className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
+                {fgate.official
+                  ? 'Comment the keyword → we verify follow via Instagram’s official API → links go only to followers (non-followers get a nudge).'
+                  : 'OFF — anyone who comments the keyword gets the links immediately.'}
+                <span style={{ color: 'var(--faint)' }}> · store: {fgate.backend}</span>
+              </div>
+            </div>
+            <button className={cx('btn btn-sm', fgate.official ? 'btn-accent' : 'btn-ghost')} onClick={toggleFgate}>
+              {fgate.official ? '● Gate ON' : '○ Gate OFF'}
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-2 mt-3">
+            {[['verified', 'followers verified'], ['nudged', 'non-followers nudged'], ['sent', 'released after follow'], ['pending', 'awaiting follow'], ['fallback', 'sent (status n/a)']].map(([k, label]) => (
+              <div key={k} className="panel p-2.5" style={{ minWidth: 108 }}>
+                <div style={{ fontSize: 20, fontWeight: 800 }}>{fgate[k] ?? 0}</div>
+                <div className="eyebrow" style={{ fontSize: '0.5rem' }}>{label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* universal sync bar */}
       <div className="panel p-4 mb-4 flex flex-wrap items-center justify-between gap-3" style={{ borderColor: 'var(--accent)' }}>

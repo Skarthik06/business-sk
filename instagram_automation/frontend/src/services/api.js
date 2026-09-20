@@ -130,6 +130,9 @@ export default {
   engSuggest: (propertyId, kind = 'dm') => http.get(`/engagement/suggest-message`, { params: { property_id: propertyId, kind } }).then(data),
   engSummary: (accountId) => http.get(`/engagement/summary`, { params: { account_id: accountId } }).then(data),
   engActivity: (accountId, limit = 50) => http.get(`/engagement/activity`, { params: { account_id: accountId, limit } }).then(data),
+  // official follow gate (is_user_follow_business) — status + runtime toggle
+  followGateStatus: () => http.get('/engagement/followgate/status').then(data),
+  followGateToggle: (on) => http.post('/engagement/followgate/toggle', { on }).then(data),
   engConversations: (accountId) => http.get(`/engagement/conversations`, { params: { account_id: accountId } }).then(data),
   engMessages: (conversationId) => http.get(`/engagement/conversations/${conversationId}/messages`).then(data),
   engComments: (accountId, postId) => http.get(`/engagement/comments`, { params: { account_id: accountId, ...(postId ? { post_id: postId } : {}) } }).then(data),

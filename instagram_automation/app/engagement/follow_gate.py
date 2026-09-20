@@ -27,11 +27,64 @@ def enabled() -> bool:
     return os.getenv("ENGAGE_FOLLOW_GATE", "0").strip().lower() not in ("0", "false", "no", "off")
 
 
-def official_enabled() -> bool:
-    """The OFFICIAL follow gate via is_user_follow_business (verified, compliant). Default ON —
-    it is strictly safe: a follower gets links, a non-follower is nudged, and if follow status
-    can't be read the caller falls back to sending links directly (never blocks)."""
+def _env_official_default() -> bool:
     return os.getenv("FOLLOWGATE_OFFICIAL", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def official_enabled() -> bool:
+    """The OFFICIAL follow gate via is_user_follow_business (verified, compliant). Runtime-toggleable
+    from the Engagement panel (stored in Redis), falling back to the FOLLOWGATE_OFFICIAL env default.
+    Strictly safe: follower → links, non-follower → nudge, unreadable → send anyway (never blocks)."""
+    r = _redis()
+    if r is not None:
+        try:
+            v = r.get("followgate:cfg:official")
+            if v is not None:
+                return v not in ("0", "false", "no", "off")
+        except Exception:
+            pass
+    return _env_official_default()
+
+
+def set_official(on: bool) -> bool:
+    """Toggle the official gate at runtime (persisted in Redis). Returns the new value."""
+    r = _redis()
+    if r is not None:
+        try:
+            r.set("followgate:cfg:official", "1" if on else "0")
+        except Exception:
+            pass
+    return on
+
+
+# ── lightweight decision counters (for the panel insight) ─────────────────────
+def incr(metric: str) -> None:
+    """Bump a follow-gate counter: 'verified' | 'nudged' | 'sent' | 'fallback'. Best-effort."""
+    r = _redis()
+    if r is not None:
+        try:
+            r.incr(f"followgate:stat:{metric}")
+        except Exception:
+            pass
+
+
+def stats() -> dict:
+    """Panel insight: gate state, backend, pending queue size, and decision counts."""
+    out = {"official": official_enabled(), "legacy": enabled(), "backend": backend(),
+           "pending": 0, "verified": 0, "nudged": 0, "sent": 0, "fallback": 0}
+    r = _redis()
+    if r is not None:
+        try:
+            pend = 0
+            for k in r.scan_iter(match="followgate:*", count=500):
+                if not (k.startswith("followgate:cfg:") or k.startswith("followgate:stat:")):
+                    pend += 1
+            out["pending"] = pend
+            for k in ("verified", "nudged", "sent", "fallback"):
+                out[k] = int(r.get(f"followgate:stat:{k}") or 0)
+        except Exception:
+            pass
+    return out
 
 
 # ── Redis connection (lazy, cached, tolerant) ─────────────────────────────────

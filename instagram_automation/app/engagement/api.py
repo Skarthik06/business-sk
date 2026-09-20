@@ -375,6 +375,25 @@ def events_retry(account_id: int):
     return {"account_id": account_id, "retried": retried}
 
 
+# ---- official follow gate (is_user_follow_business) — status + runtime toggle ----------------
+@router.get("/followgate/status")
+def followgate_status():
+    """Panel insight: gate on/off, store backend, pending queue size, and decision counts."""
+    from app.engagement import follow_gate as fg
+    return {"ok": True, **fg.stats()}
+
+
+class FollowGateToggleReq(BaseModel):
+    on: bool
+
+
+@router.post("/followgate/toggle")
+def followgate_toggle(body: FollowGateToggleReq):
+    """Turn the official follow gate on/off at runtime (persisted in Redis)."""
+    from app.engagement import follow_gate as fg
+    return {"ok": True, "official": fg.set_official(body.on)}
+
+
 # ---- webhook admin (Spec 55) ----------------------------------------------
 @router.get("/webhook-status")
 def webhook_status(account_id: int):
@@ -958,6 +977,7 @@ def _dispatch(account_id: int, action: R.Action, event: R.InboundEvent, text: st
             if follows is False:
                 r = _reply_with_retry(token, event.comment_id, _fg.public_reply(_handle))
                 _fg.set_pending(account_id, event.user_id, {"post_id": event.post_id, "comment_id": event.comment_id})
+                _fg.incr("nudged")
             elif _fg.enabled() and event.user_id and not _fg.official_enabled():
                 # legacy two-step (deprecated; only if the official gate is off and legacy on)
                 r = service.private_reply(token, ig_id, event.comment_id, _fg.first_message(_handle))
@@ -966,6 +986,7 @@ def _dispatch(account_id: int, action: R.Action, event: R.InboundEvent, text: st
                 # follower (True) or unreadable (None) → send PRODUCT CARDS (or text) now.
                 if event.user_id:
                     _fg.pop_pending(account_id, event.user_id)      # they're in — clear any prior pending
+                    _fg.incr("verified" if follows is True else "fallback")
                 products = store.affiliate_products_for_media(account_id, event.post_id) if event.post_id else []
                 if products:
                     r = service.private_reply_cards(token, ig_id, event.comment_id, products, _storefront_url())
@@ -1005,6 +1026,8 @@ def _follow_gate_unlock(account_id: int, account: Dict[str, Any], user_id: str,
             status, ref = "SUCCESS", str(r.get("id") or "")
         except service.GraphError as e:
             status, err = "FAILED", e.message
+    if status == "SUCCESS":
+        _fg.incr("verified"); _fg.incr("sent")
     if persist and status == "SUCCESS":
         try:
             store.record_dm(account_id, user_id, _fg.unlock_message(), ref, direction="out", source_post_id=post_id)
