@@ -364,8 +364,11 @@ def sk_carousel(body: SkCarouselReq):
     account = rags.get_account(body.account_id, with_secret=True)
     if not account:
         raise HTTPException(404, "Account not found")
-    if not body.image_urls:
-        raise HTTPException(400, "No images to post")
+    # Deals (coupon posts) carry products but NO raw product images — they render their designed
+    # slides from the products below. So only reject when there are neither raw images NOR products
+    # to render into designed slides.
+    if not body.image_urls and not (body.design and body.products):
+        raise HTTPException(400, "No images or products to post")
     slides = [_hi_res(u) for u in body.image_urls[:10]]
     images = _rehost_for_ig(slides)                    # serve via GitHub raw (IG can't fetch Amazon reliably)
     # Map each re-hosted slide back onto its product so the comment→DM CARDS use the SAME
