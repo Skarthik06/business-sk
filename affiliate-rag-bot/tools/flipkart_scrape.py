@@ -25,7 +25,8 @@ import requests
 from utils.logger import log
 
 _API = "http://api.scraperapi.com/"
-_TIMEOUT = 85
+_TIMEOUT = 70
+_ATTEMPTS = 3
 
 
 def _key() -> str:
@@ -37,12 +38,25 @@ def configured() -> bool:
 
 
 def _fetch(query: str, page: int = 1) -> str:
+    """Fetch a Flipkart search page via ScraperAPI premium. Premium is slow/flaky, so retry a few
+    times (a fresh attempt usually lands on a faster backend); succeed as soon as the page carries
+    the product JSON."""
+    import time as _t
     url = f"https://www.flipkart.com/search?q={quote_plus(query)}"
     if page > 1:
         url += f"&page={page}"
-    r = requests.get(_API, timeout=_TIMEOUT, params={
-        "api_key": _key(), "url": url, "country_code": "in", "premium": "true"})
-    return r.text if r.ok else ""
+    for attempt in range(1, _ATTEMPTS + 1):
+        try:
+            r = requests.get(_API, timeout=_TIMEOUT, params={
+                "api_key": _key(), "url": url, "country_code": "in", "premium": "true"})
+            if r.ok and "__INITIAL_STATE__" in r.text:
+                return r.text
+            log.warning(f"[flipkart] attempt {attempt}/{_ATTEMPTS}: status {r.status_code}, no product JSON")
+        except Exception as e:
+            log.warning(f"[flipkart] attempt {attempt}/{_ATTEMPTS} failed: {str(e)[:70]}")
+        if attempt < _ATTEMPTS:
+            _t.sleep(2)
+    return ""
 
 
 def _img(u: str) -> str:
