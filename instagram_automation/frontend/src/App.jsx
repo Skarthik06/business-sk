@@ -46,9 +46,9 @@ const NAV_GROUPS = [
     sections: [
       { label: 'Workspace', items: [
         { id: 'sk-affiliate', label: 'Affiliate', icon: 'spark' },
+        { id: 'sk-attribution', label: 'Cuelinks Affiliate', icon: 'history' },
         { id: 'sk-post', label: 'Content Studio', icon: 'pin' },
         { id: 'sk-engagement', label: 'Engagement', icon: 'bolt' },
-        { id: 'sk-attribution', label: 'Cuelinks Affiliate', icon: 'history' },
         { id: 'sk-storefront', label: 'Storefront', icon: 'ext' },
       ] },
       { label: 'Insights', items: [
