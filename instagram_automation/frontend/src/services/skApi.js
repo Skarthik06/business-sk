@@ -69,6 +69,17 @@ export default {
   cuelinksActive:      (body) => sk.post('/cuelinks/active', body).then(data),
   cuelinksPlan:        (apply = false) => sk.post('/cuelinks/plan', null, { params: { apply } }).then(data),
   cuelinksGenerate:    (count = 8, merchant = '') => sk.post('/cuelinks/generate', null, { params: { count, ...(merchant ? { merchant } : {}) } }).then(data),   // deals from selected stores
+  // Unified PER-STORE generator — pick one market → real products (Flipkart/Shopify) or deals, Amazon-style controls
+  cuelinksStoreGenerate: (market, opts = {}) => sk.get('/cuelinks/store-generate', { params: {
+      market, products_per_run: opts.count || 8,
+      ...(opts.q ? { q: opts.q } : {}),
+      ...(opts.min_rating != null ? { min_rating: opts.min_rating } : {}),
+      ...(opts.price_max != null ? { price_max: opts.price_max } : {}),
+      ...(opts.content && opts.content !== 'auto' ? { content: opts.content } : {}),
+      ...(opts.audience ? { audience: opts.audience } : {}),
+      ...(opts.brands && opts.brands.length ? { brands: opts.brands.join(',') } : {}),
+      ...(opts.attrs && opts.attrs.length ? { attrs: opts.attrs.join(',') } : {}),
+    } }).then(data),
   // Flipkart product engine (scrape Flipkart -> soft-rank -> dedup -> AI -> Cuelinks links)
   flipkartGenerate:    (opts = {}) => sk.get('/flipkart/generate', { params: {
       q: opts.q, products_per_run: opts.count || 8,

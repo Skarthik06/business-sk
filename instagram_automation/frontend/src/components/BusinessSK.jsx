@@ -1621,6 +1621,166 @@ function FlipkartGenerate({ say, setQueue }) {
   );
 }
 
+// Per-store generator: pick ONE active market → Amazon-style controls → generate. Product-capable
+// stores (Flipkart scrape / Shopify feed) return REAL product photos; the rest build deal cards.
+function StoreGenerate({ markets, say, setQueue }) {
+  const active = (markets || []).filter((m) => m.active);
+  const [sel, setSel] = useState('');
+  const mk = active.find((m) => m.id === sel) || null;
+  const canProd = !!(mk && mk.can_products);
+  const [q, setQ] = useState('');
+  const [count, setCount] = useState(8);
+  const [goal, setGoal] = useState('balanced');
+  const [style, setStyle] = useState('auto');
+  const [aud, setAud] = useState('');
+  const [minRating, setMinRating] = useState(0);
+  const [priceMax, setPriceMax] = useState(0);
+  const [dims, setDims] = useState([]);
+  const [picks, setPicks] = useState({});
+  const [loadingF, setLoadingF] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [group, setGroup] = useState(null);
+  const [slides, setSlides] = useState(null);
+  const [prev, setPrev] = useState(false);
+
+  useEffect(() => { setQ(''); setDims([]); setPicks({}); setGroup(null); setSlides(null); }, [sel]);
+  useEffect(() => {
+    if (!canProd) { setDims([]); return; }
+    const s = q.trim();
+    if (s.length < 2) { setDims([]); setPicks({}); return; }
+    setLoadingF(true);
+    const t = setTimeout(() => { skApi.searchFilters(s).then((d) => setDims(d.filters || [])).catch(() => setDims([])).finally(() => setLoadingF(false)); }, 650);
+    return () => clearTimeout(t);
+  }, [q, canProd]);
+
+  const isBrand = (n) => /\b(brand|make|label|manufacturer)\b/i.test(n || '');
+  const pick = (dim, opt) => setPicks((p) => { const cur = p[dim] || []; return { ...p, [dim]: cur.includes(opt) ? cur.filter((x) => x !== opt) : [...cur, opt] }; });
+  const brandDim = Object.keys(picks).find(isBrand);
+  const brandSel = (brandDim ? picks[brandDim] : []).filter(Boolean);
+  const attrSel = Object.entries(picks).filter(([k]) => !isBrand(k)).flatMap(([, v]) => v).filter(Boolean);
+
+  const previewSlides = async () => {
+    if (!group) return;
+    setPrev(true); setSlides(null);
+    try { const res = await api.skRenderPreview(group.products.slice(0, 10), { category: group.category }); setSlides(res.images || res.local || []); if (!(res.images || []).length) say?.('Rendered but no images returned', 'error'); }
+    catch { say?.('Preview render failed', 'error'); } finally { setPrev(false); }
+  };
+  const gen = async () => {
+    if (!mk) return say?.('Pick a store first', 'error');
+    setRunning(true); setSlides(null);
+    try {
+      const opts = { count, content: style, goal, audience: aud };
+      if (canProd) { opts.q = q.trim(); opts.brands = brandSel; opts.attrs = attrSel; if (minRating) opts.min_rating = minRating; if (priceMax) opts.price_max = priceMax; }
+      const r = await skApi.cuelinksStoreGenerate(mk.id, opts);
+      const products = r.items || r.deals || [];
+      if (r.ok && products.length) {
+        const isDeals = (r.engine === 'deals');
+        const g = { id: 'clstore-' + mk.id, label: mk.name + (isDeals ? ' · Deals' : ' · Products'), category: isDeals ? 'deals' : mk.id, products, caption: r.caption || '', hashtags: r.hashtags || [], content_style: '', cover_tags: [] };
+        setGroup(g);
+        setQueue && setQueue((prevQ) => [...(prevQ || []).filter((x) => x.id !== g.id), g]);
+        say?.(`Generated ${products.length} ${isDeals ? 'deals' : 'products'} from ${mk.name} → Post to IG`);
+      } else say?.(r.note || r.error || 'Nothing generated — try different filters', 'error');
+    } catch { say?.('Generate failed', 'error'); } finally { setRunning(false); }
+  };
+  const discard = (asin) => setGroup((g) => { if (!g) return g; const ng = { ...g, products: g.products.filter((p) => p.asin !== asin) }; setQueue && setQueue((prevQ) => (prevQ || []).map((x) => (x.id === ng.id ? ng : x)).filter((x) => x.products.length)); return ng.products.length ? ng : null; });
+  const clearAll = () => { setGroup((g) => { if (g && setQueue) setQueue((prevQ) => (prevQ || []).filter((x) => x.id !== g.id)); return null; }); };
+
+  return (
+    <div className="panel p-3" style={{ borderColor: 'var(--accent)' }}>
+      <div className="eyebrow" style={{ color: 'var(--accent)' }}>🎯 Generate from a store</div>
+      <div className="text-xs" style={{ color: 'var(--muted)' }}>Pick one active store, set Amazon-style filters, then generate. <b style={{ color: '#3fb950' }}>🖼️ Product</b> stores fetch REAL photos + prices; <b>🎟️ Deals</b> stores build branded deal cards.</div>
+      {!active.length && <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>Activate a market above (or run <b>Plan &amp; apply</b>) to generate from it.</div>}
+      {active.length > 0 && (
+        <div className="ctrl-chips mt-2">
+          {active.map((m) => (
+            <button key={m.id} type="button" className={cx('opt-card', sel === m.id && 'on')} onClick={() => setSel(m.id)} title={m.can_products ? 'Real product photos' : 'Deal cards'}>
+              {m.name} {m.can_products ? '🖼️' : '🎟️'}
+            </button>
+          ))}
+        </div>
+      )}
+      {mk && (
+        <div className="mt-3 flex flex-col gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
+            <b style={{ fontSize: 13 }}>{mk.name}</b><span className="style-tag">{mk.category}</span>
+            {mk.can_products ? <span className="style-tag" style={{ color: '#3fb950' }}>🖼️ Products</span> : <span className="style-tag" style={{ color: 'var(--muted)' }}>🎟️ Deals</span>}
+            <span className="text-xs" style={{ color: 'var(--faint)' }}>{mk.can_products ? (mk.engine === 'flipkart' ? 'Flipkart product scrape' : 'Shopify product feed') : 'Cuelinks deal cards (no product photo)'}</span>
+          </div>
+          {canProd && (
+            <>
+              <input className="sk-input" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && gen()} placeholder={`Search ${mk.name} — e.g. ${mk.engine === 'flipkart' ? 'air fryer, running shoes' : 'earbuds, face wash, smart watch'}`} />
+              {loadingF && <div className="text-xs flex items-center gap-2" style={{ color: 'var(--muted)' }}><Spinner size={11} /> AI is reading your product…</div>}
+              {dims.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <div className="text-xs" style={{ color: 'var(--faint)' }}>Refine (optional) — brand = exact, others rank:</div>
+                  {dims.map((dd) => (
+                    <div key={dd.name}>
+                      <div className="ctrl-card-label" style={{ marginBottom: 5 }}>{dd.name}</div>
+                      <div className="ctrl-chips">{dd.options.map((o) => <button key={o} type="button" className={cx('opt-card', (picks[dd.name] || []).includes(o) && 'on')} onClick={() => pick(dd.name, o)}>{o}</button>)}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <div className="ctrl-card-label" style={{ marginBottom: 5 }}>Goal</div>
+              <div className="ctrl-chips">{CL_GOALS.map(([k, l]) => <button key={k} type="button" className={cx('chip-sk', goal === k && 'on')} onClick={() => setGoal(k)}>{l}</button>)}</div>
+              <div className="ctrl-card-label" style={{ margin: '10px 0 5px' }}>Audience</div>
+              <div className="ctrl-chips">{CL_AUD.map(([k, l]) => <button key={k || 'all'} type="button" className={cx('chip-sk', aud === k && 'on')} onClick={() => setAud(k)}>{l}</button>)}</div>
+            </div>
+            <div className="flex flex-col gap-2">
+              <div className="ctrl-card-label">Caption style</div>
+              <select className="sk-input" style={{ width: '100%' }} value={style} onChange={(e) => setStyle(e.target.value)}>{CL_STYLES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ').toLowerCase()}</option>)}</select>
+              {canProd && <Slider label={`Min rating: ${minRating || 'any'}`} min={0} max={5} step={0.5} value={minRating} onChange={setMinRating} full />}
+              {canProd && <Slider label={`Max price: ${priceMax ? '₹' + priceMax.toLocaleString() : 'any'}`} min={0} max={20000} step={500} value={priceMax} onChange={setPriceMax} full />}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs" style={{ color: 'var(--faint)' }}>{canProd ? 'products' : 'deals'}</span>
+            <button className="mini" onClick={() => setCount((n) => Math.max(3, n - 1))}>−</button>
+            <b style={{ minWidth: 18, textAlign: 'center', display: 'inline-block' }}>{count}</b>
+            <button className="mini" onClick={() => setCount((n) => Math.min(10, n + 1))}>+</button>
+            <span className="flex-1" />
+            {group && <button className="btn btn-sm btn-ghost" onClick={gen} disabled={running} title="Regenerate"><Icon name="bolt" size={12} /> Refresh</button>}
+            {group && <button className="btn btn-sm btn-ghost" onClick={clearAll} style={{ color: 'var(--danger)' }} title="Remove from queue"><Icon name="x" size={12} /> Clear</button>}
+            <button className="btn btn-sm" onClick={gen} disabled={running || !setQueue}>{running ? <Spinner size={12} /> : <Icon name="bolt" size={12} />} Generate posts</button>
+          </div>
+          {group && (
+            <div>
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <span className="prog-badge">✓ {group.products.length} {canProd ? 'products' : 'deals'} → Post to IG</span>
+                <span className="flex-1" />
+                <button className="btn btn-sm btn-ghost" onClick={previewSlides} disabled={prev} title="Render the carousel and see the actual slides">{prev ? <Spinner size={12} /> : <Icon name="doc" size={12} />} Preview slides</button>
+              </div>
+              {group.caption && <div className="panel p-3 mb-2" style={{ background: 'var(--panel-2)' }}><div className="text-xs" style={{ color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{group.caption}</div></div>}
+              {slides && slides.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto pb-2 mb-2">{slides.map((u, i) => <img key={i} src={u} alt={`slide ${i + 1}`} style={{ height: 220, borderRadius: 10, border: '1px solid var(--border)', flex: 'none' }} />)}</div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {group.products.map((it) => (
+                  <div key={it.asin} className="panel p-0 overflow-hidden" style={{ display: 'flex', flexDirection: 'column' }}>
+                    <div style={{ position: 'relative' }}>
+                      {(it.image_url || it.merchant_logo) ? <img src={it.image_url || it.merchant_logo} alt="" loading="lazy" style={{ width: '100%', height: 130, objectFit: 'contain', background: '#fff' }} /> : <div style={{ height: 130, background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 12 }}>{it.brand || 'Deal'}</div>}
+                      <button className="fav-btn" onClick={() => discard(it.asin)} title="Discard" style={{ color: '#fff' }}><Icon name="x" size={15} /></button>
+                    </div>
+                    <div className="p-3" style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
+                      <div className="text-xs" style={{ fontWeight: 600, lineHeight: 1.3, maxHeight: 34, overflow: 'hidden' }}>{it.product_title}</div>
+                      <div className="flex items-center gap-2 text-xs font-mono">{it.price && <b style={{ fontSize: 14 }}>{it.price}</b>}{it.orig_price && <span style={{ textDecoration: 'line-through', color: 'var(--faint)' }}>{it.orig_price}</span>}{it.discount_pct != null && <span style={{ color: '#3fb950' }}>-{it.discount_pct}%</span>}</div>
+                      {it.affiliate_link && <a className="btn btn-sm" href={it.affiliate_link} target="_blank" rel="noreferrer" style={{ justifyContent: 'center' }}><Icon name="ext" size={12} /> Cuelinks link</a>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function CuelinksPanel({ say, setQueue }) {
   const [d, setD] = useState(null);            // catalogue payload {markets, categories, constraints, earnings…}
   const [c, setC] = useState(null);            // local editable constraints
@@ -1701,6 +1861,8 @@ function CuelinksPanel({ say, setQueue }) {
     <div className="panel p-4 flex flex-col gap-4">
       {/* Flipkart product engine — appears when the Flipkart market is activated */}
       {flipkartActive && setQueue && <FlipkartGenerate say={say} setQueue={setQueue} />}
+      {/* Per-store generator — pick one active market → Amazon-style filters → real products or deals */}
+      {setQueue && <StoreGenerate markets={d.markets} say={say} setQueue={setQueue} />}
       {/* header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>

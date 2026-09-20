@@ -1042,6 +1042,113 @@ def cuelinks_deal_merchants() -> dict:
     return {"ok": bool(res.get("ok")), **data, "cached": False}
 
 
+async def _build_product_items(picks: list, content: Optional[str], source: str) -> list:
+    """Shared PRODUCT pipeline (Flipkart + Shopify): AI compose → flatten product onto the pin →
+    Cuelinks-monetise the product URL → content item. Products carry a REAL image_url."""
+    from chains.compose import compose_pins
+    from performance import cuelinks
+    pins = await compose_pins(picks, [], [], [], count=len(picks), content_style=(content or "auto"))
+    items = []
+    for pin in pins:
+        prod = pin.get("product", {}) or {}
+        pin["product_title"] = prod.get("title", "")
+        pin["asin"] = prod.get("asin", "")
+        pin["price"] = prod.get("price", "")
+        pin["orig_price"] = prod.get("orig_price", "")
+        pin["discount_pct"] = prod.get("discount_pct")
+        pin["rating"] = prod.get("rating")
+        pin["reviews"] = prod.get("reviews")
+        pin["bought_past_month"] = prod.get("bought_past_month", "")
+        pin["badge"] = prod.get("badge", "")
+        pin["image"] = prod.get("image", "")
+        pin["product_url"] = prod.get("url", "")
+        pin["category"] = prod.get("category", "") or source
+        url = prod.get("url", "")
+        try:
+            conv = cuelinks.convert_link(url) if url else {}
+            pin["affiliate_link"] = conv.get("tracking_url") or url
+        except Exception:
+            pin["affiliate_link"] = url
+        it = _content_item(pin)
+        it["source"] = source
+        items.append(it)
+    return items
+
+
+async def _build_deal_items(merchants: list, count: int, cats: list, *, prefer_active: bool = True) -> dict:
+    """Shared DEALS pipeline — live Cuelinks offers (optionally store-specific) → dedup → AI copy →
+    branded deal cards with the OFFICIAL merchant logo. The coupon code is never printed on the post."""
+    from performance import cuelinks
+    from performance import cuelinks_markets as cm
+    from chains.cuelinks_deals import compose_deal_post
+    from rag.dedup import dedup_store
+    import re as _re
+
+    if merchants:
+        res = cuelinks.fetch_offers(merchants=merchants, categories=cats or None, limit=max(count * 3, 24))
+        if not res.get("ok"):
+            return {**res, "deals": []}
+        raw = res.get("deals", [])
+        if not raw:
+            return {"ok": True, "count": 0, "deals": [], "merchant": ", ".join(merchants), "caption": "", "hashtags": [],
+                    "note": f"No live Cuelinks deals for {', '.join(merchants)} right now. (Flipkart/Myntra don’t run Cuelinks coupons — use the product panel for those.)"}
+    else:
+        res = cuelinks.fetch_offers(categories=cats or None, limit=max(count * 8, 60))
+        if not res.get("ok"):
+            return {**res, "deals": []}
+        raw = res.get("deals", [])
+        if prefer_active:
+            active = {m["id"]: m for m in cm.catalog()["markets"] if m.get("active")}
+            def _norm(s): return _re.sub(r"[^a-z0-9]", "", (s or "").lower())
+            active_names = {_norm(m["name"]) for m in active.values()} | set(active.keys())
+            active_cats = {(m.get("category") or "").lower() for m in active.values()}
+            def _match(d):
+                mn = _norm(d.get("merchant", ""))
+                if any(a and (a in mn or mn in a) for a in active_names):
+                    return 2
+                if (d.get("category") or "").lower() in active_cats:
+                    return 1
+                return 0
+            if active:
+                raw = sorted(raw, key=_match, reverse=True)
+    tagged = [{**d, "asin": f"cl_{d['id']}", "title": d.get("title", "")} for d in raw if d.get("id")]
+    try:
+        new, dups = dedup_store.filter_unseen(tagged)
+    except Exception:
+        new, dups = tagged, []
+    picks = new[:count]
+    if not picks:
+        return {"ok": True, "count": 0, "deals": [], "caption": "", "hashtags": [],
+                "note": "No fresh deals (all recently posted) — try other categories or come back later."}
+    copy = await compose_deal_post(picks)
+    hooks = copy.get("hooks", [])
+    items = []
+    for i, d in enumerate(picks):
+        merchant = d.get("merchant", "")
+        items.append({
+            "asin": f"cl_{d['id']}",
+            "product_title": d.get("title", ""),
+            "brand": merchant,
+            "category": d.get("category", "") or "deals",
+            "discount_pct": d.get("discount"),
+            "coupon_code": d.get("code", ""),
+            "affiliate_link": d.get("url", ""),
+            "image_url": "",                              # deals have no product photo → brand-card render
+            "merchant_logo": cuelinks.campaign_logo(merchant),  # OFFICIAL Cuelinks store logo (real branded art)
+            "deal": True,
+            "source": _re.sub(r"[^a-z0-9]", "", merchant.lower()) or "cuelinks",
+            "hook": hooks[i] if i < len(hooks) else "",
+            "ends": d.get("ends"),
+            "summary": copy.get("caption", ""),
+            "content_tokens": copy.get("tokens", {}),
+        })
+    return {"ok": True, "count": len(items), "deals": items,
+            "caption": copy.get("caption", ""), "hashtags": copy.get("hashtags", []),
+            "cover_title": copy.get("cover_title", ""), "cover_subtitle": copy.get("cover_subtitle", ""),
+            "tokens": copy.get("tokens", {}), "ai": copy.get("ai", False),
+            "deduped": len(dups)}
+
+
 @app.get("/api/flipkart/generate")
 async def flipkart_generate(
     q: str = Query(..., min_length=2, max_length=80, description="Product search on Flipkart."),
@@ -1087,32 +1194,7 @@ async def flipkart_generate(
     if not picks:
         return JSONResponse(status_code=200, content={"ok": True, "status": "empty", "items": [],
                             "note": "No fresh Flipkart products (all recently posted) — try another search."})
-    pins = await compose_pins(picks, [], [], [], count=len(picks), content_style=(content or "auto"))
-    items = []
-    for pin in pins:
-        prod = pin.get("product", {}) or {}
-        # Flatten the source product onto the pin (the shape _content_item reads).
-        pin["product_title"] = prod.get("title", "")
-        pin["asin"] = prod.get("asin", "")
-        pin["price"] = prod.get("price", "")
-        pin["orig_price"] = prod.get("orig_price", "")
-        pin["discount_pct"] = prod.get("discount_pct")
-        pin["rating"] = prod.get("rating")
-        pin["reviews"] = prod.get("reviews")
-        pin["bought_past_month"] = prod.get("bought_past_month", "")
-        pin["badge"] = prod.get("badge", "")
-        pin["image"] = prod.get("image", "")
-        pin["product_url"] = prod.get("url", "")
-        pin["category"] = prod.get("category", "") or "flipkart"
-        url = prod.get("url", "")
-        try:
-            conv = cuelinks.convert_link(url) if url else {}
-            pin["affiliate_link"] = conv.get("tracking_url") or url
-        except Exception:
-            pin["affiliate_link"] = url
-        it = _content_item(pin)
-        it["source"] = "flipkart"
-        items.append(it)
+    items = await _build_product_items(picks, content, "flipkart")
     return JSONResponse(status_code=200, content={
         "ok": len(items) > 0, "status": "done" if items else "empty",
         "query": q, "source": "flipkart", "count": len(items), "items": items,
@@ -1133,79 +1215,89 @@ async def cuelinks_generate(count: int = Query(default=8, ge=2, le=10,
     """CUELINKS DEALS ENGINE — pull LIVE Cuelinks offers. With `merchant`, the post is STRICTLY that
     ONE store's live deals (store-associated, no mixing). Without it, mixed live deals preferring the
     active markets. → pgvector dedup → AI copy → queue-ready deal cards for Post to IG. JSON only."""
-    from performance import cuelinks
-    from performance import cuelinks_markets as cm
-    from chains.cuelinks_deals import compose_deal_post
-    from rag.dedup import dedup_store
-
     cats = [c.strip() for c in (categories or "").split(",") if c.strip()]
     merchants = [m.strip() for m in (merchant or "").split(",") if m.strip()]
-    if merchants:
-        # STORE-SPECIFIC: only these selected stores' live offers — no random-merchant mixing.
-        res = cuelinks.fetch_offers(merchants=merchants, categories=cats or None, limit=max(count * 3, 24))
-        if not res.get("ok"):
-            return {**res, "deals": []}
-        raw = res.get("deals", [])
-        if not raw:
-            return {"ok": True, "count": 0, "deals": [], "merchant": ", ".join(merchants), "caption": "", "hashtags": [],
-                    "note": f"No live Cuelinks deals for {', '.join(merchants)} right now. (Flipkart/Myntra don’t run Cuelinks coupons — use Flipkart’s product panel for those.)"}
-    else:
-        res = cuelinks.fetch_offers(categories=cats or None, limit=max(count * 8, 60))
-        if not res.get("ok"):
-            return {**res, "deals": []}
-        raw = res.get("deals", [])
-        # mixed mode: soft-rank toward the active markets so the planner's picks steer the post.
-        active = {m["id"]: m for m in cm.catalog()["markets"] if m.get("active")}
-        import re as _re
-        def _norm(s): return _re.sub(r"[^a-z0-9]", "", (s or "").lower())
-        active_names = {_norm(m["name"]) for m in active.values()} | set(active.keys())
-        active_cats = {(m.get("category") or "").lower() for m in active.values()}
-        def _match(d):
-            mn = _norm(d.get("merchant", ""))
-            if any(a and (a in mn or mn in a) for a in active_names):
-                return 2
-            if (d.get("category") or "").lower() in active_cats:
-                return 1
-            return 0
-        if active:
-            raw = sorted(raw, key=_match, reverse=True)
-    # pgvector dedup — reuse the Amazon dedup store, keyed on a cl_<offer id> pseudo-ASIN.
-    tagged = [{**d, "asin": f"cl_{d['id']}", "title": d.get("title", "")} for d in raw if d.get("id")]
+    return await _build_deal_items(merchants, count, cats, prefer_active=True)
+
+
+@app.get("/api/cuelinks/store-generate")
+async def cuelinks_store_generate(
+    market: str = Query(..., description="Market id from the catalog, e.g. 'boat', 'flipkart', 'nykaa'."),
+    q: Optional[str] = Query(default=None, max_length=80, description="Product search within the store (products-capable markets)."),
+    products_per_run: int = Query(default=8, ge=2, le=10),
+    min_rating: Optional[float] = Query(default=None, ge=0, le=5),
+    price_max: Optional[int] = Query(default=None, ge=0),
+    content: Optional[str] = Query(default=None),
+    audience: Optional[str] = Query(default=None),
+    brands: Optional[str] = Query(default=None),
+    attrs: Optional[str] = Query(default=None),
+    categories: Optional[str] = Query(default=None),
+) -> JSONResponse:
+    """UNIFIED PER-STORE GENERATOR — pick ONE market and generate with Amazon-style controls. Routes
+    by the market's engine: flipkart → Flipkart product scrape; shopify → the store's public product
+    feed (REAL photos + prices); else → Cuelinks deal cards for that store. Same queue-ready shape."""
+    from performance import cuelinks_markets as cm
+    from tools.amazon import _finalize_pool
+    from rag.dedup import dedup_store
+
+    mk = cm.market_by_id(market)
+    if not mk:
+        return JSONResponse(status_code=200, content={"ok": False, "status": "error",
+                            "error": f"Unknown market '{market}'.", "items": [], "deals": []})
+    engine = mk.get("engine", "deals")
+    name = mk.get("name", market)
+    cats = [c.strip() for c in (categories or "").split(",") if c.strip()]
+
+    # ── DEALS-only markets (Nykaa/Myntra/AJIO/…): store-specific Cuelinks coupons ──
+    if engine == "deals":
+        res = await _build_deal_items([name], products_per_run, cats, prefer_active=False)
+        res.update({"engine": "deals", "market": mk.get("id"), "store": name})
+        return JSONResponse(status_code=200, content=res)
+
+    # ── PRODUCT markets (Flipkart scrape / Shopify feed): REAL product photos ──
+    aud = (audience or "").strip().lower()
+    query = (q or "").strip() or name
+    query = f"{aud} {query}".strip() if aud and aud not in query.lower() else query
+    if engine == "flipkart":
+        from tools import flipkart_scrape
+        sc = flipkart_scrape.scrape_products(query, count=products_per_run * 4, max_pages=3)
+    else:  # shopify
+        from tools import shopify_scrape
+        sc = shopify_scrape.scrape_products(mk.get("domain", ""), query=(q or "").strip(),
+                                            count=products_per_run, max_pages=5)
+    if not sc.get("ok"):
+        return JSONResponse(status_code=200, content={"ok": False, "status": "error", "engine": engine,
+                            "market": mk.get("id"), "store": name, "error": sc.get("error", "scrape failed"),
+                            "items": []})
+    raw = sc.get("items", [])
+    quality: dict = {}
+    if min_rating is not None:
+        quality["min_rating"] = min_rating
+    if price_max is not None:
+        quality["price_max"] = price_max
+    if brands and brands.strip():
+        quality["brands"] = [b.strip() for b in brands.split(",") if b.strip()][:6]
+    if attrs and attrs.strip():
+        quality["attrs"] = [a.strip() for a in attrs.split(",") if a.strip()][:12]
+    pool = _finalize_pool(raw, quality, cap=40, need=products_per_run)
     try:
-        new, dups = dedup_store.filter_unseen(tagged)
+        new, dups = dedup_store.filter_unseen(pool)
     except Exception:
-        new, dups = tagged, []
-    picks = new[:count]
+        new, dups = pool, []
+    picks = new[:products_per_run]
     if not picks:
-        return {"ok": True, "count": 0, "deals": [], "caption": "", "hashtags": [],
-                "note": "No fresh deals (all recently posted) — try other categories or come back later."}
-    copy = await compose_deal_post(picks)
-    hooks = copy.get("hooks", [])
-    import re as _re
-    items = []
-    for i, d in enumerate(picks):
-        merchant = d.get("merchant", "")
-        items.append({
-            "asin": f"cl_{d['id']}",
-            "product_title": d.get("title", ""),
-            "brand": merchant,
-            "category": d.get("category", "") or "deals",
-            "discount_pct": d.get("discount"),
-            "coupon_code": d.get("code", ""),
-            "affiliate_link": d.get("url", ""),
-            "image_url": "",                              # deals have no product photo → brand-card render
-            "deal": True,
-            "source": _re.sub(r"[^a-z0-9]", "", merchant.lower()) or "cuelinks",  # store categorisation
-            "hook": hooks[i] if i < len(hooks) else "",
-            "ends": d.get("ends"),
-            "summary": copy.get("caption", ""),
-            "content_tokens": copy.get("tokens", {}),
-        })
-    return {"ok": True, "count": len(items), "deals": items,
-            "caption": copy.get("caption", ""), "hashtags": copy.get("hashtags", []),
-            "cover_title": copy.get("cover_title", ""), "cover_subtitle": copy.get("cover_subtitle", ""),
-            "tokens": copy.get("tokens", {}), "ai": copy.get("ai", False),
-            "deduped": len(dups)}
+        return JSONResponse(status_code=200, content={"ok": True, "status": "empty", "engine": engine,
+                            "market": mk.get("id"), "store": name, "items": [],
+                            "note": f"No fresh {name} products (all recently posted, or nothing matched) — try another search."})
+    items = await _build_product_items(picks, content, mk.get("id"))
+    return JSONResponse(status_code=200, content={
+        "ok": len(items) > 0, "status": "done" if items else "empty", "engine": engine,
+        "market": mk.get("id"), "store": name, "query": query, "count": len(items), "items": items,
+        "caption": (items[0].get("summary") if items else ""),
+        "hashtags": (items[0].get("hashtags") if items else []),
+        "cover_title": (items[0].get("cover_title") if items else ""),
+        "cover_subtitle": (items[0].get("cover_subtitle") if items else ""),
+        "deduped": len(dups)})
 
 
 class CuelinksConvertReq(BaseModel):

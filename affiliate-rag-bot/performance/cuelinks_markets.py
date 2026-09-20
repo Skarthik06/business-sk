@@ -57,6 +57,55 @@ MARKETS: list[dict] = [
 _CATEGORIES = sorted({m["category"] for m in MARKETS})
 _IDS = {m["id"] for m in MARKETS}
 
+# ── which ENGINE backs each market's "Generate posts" ────────────────────────────────────────
+# Some markets yield REAL product photos + prices, others only store-wide deal coupons:
+#   • flipkart → Flipkart product scrape (official JSON via premium proxy)
+#   • shopify  → the merchant's PUBLIC Shopify feed (/products.json) — boAt, Noise, Mamaearth…
+#   • deals    → Cuelinks store coupons rendered as branded deal cards (no per-product photo)
+# Verified live: Flipkart scrapes; boat-lifestyle.com/gonoise.com/mamaearth.in serve products.json;
+# the big marketplaces (Nykaa/Myntra/AJIO/Firstcry/Pepperfry) block every product path → deals.
+_ENGINES: dict[str, tuple[str, str]] = {
+    "flipkart":  ("flipkart", "flipkart.com"),
+    "boat":      ("shopify",  "boat-lifestyle.com"),
+    "noise":     ("shopify",  "gonoise.com"),
+    "mamaearth": ("shopify",  "mamaearth.in"),
+}
+_DOMAINS: dict[str, str] = {
+    "myntra": "myntra.com", "ajio": "ajio.com", "nykaa": "nykaa.com", "tatacliq": "tatacliq.com",
+    "meesho": "meesho.com", "lenskart": "lenskart.com", "croma": "croma.com",
+    "reliancedigital": "reliancedigital.in", "firstcry": "firstcry.com", "pharmeasy": "pharmeasy.in",
+    "pepperfry": "pepperfry.com", "decathlon": "decathlon.in", "bigbasket": "bigbasket.com",
+    "wow": "wowskinscience.com", "snapdeal": "snapdeal.com", "makemytrip": "makemytrip.com",
+    "adidas": "adidas.co.in", "puma": "in.puma.com", "urbanic": "urbanic.com", "swiggy": "swiggy.com",
+}
+
+
+def _market_engine(mid: str) -> str:
+    return _ENGINES.get(mid, ("deals", ""))[0]
+
+
+def _market_domain(mid: str) -> str:
+    if mid in _ENGINES:
+        return _ENGINES[mid][1]
+    return _DOMAINS.get(mid, "")
+
+
+# bake engine/domain/capability onto the curated catalog so the frontend can badge each store.
+for _m in MARKETS:
+    _m["engine"] = _market_engine(_m["id"])
+    _m["domain"] = _market_domain(_m["id"])
+    _m["can_products"] = _m["engine"] in ("flipkart", "shopify")
+
+
+def market_by_id(mid: str) -> dict | None:
+    """The catalog entry for a market id, enriched with its engine + domain. None if unknown."""
+    for m in list(get_live_markets() or []) + MARKETS:
+        if m.get("id") == mid:
+            return {**m, "engine": m.get("engine") or _market_engine(mid),
+                    "domain": m.get("domain") or _market_domain(mid),
+                    "can_products": (m.get("engine") or _market_engine(mid)) in ("flipkart", "shopify")}
+    return None
+
 # The default constraints the AI planner starts from (all overridable from the panel).
 DEFAULT_CONSTRAINTS: dict = {
     "focus_categories": [],          # [] = all; else e.g. ["Fashion","Beauty"]
@@ -176,7 +225,11 @@ def catalog() -> dict:
     active = set(get_active())
     live = get_live_markets()
     base = live if live else MARKETS
-    markets = [{**m, "active": m.get("id") in active} for m in base]
+    markets = [{**m, "active": m.get("id") in active,
+                "engine": m.get("engine") or _market_engine(m.get("id", "")),
+                "domain": m.get("domain") or _market_domain(m.get("id", "")),
+                "can_products": (m.get("engine") or _market_engine(m.get("id", ""))) in ("flipkart", "shopify")}
+               for m in base]
     cats = sorted({m.get("category", "") for m in base if m.get("category")}) or _CATEGORIES
     return {
         "markets": markets,
