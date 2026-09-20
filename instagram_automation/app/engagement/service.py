@@ -82,6 +82,27 @@ def _get(url: str, token: str, params: Dict[str, Any]) -> Dict[str, Any]:
     return body
 
 
+def user_profile(token: str, igsid: str,
+                 fields: str = "username,is_user_follow_business,is_business_follow_user,follower_count") -> Dict[str, Any]:
+    """Instagram Messaging User Profile API. For an IGSID your app can message, returns the
+    OFFICIAL `is_user_follow_business` field (does this user follow the business) — compliant,
+    no scraping. Needs instagram_manage_messages. Raises GraphError if the IGSID isn't readable."""
+    return _get(f"{GRAPH}/{igsid}", token, {"fields": fields})
+
+
+def check_user_follows_business(token: str, igsid: str) -> Optional[bool]:
+    """True/False whether the user follows the business; None when it can't be determined (e.g. the
+    IGSID is not yet a messaging participant, or the field is unavailable). Never raises."""
+    if not igsid:
+        return None
+    try:
+        d = _get(f"{GRAPH}/{igsid}", token, {"fields": "is_user_follow_business"})
+        v = d.get("is_user_follow_business")
+        return bool(v) if v is not None else None
+    except Exception:
+        return None
+
+
 def reply_to_comment(token: str, comment_id: str, message: str) -> Dict[str, Any]:
     """Public reply to a comment. Needs instagram_manage_comments."""
     return _post(f"{GRAPH}/{comment_id}/replies", token, {"message": message})

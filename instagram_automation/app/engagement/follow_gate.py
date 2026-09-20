@@ -23,7 +23,15 @@ _TTL = int(os.getenv("FOLLOW_GATE_TTL", "86400"))          # 24h
 
 
 def enabled() -> bool:
-    return os.getenv("ENGAGE_FOLLOW_GATE", "1").strip().lower() not in ("0", "false", "no", "off")
+    """The legacy two-step 'reply DONE' gate (deprecated; default OFF)."""
+    return os.getenv("ENGAGE_FOLLOW_GATE", "0").strip().lower() not in ("0", "false", "no", "off")
+
+
+def official_enabled() -> bool:
+    """The OFFICIAL follow gate via is_user_follow_business (verified, compliant). Default ON —
+    it is strictly safe: a follower gets links, a non-follower is nudged, and if follow status
+    can't be read the caller falls back to sending links directly (never blocks)."""
+    return os.getenv("FOLLOWGATE_OFFICIAL", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
 # ── Redis connection (lazy, cached, tolerant) ─────────────────────────────────
@@ -133,6 +141,9 @@ def unlock_message() -> str:
 
 
 def public_reply(handle: Optional[str]) -> str:
-    """Public comment reply nudging follow + check DM. Override with FOLLOW_GATE_PUBLIC."""
-    default = "Sent you a DM! 💌 Follow us + reply DONE to unlock all the links 🛍️"
+    """Public comment reply nudging a NON-follower to follow, then re-comment to unlock (official
+    gate). Override with FOLLOW_GATE_PUBLIC."""
+    h = (handle or "").strip()
+    at = f"@{h.lstrip('@')}" if h else "us"
+    default = f"Follow {at} to unlock 🔒 — once you follow, comment again and I’ll DM your links instantly! 💛"
     return os.getenv("FOLLOW_GATE_PUBLIC", "").strip() or default

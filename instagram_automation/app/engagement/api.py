@@ -949,15 +949,23 @@ def _dispatch(account_id: int, action: R.Action, event: R.InboundEvent, text: st
             r = _reply_with_retry(token, event.comment_id, text)
         elif action.type == "SEND_DM" and event.comment_id:
             from app.engagement import follow_gate as _fg
-            if _fg.enabled() and event.user_id:
-                # FOLLOW-GATE step 1: DM a strong follow nudge (comment→DM) and stash a pending
-                # unlock keyed by the commenter's IGSID. The real links go out only after they
-                # reply in DM (step 2 in process_event). Redis-backed → scales across many users.
-                handle = (account or {}).get("ig_username") or (account or {}).get("username") or (account or {}).get("label")
-                r = service.private_reply(token, ig_id, event.comment_id, _fg.first_message(handle))
+            _handle = (account or {}).get("ig_username") or (account or {}).get("username") or (account or {}).get("label")
+            # OFFICIAL FOLLOW GATE — verify follow via is_user_follow_business (compliant, no provider):
+            #   follows True  → send the links now (verified follower)
+            #   follows False → public nudge, withhold links, remember for a re-check on next action
+            #   follows None  → status unreadable → DO NOT block; send the links (fallback)
+            follows = service.check_user_follows_business(token, event.user_id) if (_fg.official_enabled() and event.user_id) else True
+            if follows is False:
+                r = _reply_with_retry(token, event.comment_id, _fg.public_reply(_handle))
+                _fg.set_pending(account_id, event.user_id, {"post_id": event.post_id, "comment_id": event.comment_id})
+            elif _fg.enabled() and event.user_id and not _fg.official_enabled():
+                # legacy two-step (deprecated; only if the official gate is off and legacy on)
+                r = service.private_reply(token, ig_id, event.comment_id, _fg.first_message(_handle))
                 _fg.set_pending(account_id, event.user_id, {"post_id": event.post_id, "comment_id": event.comment_id})
             else:
-                # Gate off → original behavior: DM PRODUCT CARDS (or text) straight away.
+                # follower (True) or unreadable (None) → send PRODUCT CARDS (or text) now.
+                if event.user_id:
+                    _fg.pop_pending(account_id, event.user_id)      # they're in — clear any prior pending
                 products = store.affiliate_products_for_media(account_id, event.post_id) if event.post_id else []
                 if products:
                     r = service.private_reply_cards(token, ig_id, event.comment_id, products, _storefront_url())
@@ -1011,15 +1019,22 @@ def process_event(account_id: int, event: R.InboundEvent, event_id: Optional[int
     """Evaluate rules for one event and dispatch actions. Idempotent + logged.
     persist=False (used by /simulate) previews without writing execution rows."""
     account = rags.get_account(account_id) or {}
-    # FOLLOW-GATE step 2: a DM reply from a user who has a pending unlock → send the links now
-    # (before normal rule processing), then stop. Atomic pop → never double-sends.
+    # FOLLOW-GATE re-check: a message from a user who was nudged (pending) → re-verify follow via
+    # is_user_follow_business; if they now follow, release the links (atomic pop → never double-sends).
     if not dry and event.trigger_type == "DM_RECEIVED":
         from app.engagement import follow_gate as _fg
-        if _fg.enabled():
-            uid = event.user_id or event.conversation_id
-            pend = _fg.pop_pending(account_id, uid)
-            if pend:
-                return _follow_gate_unlock(account_id, account, uid, pend, persist)
+        uid = event.user_id or event.conversation_id
+        if uid and _fg.has_pending(account_id, uid):
+            if _fg.official_enabled():
+                acct = rags.get_account(account_id, with_secret=True) or {}
+                if service.check_user_follows_business(acct.get("ig_access_token"), uid) is True:
+                    pend = _fg.pop_pending(account_id, uid)
+                    if pend:
+                        return _follow_gate_unlock(account_id, account, uid, pend, persist)
+            elif _fg.enabled():                               # legacy two-step
+                pend = _fg.pop_pending(account_id, uid)
+                if pend:
+                    return _follow_gate_unlock(account_id, account, uid, pend, persist)
     engine_rules = store.load_engine_rules(account_id)
     # HARD ISOLATION: a comment/DM on an AFFILIATE (Business-SK) post fires ONLY that post's
     # own post-scoped rule — never an account-wide rule (e.g. the Business-JK real-estate
