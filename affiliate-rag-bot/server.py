@@ -1122,16 +1122,16 @@ async def cuelinks_generate(count: int = Query(default=8, ge=2, le=10,
     from rag.dedup import dedup_store
 
     cats = [c.strip() for c in (categories or "").split(",") if c.strip()]
-    store = (merchant or "").strip()
-    if store:
-        # STORE-SPECIFIC: only this merchant's live offers — no random-merchant mixing.
-        res = cuelinks.fetch_offers(merchants=[store], categories=cats or None, limit=max(count * 3, 24))
+    merchants = [m.strip() for m in (merchant or "").split(",") if m.strip()]
+    if merchants:
+        # STORE-SPECIFIC: only these selected stores' live offers — no random-merchant mixing.
+        res = cuelinks.fetch_offers(merchants=merchants, categories=cats or None, limit=max(count * 3, 24))
         if not res.get("ok"):
             return {**res, "deals": []}
         raw = res.get("deals", [])
         if not raw:
-            return {"ok": True, "count": 0, "deals": [], "merchant": store, "caption": "", "hashtags": [],
-                    "note": f"No live Cuelinks deals for {store} right now. (Flipkart/Myntra rarely run Cuelinks coupons — use Flipkart’s product panel for those.)"}
+            return {"ok": True, "count": 0, "deals": [], "merchant": ", ".join(merchants), "caption": "", "hashtags": [],
+                    "note": f"No live Cuelinks deals for {', '.join(merchants)} right now. (Flipkart/Myntra don’t run Cuelinks coupons — use Flipkart’s product panel for those.)"}
     else:
         res = cuelinks.fetch_offers(categories=cats or None, limit=max(count * 8, 60))
         if not res.get("ok"):

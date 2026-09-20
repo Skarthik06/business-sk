@@ -1651,7 +1651,9 @@ function CuelinksPanel({ say, setQueue }) {
   const genDeals = async () => {
     setDealBusy(true);
     try {
-      const r = await skApi.cuelinksGenerate(dealCount);
+      // deals come STRICTLY from your active stores (minus Flipkart, which is products-only)
+      const stores = (d.markets || []).filter((m) => m.active && m.id !== 'flipkart').map((m) => m.name).join(',');
+      const r = await skApi.cuelinksGenerate(dealCount, stores);
       if (r.ok && (r.deals || []).length) {
         const products = r.deals;
         const g = { id: 'cuelinks-deals', label: 'Cuelinks Deals', category: 'deals', products, caption: r.caption || '', hashtags: r.hashtags || [], content_style: '', cover_tags: [] };
@@ -1758,7 +1760,8 @@ function CuelinksPanel({ say, setQueue }) {
               <button className="mini" onClick={() => setDealCount((n) => Math.max(3, n - 1))}>−</button>
               <b style={{ minWidth: 18, textAlign: 'center', display: 'inline-block' }}>{dealCount}</b>
               <button className="mini" onClick={() => setDealCount((n) => Math.min(10, n + 1))}>+</button>
-              {dealGroup && <button className="btn btn-sm btn-ghost" onClick={clearDeals} style={{ color: 'var(--danger)' }}><Icon name="x" size={12} /> Clear</button>}
+              {dealGroup && <button className="btn btn-sm btn-ghost" onClick={genDeals} disabled={dealBusy} title="Pull fresh deals from your active stores"><Icon name="bolt" size={12} /> Refresh</button>}
+              {dealGroup && <button className="btn btn-sm btn-ghost" onClick={clearDeals} style={{ color: 'var(--danger)' }} title="Remove this deals post from the queue"><Icon name="x" size={12} /> Clear</button>}
               <button className="btn btn-sm" onClick={genDeals} disabled={dealBusy || !setQueue}>{dealBusy ? <Spinner size={12} /> : <Icon name="bolt" size={12} />} Generate deals post</button>
             </div>
           </div>
