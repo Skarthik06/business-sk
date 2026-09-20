@@ -1025,6 +1025,23 @@ def cuelinks_search(q: str = Query(..., min_length=2, max_length=60), limit: int
     return cuelinks.fetch_campaigns(q=q, limit=limit)
 
 
+_DEAL_MERCHANTS_CACHE: dict = {"at": 0.0, "data": None}
+
+
+@app.get("/api/cuelinks/deal-merchants")
+def cuelinks_deal_merchants() -> dict:
+    """Which stores have LIVE Cuelinks offers right now — so the panel can badge each market as
+    🛍️ Products (Flipkart), 🎟️ Deals (has offers), or — none. Cached ~5 min (the feed scan is heavy)."""
+    from performance import cuelinks
+    now = time.time()
+    if _DEAL_MERCHANTS_CACHE["data"] is not None and (now - _DEAL_MERCHANTS_CACHE["at"] < 300):
+        return {"ok": True, **_DEAL_MERCHANTS_CACHE["data"], "cached": True}
+    res = cuelinks.available_merchants()
+    data = {"merchants": res.get("merchants", []), "counts": res.get("counts", {})}
+    _DEAL_MERCHANTS_CACHE.update(at=now, data=data)
+    return {"ok": bool(res.get("ok")), **data, "cached": False}
+
+
 @app.get("/api/flipkart/generate")
 async def flipkart_generate(
     q: str = Query(..., min_length=2, max_length=80, description="Product search on Flipkart."),

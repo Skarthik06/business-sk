@@ -750,6 +750,10 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry }) {
     } finally { setDesigning(false); }
   };
 
+  // Auto-render the designed slides once when the post loads, so Content Studio ALWAYS shows the
+  // real post (product photos for products, deal cards for deals) instead of a blank carousel.
+  useEffect(() => { if (pins.length && !design && !designing) renderDesign(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [g.id]);
+
   return (
     <div className={cx('ig-card', done && 'is-done', st.phase === 'failed' && 'is-fail')}>
       {/* header */}
