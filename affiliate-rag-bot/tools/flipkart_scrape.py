@@ -60,13 +60,16 @@ def _fetch(query: str, page: int = 1) -> str:
 
 
 def _img(u: str) -> str:
-    """Highest-resolution Flipkart CDN image (fills the {@width}/{@height} placeholders at 1080,
-    and upgrades any baked-in small size to 1080) — crisp on a 1080px Instagram slide."""
+    """A valid, high-res Flipkart CDN image URL. Flipkart embeds templated placeholders
+    ({@width}/{@height}/{@quality}) that MUST all be filled — a leftover {@quality} makes the CDN
+    return HTTP 400 (blank product on the slide). Fills them at 1080px / q70 and upgrades any
+    baked-in small size."""
     if not u:
         return ""
-    u = u.replace("{@width}", "1080").replace("{@height}", "1080").replace("http://", "https://")
-    # some URLs carry a fixed small size in the path (…/image/612/612/…) — upscale it
-    u = re.sub(r"/image/\d{2,4}/\d{2,4}/", "/image/1080/1080/", u)
+    u = (u.replace("{@width}", "1080").replace("{@height}", "1080")
+          .replace("{@quality}", "70").replace("http://", "https://"))
+    u = re.sub(r"/image/\d{2,4}/\d{2,4}/", "/image/1080/1080/", u)   # upscale a fixed small size
+    u = re.sub(r"\{@[^}]+\}", "70", u)                               # any leftover placeholder → safe value
     return u
 
 

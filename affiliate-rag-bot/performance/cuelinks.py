@@ -240,13 +240,16 @@ def _map_offer(r: dict) -> dict | None:
     }
 
 
-def fetch_offers(categories: list[str] | None = None, limit: int = 40, pages: int = 3) -> dict:
-    """GET /offers — the LIVE Cuelinks deals/coupons (the Cuelinks post source). Optionally keep
-    only offers in the given category names. Paginates to gather enough. Never raises.
-    Returns {ok, count, deals:[...]}."""
+def fetch_offers(categories: list[str] | None = None, merchants: list[str] | None = None,
+                 limit: int = 40, pages: int = 6) -> dict:
+    """GET /offers — the LIVE Cuelinks deals/coupons. Optionally keep only offers in the given
+    category names AND/OR from the given MERCHANTS (store names — normalised substring match, so
+    'Nykaa' matches 'Nykaa Beauty'/'Nykaa Fashion', 'AJIO' matches 'Ajio Gram', etc.). Paginates.
+    Never raises. Returns {ok, count, deals:[...]}."""
     if not configured():
         return {"ok": False, "error": "CUELINKS_API_TOKEN not set.", "deals": []}
-    want = {c.strip().lower() for c in (categories or []) if c and c.strip()}
+    want_cat = {c.strip().lower() for c in (categories or []) if c and c.strip()}
+    want_mer = [_norm(m) for m in (merchants or []) if m and m.strip()]
     out: list[dict] = []
     try:
         for pg in range(1, max(1, min(pages, 10)) + 1):
@@ -263,8 +266,12 @@ def fetch_offers(categories: list[str] | None = None, limit: int = 40, pages: in
                 d = _map_offer(r)
                 if not d:
                     continue
-                if want and not ({c.lower() for c in d["categories"]} & want):
+                if want_cat and not ({c.lower() for c in d["categories"]} & want_cat):
                     continue
+                if want_mer:
+                    nm = _norm(d.get("merchant", ""))
+                    if not any(w and (w in nm or nm in w) for w in want_mer):
+                        continue
                 out.append(d)
             if len(out) >= limit or len(recs) < 100:
                 break
@@ -272,6 +279,33 @@ def fetch_offers(categories: list[str] | None = None, limit: int = 40, pages: in
     except Exception as e:
         log.warning(f"[cuelinks] fetch_offers failed: {e}")
         return {"ok": False, "error": str(e)[:160], "deals": []}
+
+
+def available_merchants(pages: int = 6) -> dict:
+    """The distinct merchants that currently have LIVE offers in the Cuelinks feed — so the panel
+    can show which selected stores can actually generate a deals post right now. Never raises."""
+    if not configured():
+        return {"ok": False, "merchants": []}
+    seen: dict[str, int] = {}
+    try:
+        for pg in range(1, max(1, min(pages, 10)) + 1):
+            resp = requests.get(f"{_API_BASE}/offers", headers=_headers(), timeout=_TIMEOUT,
+                                params={"per_page": 100, "page": pg, "status": "live"})
+            if not resp.ok:
+                break
+            recs = _records(resp.json())
+            if not recs:
+                break
+            for r in recs:
+                m = (r.get("campaign_name") or "").strip()
+                if m:
+                    seen[m] = seen.get(m, 0) + 1
+            if len(recs) < 100:
+                break
+        return {"ok": True, "merchants": sorted(seen.keys()), "counts": seen}
+    except Exception as e:
+        log.warning(f"[cuelinks] available_merchants failed: {e}")
+        return {"ok": False, "merchants": []}
 
 
 # ── link conversion (monetise any URL) ────────────────────────────────────────
