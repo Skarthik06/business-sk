@@ -1506,6 +1506,14 @@ function FlipkartGenerate({ say, setQueue }) {
   const [loadingF, setLoadingF] = useState(false);
   const [running, setRunning] = useState(false);
   const [group, setGroup] = useState(null);
+  const [fkSlides, setFkSlides] = useState(null);
+  const [fkPrev, setFkPrev] = useState(false);
+  const previewFk = async () => {
+    if (!group) return;
+    setFkPrev(true); setFkSlides(null);
+    try { const res = await api.skRenderPreview(group.products.slice(0, 10), { category: group.category }); setFkSlides(res.images || []); }
+    catch { say?.('Preview render failed', 'error'); } finally { setFkPrev(false); }
+  };
   useEffect(() => {
     const s = q.trim();
     if (s.length < 2) { setDims([]); setPicks({}); return; }
@@ -1576,12 +1584,18 @@ function FlipkartGenerate({ say, setQueue }) {
       )}
       {group && (
         <div className="mt-3">
-          <div className="flex items-center gap-2 mb-2">
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             <span className="prog-badge">✓ {group.products.length} products → Post to IG</span>
             <span className="flex-1" />
+            <button className="btn btn-sm btn-ghost" onClick={previewFk} disabled={fkPrev} title="Render the carousel and see the actual slides">{fkPrev ? <Spinner size={12} /> : <Icon name="doc" size={12} />} Preview slides</button>
             <button className="btn btn-sm btn-ghost" onClick={gen} disabled={running} title="Re-scrape fresh Flipkart products"><Icon name="bolt" size={12} /> Refresh</button>
             <button className="btn btn-sm btn-ghost" onClick={clearAll} style={{ color: 'var(--danger)' }} title="Remove this post from the queue"><Icon name="x" size={12} /> Clear</button>
           </div>
+          {fkSlides && fkSlides.length > 0 && (
+            <div className="flex gap-2 overflow-x-auto pb-2 mb-2">
+              {fkSlides.map((u, i) => <img key={i} src={u} alt={`slide ${i + 1}`} style={{ height: 220, borderRadius: 10, border: '1px solid var(--border)', flex: 'none' }} />)}
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
             {group.products.map((it) => (
               <div key={it.asin} className="panel p-0 overflow-hidden" style={{ display: 'flex', flexDirection: 'column' }}>
@@ -1611,6 +1625,14 @@ function CuelinksPanel({ say, setQueue }) {
   const [dealBusy, setDealBusy] = useState(false);
   const [dealGroup, setDealGroup] = useState(null);
   const [dealCount, setDealCount] = useState(8);
+  const [dealSlides, setDealSlides] = useState(null);   // rendered slide image URLs
+  const [dealPrev, setDealPrev] = useState(false);
+  const previewDeals = async () => {
+    if (!dealGroup) return;
+    setDealPrev(true); setDealSlides(null);
+    try { const res = await api.skRenderPreview(dealGroup.products.slice(0, 10), { category: 'deals' }); setDealSlides(res.images || res.local || []); if (!(res.images || []).length) say?.('Rendered but no images returned', 'error'); }
+    catch { say?.('Preview render failed', 'error'); } finally { setDealPrev(false); }
+  };
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [catFilter, setCatFilter] = useState('all');
@@ -1649,7 +1671,7 @@ function CuelinksPanel({ say, setQueue }) {
   };
   // Generate a DEALS post from the active markets → Post-to-IG queue (needs setQueue).
   const genDeals = async () => {
-    setDealBusy(true);
+    setDealBusy(true); setDealSlides(null);
     try {
       // deals come STRICTLY from your active stores (minus Flipkart, which is products-only)
       const stores = (d.markets || []).filter((m) => m.active && m.id !== 'flipkart').map((m) => m.name).join(',');
@@ -1663,7 +1685,7 @@ function CuelinksPanel({ say, setQueue }) {
       } else say?.(r.note || r.error || 'No fresh deals right now', 'error');
     } catch { say?.('Deals generate failed', 'error'); } finally { setDealBusy(false); }
   };
-  const clearDeals = () => { setDealGroup(null); setQueue && setQueue((prev) => (prev || []).filter((x) => x.id !== 'cuelinks-deals')); };
+  const clearDeals = () => { setDealGroup(null); setDealSlides(null); setQueue && setQueue((prev) => (prev || []).filter((x) => x.id !== 'cuelinks-deals')); };
 
   if (!d || !c) return <div className="panel p-4"><div className="eyebrow">Cuelinks · AI affiliate markets</div><div className="text-xs mt-2 flex items-center gap-2" style={{ color: 'var(--muted)' }}><Spinner size={12} /> Loading catalogue…</div></div>;
   const e = d.earnings || {};
@@ -1766,10 +1788,31 @@ function CuelinksPanel({ say, setQueue }) {
             </div>
           </div>
           {dealGroup && (
-            <div className="mt-2">
-              <span className="prog-badge">✓ {dealGroup.products.length} deals → Post to IG</span>
-              <div className="flex flex-wrap gap-2 mt-2">
-                {dealGroup.products.map((it) => <span key={it.asin} className="style-tag">{it.brand}{it.discount_pct ? ` -${it.discount_pct}%` : ''}{it.coupon_code ? ` · ${it.coupon_code}` : ''}</span>)}
+            <div className="mt-3">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="prog-badge">✓ {dealGroup.products.length} deals → Post to IG</span>
+                <span className="flex-1" />
+                <button className="btn btn-sm btn-ghost" onClick={previewDeals} disabled={dealPrev}>{dealPrev ? <Spinner size={12} /> : <Icon name="doc" size={12} />} Preview slides</button>
+              </div>
+              {dealGroup.caption && <div className="panel p-3 mb-2" style={{ background: 'var(--panel-2)' }}><div className="text-xs" style={{ color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{dealGroup.caption}</div></div>}
+              {/* rendered slides (the actual post) */}
+              {dealSlides && dealSlides.length > 0 && (
+                <div className="flex gap-2 overflow-x-auto pb-2 mb-2">
+                  {dealSlides.map((u, i) => <img key={i} src={u} alt={`slide ${i + 1}`} style={{ height: 220, borderRadius: 10, border: '1px solid var(--border)', flex: 'none' }} />)}
+                </div>
+              )}
+              {/* deal cards */}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                {dealGroup.products.map((it) => (
+                  <div key={it.asin} className="panel p-3" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    <div className="flex items-center justify-between gap-2"><b style={{ fontSize: 14 }}>{it.brand}</b>{it.discount_pct != null && <span className="off-pill" style={{ background: 'var(--accent)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 7 }}>-{it.discount_pct}%</span>}</div>
+                    <div className="text-xs" style={{ color: 'var(--muted)', lineHeight: 1.3, maxHeight: 34, overflow: 'hidden' }}>{it.product_title}</div>
+                    {it.hook && <div className="text-xs" style={{ color: '#79c0ff' }}>💡 {it.hook}</div>}
+                    {it.coupon_code && <span className="style-tag" style={{ alignSelf: 'flex-start' }}>🎟️ {it.coupon_code}</span>}
+                    <div style={{ flex: 1 }} />
+                    <a className="btn btn-sm" href={it.affiliate_link} target="_blank" rel="noreferrer" style={{ justifyContent: 'center' }}><Icon name="ext" size={12} /> Cuelinks link</a>
+                  </div>
+                ))}
               </div>
             </div>
           )}
