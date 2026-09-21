@@ -193,8 +193,9 @@ def catalog() -> dict:
     one clean JSON shape the frontend renders and the AI planner reasons over. Uses the LIVE
     Cuelinks catalogue when it has been synced, else the curated fallback list."""
     active = set(get_active())
-    live = get_live_markets()
-    base = live if live else MARKETS
+    # Products-only: ALWAYS the curated scrapable stores (ignore any old live-sync catalogue, which
+    # pulled the full deals-store list we no longer want).
+    base = MARKETS
     markets = [{**m, "active": m.get("id") in active,
                 "engine": m.get("engine") or _market_engine(m.get("id", "")),
                 "domain": m.get("domain") or _market_domain(m.get("id", "")),
@@ -207,5 +208,5 @@ def catalog() -> dict:
         "constraints": get_constraints(),
         "active_count": len(active),
         "total": len(base),
-        "live": bool(live),
+        "live": bool(get_live_markets()),
     }
