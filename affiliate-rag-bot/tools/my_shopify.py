@@ -1,26 +1,32 @@
 """
 tools/my_shopify.py — the OWNER's OWN Shopify store as a first-party product source.
 
-Unlike the third-party merchant feeds (which we read from the public /products.json), this uses the
-Shopify ADMIN API with the owner's read-only token — so it works even on a password-protected or
-in-development store and can read every published product. It's the owner's store, so the generated
-"affiliate link" is simply the product's own URL (a direct sale — 100% margin, no commission split).
+For a store you're promoting on Instagram the storefront has to be PUBLIC anyway (customers must be
+able to reach it to buy), and a public Shopify storefront serves its catalogue at the no-auth
+`/products.json` endpoint — so by default this reads that public feed with NO token at all. Just set:
 
-Config (server .env):
     SHOPIFY_STORE_DOMAIN = your-store.myshopify.com   (or a custom domain)
+
+If you'd rather keep the storefront password-protected, add a Shopify ADMIN API token and it will use
+the Admin API instead (works on a private store):
+
     SHOPIFY_ADMIN_TOKEN  = shpat_xxx                  (Admin API token, scope read_products)
 
-Products are normalised to the SAME shape as the Flipkart/Shopify scrape so they flow through the
-identical _finalize_pool → dedup → compose → render → publish pipeline. Never raises.
+Note: Shopify's NEW "Dev Dashboard" custom apps are OAuth-only and DON'T issue a static store token
+(the "app automation token" is app-management only — it returns 401 on the store Admin API), so the
+public-feed route is the practical one for most owners.
+
+Products are normalised to the SAME shape as the other scrapers so they flow through the identical
+_finalize_pool → dedup → compose → render → publish pipeline. Own-store links stay raw. Never raises.
 """
 from __future__ import annotations
 
 import os
-import re
 
 import requests
 
 from utils.logger import log
+from tools import shopify_scrape
 
 _API_VERSION = "2024-10"
 _TIMEOUT = 15
@@ -35,8 +41,13 @@ def _token() -> str:
     return (os.getenv("SHOPIFY_ADMIN_TOKEN") or "").strip()
 
 
+def _has_token() -> bool:
+    return bool(_token())
+
+
 def configured() -> bool:
-    return bool(_domain() and _token())
+    """We can operate as long as a store domain is set (token is optional — public feed by default)."""
+    return bool(_domain())
 
 
 def _headers() -> dict:
@@ -45,6 +56,62 @@ def _headers() -> dict:
 
 def _base() -> str:
     return f"https://{_domain()}/admin/api/{_API_VERSION}"
+
+
+def status() -> dict:
+    """Connection status for the panel. Never raises.
+    {ok, connected, mode: 'public'|'admin', domain, shop?, product_count?, note?}."""
+    dom = _domain()
+    if not dom:
+        return {"ok": True, "connected": False, "domain": "",
+                "note": "Add SHOPIFY_STORE_DOMAIN to the server .env (your-store.myshopify.com)."}
+    # Admin API path (private store) when a token is present.
+    if _has_token():
+        try:
+            shop = requests.get(f"{_base()}/shop.json", headers=_headers(), timeout=_TIMEOUT)
+            if shop.status_code == 401:
+                return {"ok": False, "connected": False, "mode": "admin", "domain": dom, "error": "Invalid Admin API token (401)."}
+            if not shop.ok:
+                return {"ok": False, "connected": False, "mode": "admin", "domain": dom, "error": f"Shopify {shop.status_code}."}
+            name = (shop.json().get("shop") or {}).get("name", dom)
+            cnt = requests.get(f"{_base()}/products/count.json", headers=_headers(), timeout=_TIMEOUT)
+            n = (cnt.json().get("count") if cnt.ok else None)
+            return {"ok": True, "connected": True, "mode": "admin", "domain": dom, "shop": name, "product_count": n}
+        except Exception as e:
+            log.warning(f"[my_shopify] admin status failed: {e}")
+            return {"ok": False, "connected": False, "mode": "admin", "domain": dom, "error": str(e)[:140]}
+    # Public feed path (public storefront) — the default.
+    try:
+        base = shopify_scrape._base(dom)
+        if base:
+            r = requests.get(base + "/products.json", headers={"User-Agent": "Mozilla/5.0"}, timeout=_TIMEOUT, params={"limit": 1})
+            n = len(r.json().get("products", [])) if r.ok and r.text.strip().startswith("{") else 0
+            return {"ok": True, "connected": True, "mode": "public", "domain": dom, "shop": dom,
+                    "product_count": None if n else 0,
+                    "note": None if n else "Storefront is reachable but has no products yet — add products to start posting."}
+        # not reachable → almost always a password-protected storefront
+        return {"ok": True, "connected": False, "mode": "public", "domain": dom,
+                "note": "Storefront isn't public. Remove the storefront password (Online store → Preferences), or add a SHOPIFY_ADMIN_TOKEN to read it privately."}
+    except Exception as e:
+        log.warning(f"[my_shopify] public status failed: {e}")
+        return {"ok": False, "connected": False, "mode": "public", "domain": dom, "error": str(e)[:140]}
+
+
+def collections() -> dict:
+    """Store collections for the panel dropdown (Admin API only — public feed has no collection filter)."""
+    if not (_domain() and _has_token()):
+        return {"ok": True, "collections": []}
+    out: list[dict] = []
+    try:
+        for kind in ("custom_collections", "smart_collections"):
+            r = requests.get(f"{_base()}/{kind}.json", headers=_headers(), timeout=_TIMEOUT, params={"limit": 250})
+            if r.ok:
+                for c in (r.json().get(kind) or []):
+                    out.append({"id": str(c.get("id")), "title": c.get("title", ""), "handle": c.get("handle", "")})
+        return {"ok": True, "collections": out}
+    except Exception as e:
+        log.warning(f"[my_shopify] collections failed: {e}")
+        return {"ok": True, "collections": []}
 
 
 def _price_int(v) -> int:
@@ -63,52 +130,9 @@ def _img_hd(src: str) -> str:
     return f"{src}?width=1200"
 
 
-def status() -> dict:
-    """Connection status for the panel: {ok, connected, domain, shop, product_count}. Never raises."""
-    if not configured():
-        return {"ok": True, "connected": False, "domain": _domain(),
-                "note": "Add SHOPIFY_STORE_DOMAIN + SHOPIFY_ADMIN_TOKEN to the server .env to connect."}
-    try:
-        shop = requests.get(f"{_base()}/shop.json", headers=_headers(), timeout=_TIMEOUT)
-        if shop.status_code == 401:
-            return {"ok": False, "connected": False, "domain": _domain(), "error": "Invalid Admin API token (401)."}
-        if not shop.ok:
-            return {"ok": False, "connected": False, "domain": _domain(), "error": f"Shopify {shop.status_code}: {shop.text[:120]}"}
-        name = (shop.json().get("shop") or {}).get("name", _domain())
-        cnt = requests.get(f"{_base()}/products/count.json", headers=_headers(), timeout=_TIMEOUT)
-        n = (cnt.json().get("count") if cnt.ok else None)
-        return {"ok": True, "connected": True, "domain": _domain(), "shop": name, "product_count": n}
-    except Exception as e:
-        log.warning(f"[my_shopify] status failed: {e}")
-        return {"ok": False, "connected": False, "domain": _domain(), "error": str(e)[:140]}
-
-
-def collections() -> dict:
-    """Custom + smart collections (for the panel dropdown). {ok, collections:[{id,title,handle}]}."""
-    if not configured():
-        return {"ok": False, "collections": []}
-    out: list[dict] = []
-    try:
-        for kind in ("custom_collections", "smart_collections"):
-            r = requests.get(f"{_base()}/{kind}.json", headers=_headers(), timeout=_TIMEOUT, params={"limit": 250})
-            if r.ok:
-                for c in (r.json().get(kind) or []):
-                    out.append({"id": str(c.get("id")), "title": c.get("title", ""), "handle": c.get("handle", "")})
-        return {"ok": True, "collections": out}
-    except Exception as e:
-        log.warning(f"[my_shopify] collections failed: {e}")
-        return {"ok": False, "collections": []}
-
-
-def _terms(query: str) -> list[str]:
-    return [t for t in re.sub(r"[^a-z0-9 ]", " ", (query or "").lower()).split() if len(t) > 1]
-
-
-def scrape_products(query: str = "", count: int = 8, collection_id: str = "", max_pages: int = 4) -> dict:
-    """Pull the owner's OWN products via the Admin API, ranked to the query (and optionally scoped to
-    one collection). Same output shape as the scrapers. source='mystore'. Never raises."""
-    if not configured():
-        return {"ok": False, "error": "SHOPIFY_STORE_DOMAIN + SHOPIFY_ADMIN_TOKEN not set.", "items": []}
+def _admin_products(query: str, count: int, collection_id: str, max_pages: int) -> dict:
+    """Private-store path: pull the owner's products via the Admin API. Same shape as the scrapers."""
+    from tools.shopify_scrape import _terms
     terms = _terms(query)
     scored: list[tuple[int, dict]] = []
     seen: set = set()
@@ -135,8 +159,7 @@ def scrape_products(query: str = "", count: int = 8, collection_id: str = "", ma
                 pid = str(p.get("id") or handle)
                 if pid in seen:
                     continue
-                variants = p.get("variants") or []
-                v = variants[0] if variants else {}
+                v = (p.get("variants") or [{}])[0]
                 sell = _price_int(v.get("price"))
                 if sell <= 0:
                     continue
@@ -166,5 +189,20 @@ def scrape_products(query: str = "", count: int = 8, collection_id: str = "", ma
         items = [it for _s, it in scored]
         return {"ok": True, "count": len(items), "items": items[: max(count * 4, count)]}
     except Exception as e:
-        log.warning(f"[my_shopify] scrape_products failed: {e}")
+        log.warning(f"[my_shopify] admin products failed: {e}")
         return {"ok": False, "error": str(e)[:140], "items": [it for _s, it in scored][:count]}
+
+
+def scrape_products(query: str = "", count: int = 8, collection_id: str = "", max_pages: int = 5) -> dict:
+    """Pull the owner's OWN products. Uses the Admin API when a token is set (private store), else the
+    public /products.json feed. source='mystore'. Same shape as the scrapers. Never raises."""
+    if not _domain():
+        return {"ok": False, "error": "SHOPIFY_STORE_DOMAIN not set.", "items": []}
+    if _has_token():
+        return _admin_products(query, count, collection_id, max_pages)
+    # Public feed — reuse the generic Shopify scraper, then relabel as own-store products.
+    res = shopify_scrape.scrape_products(_domain(), query=query, count=count, max_pages=max_pages)
+    for it in res.get("items", []):
+        it["source"] = "mystore"
+        it["asin"] = "my_" + str(it.get("asin", "")).replace("shp_", "")
+    return res

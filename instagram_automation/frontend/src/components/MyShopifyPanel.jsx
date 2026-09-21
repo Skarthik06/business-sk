@@ -63,11 +63,12 @@ export default function MyShopifyPanel({ say, setQueue }) {
         <div className="panel p-3 mt-3" style={{ background: 'var(--panel-2)' }}>
           <div className="text-xs" style={{ fontWeight: 700, marginBottom: 6 }}>Not connected yet — one-time setup:</div>
           <ol className="text-xs" style={{ color: 'var(--muted)', lineHeight: 1.7, paddingLeft: 18 }}>
-            <li>Shopify admin → <b>Settings → Apps and sales channels → Develop apps</b></li>
-            <li>Create an app → <b>Admin API scopes</b> → enable <b>read_products</b> → Install</li>
-            <li>Reveal the <b>Admin API access token</b> (<code>shpat_…</code>)</li>
-            <li>Add to the server <code>.env</code>: <code>SHOPIFY_STORE_DOMAIN</code> + <code>SHOPIFY_ADMIN_TOKEN</code>, then restart</li>
+            <li>Set <code>SHOPIFY_STORE_DOMAIN</code> in the server <code>.env</code> (e.g. <code>your-store.myshopify.com</code>), then restart</li>
+            <li><b>Make the storefront public</b> — Shopify admin → <b>Online Store → Preferences</b> → remove the password (customers need to reach it anyway)</li>
+            <li><b>Add products</b> to your store</li>
           </ol>
+          <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>No API token needed — a public storefront serves its catalogue directly. (To keep the store private instead, add a <code>SHOPIFY_ADMIN_TOKEN</code>.)</div>
+          {st.note && <div className="text-xs mt-2" style={{ color: '#d29922' }}>ⓘ {st.note}</div>}
           {st.error && <div className="text-xs mt-2" style={{ color: 'var(--danger)' }}>⚠ {st.error}</div>}
           <button className="btn btn-sm mt-2" onClick={load}><Icon name="bolt" size={12} /> Re-check connection</button>
         </div>
@@ -81,7 +82,8 @@ export default function MyShopifyPanel({ say, setQueue }) {
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
           <div className="eyebrow" style={{ color: 'var(--accent)' }}>🏪 My Store · {st.shop}</div>
-          <div className="text-xs" style={{ color: 'var(--muted)' }}>Connected{st.product_count != null ? ` · ${st.product_count} products` : ''} · your catalogue → real product carousels → Post to IG (direct links).</div>
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>Connected{st.product_count != null ? ` · ${st.product_count} products` : ''}{st.mode ? ` · ${st.mode} mode` : ''} · your catalogue → real product carousels → Post to IG (direct links).</div>
+          {st.note && <div className="text-xs mt-1" style={{ color: '#d29922' }}>ⓘ {st.note}</div>}
         </div>
         <button className="btn btn-sm btn-ghost" onClick={load} title="Refresh connection / catalogue"><Icon name="bolt" size={12} /> Refresh</button>
       </div>
