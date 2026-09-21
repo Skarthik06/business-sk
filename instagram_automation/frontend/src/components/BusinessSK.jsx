@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import skApi from '../services/skApi';
 import api from '../services/api';
 import { Icon, Spinner, cx } from './ui';
+import MyShopifyPanel from './MyShopifyPanel';
 
 const DEFAULT_CATS = [
   { name: 'fashion', rate: 9 }, { name: 'home', rate: 8 }, { name: 'kitchen', rate: 7 },
@@ -1688,8 +1689,8 @@ function StoreGenerate({ markets, say, setQueue }) {
   return (
     <div className="panel p-3" style={{ borderColor: 'var(--accent)' }}>
       <div className="eyebrow" style={{ color: 'var(--accent)' }}>🎯 Generate from a store</div>
-      <div className="text-xs" style={{ color: 'var(--muted)' }}>Pick one active store, set Amazon-style filters, then generate. <b style={{ color: '#3fb950' }}>🖼️ Product</b> stores fetch REAL photos + prices; <b>🎟️ Deals</b> stores build branded deal cards.</div>
-      {!active.length && <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>Activate a market above (or run <b>Plan &amp; apply</b>) to generate from it.</div>}
+      <div className="text-xs" style={{ color: 'var(--muted)' }}>Pick one active store, set Amazon-style filters, then generate <b style={{ color: '#3fb950' }}>REAL product</b> carousels (photos + prices) — Cuelinks-monetised.</div>
+      {!active.length && <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>Activate a store below to generate from it.</div>}
       {active.length > 0 && (
         <div className="ctrl-chips mt-2">
           {active.map((m) => (
@@ -1786,17 +1787,6 @@ function CuelinksPanel({ say, setQueue }) {
   const [c, setC] = useState(null);            // local editable constraints
   const [plan, setPlan] = useState(null);      // AI plan result
   const [planning, setPlanning] = useState(false);
-  const [dealBusy, setDealBusy] = useState(false);
-  const [dealGroup, setDealGroup] = useState(null);
-  const [dealCount, setDealCount] = useState(8);
-  const [dealSlides, setDealSlides] = useState(null);   // rendered slide image URLs
-  const [dealPrev, setDealPrev] = useState(false);
-  const previewDeals = async () => {
-    if (!dealGroup) return;
-    setDealPrev(true); setDealSlides(null);
-    try { const res = await api.skRenderPreview(dealGroup.products.slice(0, 10), { category: 'deals' }); setDealSlides(res.images || res.local || []); if (!(res.images || []).length) say?.('Rendered but no images returned', 'error'); }
-    catch { say?.('Preview render failed', 'error'); } finally { setDealPrev(false); }
-  };
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [catFilter, setCatFilter] = useState('all');
@@ -1833,41 +1823,20 @@ function CuelinksPanel({ say, setQueue }) {
       else say?.('Plan failed', 'error');
     } catch { say?.('Plan failed', 'error'); } finally { setPlanning(false); }
   };
-  // Generate a DEALS post from the active markets → Post-to-IG queue (needs setQueue).
-  const genDeals = async () => {
-    setDealBusy(true); setDealSlides(null);
-    try {
-      // deals come STRICTLY from your active stores (minus Flipkart, which is products-only)
-      const stores = (d.markets || []).filter((m) => m.active && m.id !== 'flipkart').map((m) => m.name).join(',');
-      const r = await skApi.cuelinksGenerate(dealCount, stores);
-      if (r.ok && (r.deals || []).length) {
-        const products = r.deals;
-        const g = { id: 'cuelinks-deals', label: 'Cuelinks Deals', category: 'deals', products, caption: r.caption || '', hashtags: r.hashtags || [], content_style: '', cover_tags: [] };
-        setDealGroup(g);
-        setQueue && setQueue((prev) => [...(prev || []).filter((x) => x.id !== g.id), g]);
-        say?.(`Generated ${products.length} deals → sent to Post to IG`);
-      } else say?.(r.note || r.error || 'No fresh deals right now', 'error');
-    } catch { say?.('Deals generate failed', 'error'); } finally { setDealBusy(false); }
-  };
-  const clearDeals = () => { setDealGroup(null); setDealSlides(null); setQueue && setQueue((prev) => (prev || []).filter((x) => x.id !== 'cuelinks-deals')); };
-
   if (!d || !c) return <div className="panel p-4"><div className="eyebrow">Cuelinks · AI affiliate markets</div><div className="text-xs mt-2 flex items-center gap-2" style={{ color: 'var(--muted)' }}><Spinner size={12} /> Loading catalogue…</div></div>;
   const e = d.earnings || {};
   const cats = d.categories || [];
   const markets = (d.markets || []).filter((m) => catFilter === 'all' || m.category === catFilter);
-  const flipkartActive = (d.markets || []).some((m) => m.id === 'flipkart' && m.active);
 
   return (
     <div className="panel p-4 flex flex-col gap-4">
-      {/* Flipkart product engine — appears when the Flipkart market is activated */}
-      {flipkartActive && setQueue && <FlipkartGenerate say={say} setQueue={setQueue} />}
-      {/* Per-store generator — pick one active market → Amazon-style filters → real products or deals */}
+      {/* Per-store product generator — pick one scrapable store → Amazon-style filters → real products */}
       {setQueue && <StoreGenerate markets={d.markets} say={say} setQueue={setQueue} />}
       {/* header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
-          <div className="eyebrow">🧠 Cuelinks · AI affiliate markets</div>
-          <div className="text-xs" style={{ color: 'var(--muted)' }}>{d.active_count}/{d.total} markets active · one Cuelinks redirect monetises them all · {d.cuelinks_api ? <span style={{ color: 'var(--ok)' }}>API connected{d.live ? ' · live payouts' : ''}</span> : <span style={{ color: 'var(--faint)' }}>API not set (import earnings manually)</span>}</div>
+          <div className="eyebrow">🛒 Cuelinks · scrapable product stores</div>
+          <div className="text-xs" style={{ color: 'var(--muted)' }}>{d.active_count}/{d.total} stores active · real product photos (Flipkart scrape + Shopify feeds) · Cuelinks-monetised · {d.cuelinks_api ? <span style={{ color: 'var(--ok)' }}>API connected{d.live ? ' · live payouts' : ''}</span> : <span style={{ color: 'var(--faint)' }}>API not set</span>}</div>
         </div>
         <div className="flex items-center gap-2">
           {d.cuelinks_api && <button className="btn btn-sm btn-ghost" onClick={syncLive} disabled={syncing} title="Pull live Cuelinks payout %, EPC and join status for every market">{syncing ? <Spinner size={12} /> : <Icon name="bolt" size={12} />} Sync live data</button>}
@@ -1939,50 +1908,6 @@ function CuelinksPanel({ say, setQueue }) {
             ))}
           </div>
         )}
-        {/* Turn the active markets (the planner's picks) into an actual deals post */}
-        <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--border)' }}>
-          <div className="flex items-center justify-between flex-wrap gap-2">
-            <div className="text-xs" style={{ color: 'var(--muted)' }}>Turn your <b>{d.active_count}</b> active markets into a live deals post →</div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs" style={{ color: 'var(--faint)' }}>deals</span>
-              <button className="mini" onClick={() => setDealCount((n) => Math.max(3, n - 1))}>−</button>
-              <b style={{ minWidth: 18, textAlign: 'center', display: 'inline-block' }}>{dealCount}</b>
-              <button className="mini" onClick={() => setDealCount((n) => Math.min(10, n + 1))}>+</button>
-              {dealGroup && <button className="btn btn-sm btn-ghost" onClick={genDeals} disabled={dealBusy} title="Pull fresh deals from your active stores"><Icon name="bolt" size={12} /> Refresh</button>}
-              {dealGroup && <button className="btn btn-sm btn-ghost" onClick={clearDeals} style={{ color: 'var(--danger)' }} title="Remove this deals post from the queue"><Icon name="x" size={12} /> Clear</button>}
-              <button className="btn btn-sm" onClick={genDeals} disabled={dealBusy || !setQueue}>{dealBusy ? <Spinner size={12} /> : <Icon name="bolt" size={12} />} Generate deals post</button>
-            </div>
-          </div>
-          {dealGroup && (
-            <div className="mt-3">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="prog-badge">✓ {dealGroup.products.length} deals → Post to IG</span>
-                <span className="flex-1" />
-                <button className="btn btn-sm btn-ghost" onClick={previewDeals} disabled={dealPrev}>{dealPrev ? <Spinner size={12} /> : <Icon name="doc" size={12} />} Preview slides</button>
-              </div>
-              {dealGroup.caption && <div className="panel p-3 mb-2" style={{ background: 'var(--panel-2)' }}><div className="text-xs" style={{ color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{dealGroup.caption}</div></div>}
-              {/* rendered slides (the actual post) */}
-              {dealSlides && dealSlides.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto pb-2 mb-2">
-                  {dealSlides.map((u, i) => <img key={i} src={u} alt={`slide ${i + 1}`} style={{ height: 220, borderRadius: 10, border: '1px solid var(--border)', flex: 'none' }} />)}
-                </div>
-              )}
-              {/* deal cards */}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {dealGroup.products.map((it) => (
-                  <div key={it.asin} className="panel p-3" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                    <div className="flex items-center justify-between gap-2"><b style={{ fontSize: 14 }}>{it.brand}</b>{it.discount_pct != null && <span className="off-pill" style={{ background: 'var(--accent)', color: '#fff', fontSize: 11, fontWeight: 700, padding: '3px 8px', borderRadius: 7 }}>-{it.discount_pct}%</span>}</div>
-                    <div className="text-xs" style={{ color: 'var(--muted)', lineHeight: 1.3, maxHeight: 34, overflow: 'hidden' }}>{it.product_title}</div>
-                    {it.hook && <div className="text-xs" style={{ color: '#79c0ff' }}>💡 {it.hook}</div>}
-                    {it.coupon_code && <span className="style-tag" style={{ alignSelf: 'flex-start' }}>🎟️ {it.coupon_code}</span>}
-                    <div style={{ flex: 1 }} />
-                    <a className="btn btn-sm" href={it.affiliate_link} target="_blank" rel="noreferrer" style={{ justifyContent: 'center' }}><Icon name="ext" size={12} /> Cuelinks link</a>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
       </div>
 
       {/* markets catalogue */}
@@ -2015,6 +1940,7 @@ function CuelinksPanel({ say, setQueue }) {
 function AttributionPanel({ active, say, setQueue }) {
   return (
     <div className="mb-24 flex flex-col gap-4">
+      <MyShopifyPanel say={say} setQueue={setQueue} />
       <CuelinksPanel say={say} setQueue={setQueue} />
       <NetworksSection say={say} />
     </div>

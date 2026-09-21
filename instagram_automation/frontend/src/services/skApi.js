@@ -90,6 +90,20 @@ export default {
       ...(opts.brands && opts.brands.length ? { brands: opts.brands.join(',') } : {}),
       ...(opts.attrs && opts.attrs.length ? { attrs: opts.attrs.join(',') } : {}),
     } }).then(data),
+  // My Store — the owner's OWN Shopify store as a first-party product source
+  myStoreStatus:       () => sk.get('/mystore/status').then(data),
+  myStoreCollections:  () => sk.get('/mystore/collections').then(data),
+  myStoreGenerate:     (opts = {}) => sk.get('/mystore/generate', { params: {
+      products_per_run: opts.count || 8,
+      ...(opts.q ? { q: opts.q } : {}),
+      ...(opts.collection ? { collection: opts.collection } : {}),
+      ...(opts.min_rating != null ? { min_rating: opts.min_rating } : {}),
+      ...(opts.price_max != null ? { price_max: opts.price_max } : {}),
+      ...(opts.content && opts.content !== 'auto' ? { content: opts.content } : {}),
+      ...(opts.audience ? { audience: opts.audience } : {}),
+      ...(opts.brands && opts.brands.length ? { brands: opts.brands.join(',') } : {}),
+      ...(opts.attrs && opts.attrs.length ? { attrs: opts.attrs.join(',') } : {}),
+    } }).then(data),
   cuelinksRefresh:     () => sk.post('/cuelinks/campaigns/refresh').then(data),   // enrich markets with live payout/EPC/status
   cuelinksPing:        () => sk.post('/cuelinks/ping').then(data),
   cuelinksConvert:     (url) => sk.post('/cuelinks/convert', { url }).then(data),

@@ -28,69 +28,39 @@ from utils.logger import log
 
 # ── the catalog: the markets a shopper-facing affiliate actually wants, via Cuelinks ──────────
 # commission = typical payout % (indicative); aov = average-order-value band (₹); cookie = days.
+# ONLY the stores we can actually SCRAPE real products from (product photos + prices). Everything
+# else was deals-only (no product photo) and has been removed — this panel is products-only now.
+#   • flipkart → Flipkart product scrape (official JSON via premium proxy)
+#   • boAt / Noise / Mamaearth → the merchant's PUBLIC Shopify feed (/products.json) — verified live
 MARKETS: list[dict] = [
-    {"id": "flipkart",   "name": "Flipkart",         "category": "Marketplace", "commission": 6.0,  "aov": "₹1k–3k",  "cookie": 30, "note": "Widest catalogue — electronics, home, fashion."},
-    {"id": "myntra",     "name": "Myntra",           "category": "Fashion",     "commission": 7.0,  "aov": "₹1.2k–3k","cookie": 30, "note": "Fashion-first, high AOV, strong for this niche."},
-    {"id": "ajio",       "name": "AJIO",             "category": "Fashion",     "commission": 8.0,  "aov": "₹1k–2.5k","cookie": 30, "note": "Trend-led fashion, frequent deep deals."},
-    {"id": "nykaa",      "name": "Nykaa",            "category": "Beauty",      "commission": 7.0,  "aov": "₹800–2k", "cookie": 30, "note": "Beauty & cosmetics leader; loyal repeat buyers."},
-    {"id": "tatacliq",   "name": "Tata CLiQ",        "category": "Marketplace", "commission": 5.0,  "aov": "₹1.5k–4k","cookie": 30, "note": "Premium electronics + luxury fashion."},
-    {"id": "meesho",     "name": "Meesho",           "category": "Marketplace", "commission": 5.0,  "aov": "₹300–900", "cookie": 30, "note": "Value shoppers, huge volume, low AOV."},
-    {"id": "lenskart",   "name": "Lenskart",         "category": "Eyewear",     "commission": 10.0, "aov": "₹1.2k–3k","cookie": 30, "note": "Eyewear — very high commission %."},
-    {"id": "mamaearth",  "name": "Mamaearth",        "category": "Beauty",      "commission": 11.0, "aov": "₹600–1.5k","cookie": 30,"note": "D2C skincare — top payout, content-friendly."},
-    {"id": "boat",       "name": "boAt",             "category": "Electronics", "commission": 8.0,  "aov": "₹1k–3k",  "cookie": 30, "note": "Audio & wearables — young audience."},
-    {"id": "noise",      "name": "Noise",            "category": "Electronics", "commission": 8.0,  "aov": "₹1.5k–4k","cookie": 30, "note": "Smartwatches & buds — strong Reels fit."},
-    {"id": "croma",      "name": "Croma",            "category": "Electronics", "commission": 2.5,  "aov": "₹3k–30k", "cookie": 30, "note": "Big-ticket electronics; low % but high AOV."},
-    {"id": "reliancedigital","name":"Reliance Digital","category":"Electronics","commission": 2.5,  "aov": "₹3k–40k", "cookie": 30, "note": "Appliances + electronics, large baskets."},
-    {"id": "firstcry",   "name": "FirstCry",         "category": "Baby",        "commission": 8.0,  "aov": "₹800–2k", "cookie": 30, "note": "Baby & kids — high repeat rate."},
-    {"id": "pharmeasy",  "name": "PharmEasy",        "category": "Pharmacy",    "commission": 6.0,  "aov": "₹700–1.8k","cookie": 30,"note": "Health & wellness essentials."},
-    {"id": "pepperfry",  "name": "Pepperfry",        "category": "Home",        "commission": 8.0,  "aov": "₹3k–15k", "cookie": 30, "note": "Furniture & decor — high AOV, high payout."},
-    {"id": "decathlon",  "name": "Decathlon",        "category": "Sports",      "commission": 6.0,  "aov": "₹900–3k", "cookie": 30, "note": "Sports & fitness gear — broad appeal."},
-    {"id": "bigbasket",  "name": "BigBasket",        "category": "Grocery",     "commission": 4.0,  "aov": "₹800–2k", "cookie": 30, "note": "Grocery — frequent, habitual purchases."},
-    {"id": "wow",        "name": "WOW Skin Science", "category": "Beauty",      "commission": 10.0, "aov": "₹600–1.4k","cookie": 30,"note": "D2C skincare — strong influencer pull."},
-    {"id": "snapdeal",   "name": "Snapdeal",         "category": "Marketplace", "commission": 6.0,  "aov": "₹400–1k", "cookie": 30, "note": "Value marketplace, budget audience."},
-    {"id": "makemytrip", "name": "MakeMyTrip",       "category": "Travel",      "commission": 4.0,  "aov": "₹5k–25k", "cookie": 30, "note": "Travel — per-booking payout, huge AOV."},
-    {"id": "adidas",     "name": "adidas",           "category": "Fashion",     "commission": 9.0,  "aov": "₹2k–6k",  "cookie": 30, "note": "Brand store — premium sportswear."},
-    {"id": "puma",       "name": "PUMA",             "category": "Fashion",     "commission": 9.0,  "aov": "₹1.5k–5k","cookie": 30, "note": "Brand store — sneakers & apparel."},
-    {"id": "urbanic",    "name": "Urbanic",          "category": "Fashion",     "commission": 10.0, "aov": "₹900–2.2k","cookie": 30,"note": "Gen-Z fast fashion — Reels native."},
-    {"id": "swiggy",     "name": "Swiggy Instamart", "category": "Grocery",     "commission": 4.0,  "aov": "₹400–1.2k","cookie": 30,"note": "Quick-commerce essentials."},
+    {"id": "flipkart",  "name": "Flipkart",  "category": "Marketplace", "commission": 6.0,  "aov": "₹1k–3k",   "cookie": 30, "note": "Widest catalogue — electronics, home, fashion (scraped)."},
+    {"id": "boat",      "name": "boAt",      "category": "Electronics", "commission": 8.0,  "aov": "₹1k–3k",   "cookie": 30, "note": "Audio & wearables — Shopify product feed."},
+    {"id": "noise",     "name": "Noise",     "category": "Electronics", "commission": 8.0,  "aov": "₹1.5k–4k", "cookie": 30, "note": "Smartwatches & buds — Shopify product feed."},
+    {"id": "mamaearth", "name": "Mamaearth", "category": "Beauty",      "commission": 11.0, "aov": "₹600–1.5k","cookie": 30, "note": "D2C skincare — Shopify product feed."},
 ]
 _CATEGORIES = sorted({m["category"] for m in MARKETS})
 _IDS = {m["id"] for m in MARKETS}
 
-# ── which ENGINE backs each market's "Generate posts" ────────────────────────────────────────
-# Some markets yield REAL product photos + prices, others only store-wide deal coupons:
+# ── which SCRAPE ENGINE backs each store ─────────────────────────────────────────────────────
 #   • flipkart → Flipkart product scrape (official JSON via premium proxy)
-#   • shopify  → the merchant's PUBLIC Shopify feed (/products.json) — boAt, Noise, Mamaearth…
-#   • deals    → Cuelinks store coupons rendered as branded deal cards (no per-product photo)
-# Verified live: Flipkart scrapes; boat-lifestyle.com/gonoise.com/mamaearth.in serve products.json;
-# the big marketplaces (Nykaa/Myntra/AJIO/Firstcry/Pepperfry) block every product path → deals.
+#   • shopify  → the merchant's PUBLIC Shopify feed (/products.json) — boAt, Noise, Mamaearth
 _ENGINES: dict[str, tuple[str, str]] = {
     "flipkart":  ("flipkart", "flipkart.com"),
     "boat":      ("shopify",  "boat-lifestyle.com"),
     "noise":     ("shopify",  "gonoise.com"),
     "mamaearth": ("shopify",  "mamaearth.in"),
 }
-_DOMAINS: dict[str, str] = {
-    "myntra": "myntra.com", "ajio": "ajio.com", "nykaa": "nykaa.com", "tatacliq": "tatacliq.com",
-    "meesho": "meesho.com", "lenskart": "lenskart.com", "croma": "croma.com",
-    "reliancedigital": "reliancedigital.in", "firstcry": "firstcry.com", "pharmeasy": "pharmeasy.in",
-    "pepperfry": "pepperfry.com", "decathlon": "decathlon.in", "bigbasket": "bigbasket.com",
-    "wow": "wowskinscience.com", "snapdeal": "snapdeal.com", "makemytrip": "makemytrip.com",
-    "adidas": "adidas.co.in", "puma": "in.puma.com", "urbanic": "urbanic.com", "swiggy": "swiggy.com",
-}
 
 
 def _market_engine(mid: str) -> str:
-    return _ENGINES.get(mid, ("deals", ""))[0]
+    return _ENGINES.get(mid, ("", ""))[0]
 
 
 def _market_domain(mid: str) -> str:
-    if mid in _ENGINES:
-        return _ENGINES[mid][1]
-    return _DOMAINS.get(mid, "")
+    return _ENGINES.get(mid, ("", ""))[1]
 
 
-# bake engine/domain/capability onto the curated catalog so the frontend can badge each store.
+# bake engine/domain/capability onto the catalog so the frontend can badge each store.
 for _m in MARKETS:
     _m["engine"] = _market_engine(_m["id"])
     _m["domain"] = _market_domain(_m["id"])

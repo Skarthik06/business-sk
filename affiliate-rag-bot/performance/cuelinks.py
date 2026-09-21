@@ -160,35 +160,6 @@ def _best_campaign_match(name: str, results: list[dict]) -> dict | None:
     return best if best_score >= 30 else None
 
 
-_LOGO_CACHE: dict[str, str] = {}
-
-
-def campaign_logo(name: str) -> str:
-    """The OFFICIAL Cuelinks merchant logo for a store name (from the campaign `image` field —
-    real branded artwork on cdn0.cuelinks.com, e.g. Nykaa/Ajio/Tata Cliq). This is the ONE
-    product-level image source Cuelinks exposes: there is no product datafeed (all feed/product
-    endpoints 404), and the merchant sites block scraping AND og:image — so deal cards use this
-    real logo instead of a generic favicon. Cached per store; '' when only a placeholder exists."""
-    key = _norm(name)
-    if not key:
-        return ""
-    if key in _LOGO_CACHE:
-        return _LOGO_CACHE[key]
-    url = ""
-    try:
-        resp = requests.get(f"{_API_BASE}/campaigns", headers=_headers(), timeout=_TIMEOUT,
-                            params={"q": name, "per_page": 6, "page": 1})
-        if resp.ok:
-            c = _best_campaign_match(name, _records(resp.json())) or {}
-            img = (c.get("image") or "").strip()
-            if img and "Placeholder" not in img:
-                url = img
-    except Exception as e:
-        log.warning(f"[cuelinks] campaign_logo failed for {name!r}: {e}")
-    _LOGO_CACHE[key] = url
-    return url
-
-
 def fetch_campaigns(q: str = "", limit: int = 20) -> dict:
     """GET /campaigns — raw search by name (for a live merchant lookup). Returns {ok, markets:[...]}."""
     if not configured():

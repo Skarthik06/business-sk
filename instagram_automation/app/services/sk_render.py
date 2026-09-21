@@ -257,16 +257,9 @@ def _brand_marks(products: List[Dict[str, Any]], P: Dict[str, str], *, limit: in
     brands = _uniq_brands(products, limit)
     if not brands:
         return ""
-    # map each brand → its OFFICIAL Cuelinks logo (if the deal product carries one)
-    official = {}
-    for p in products or []:
-        b = _brand_key(_brand(p))
-        u = _official_logo(p)
-        if b and u and b not in official:
-            official[b] = u
     cells = []
     for b in brands:
-        url = official.get(_brand_key(b)) or _brand_logo_url(b)
+        url = _brand_logo_url(b)
         # The wordmark ALWAYS renders; a real logo fades in ONLY once it successfully loads
         # (opacity:0 → 1 on load) and removes itself on error — so a failed/slow logo never
         # shows a broken-image icon, it just falls back to the clean wordmark.
@@ -1113,17 +1106,9 @@ def _savings2(p, img, P, handle):
     return _page2(P, inner, handle=handle)
 
 
-def _official_logo(p: Dict[str, Any]) -> str:
-    """The OFFICIAL Cuelinks merchant logo carried on the deal product (real branded artwork
-    from cdn0.cuelinks.com). Preferred over the generic Clearbit favicon when present."""
-    u = str((p or {}).get("merchant_logo") or "").strip()
-    return u if u.startswith("http") else ""
-
-
-def _deal_logo(brand: str, P: Dict[str, str], *, big: bool = False, logo_url: str = "") -> str:
-    """A single merchant logo block with a serif wordmark fallback — for deal slides. Prefers the
-    OFFICIAL Cuelinks store logo (`logo_url`) and falls back to Clearbit, then the wordmark."""
-    url = logo_url or _brand_logo_url(brand)
+def _deal_logo(brand: str, P: Dict[str, str], *, big: bool = False) -> str:
+    """A single merchant logo block (Clearbit) with a serif wordmark fallback — for deal slides."""
+    url = _brand_logo_url(brand)
     logo = (f'<img src="{url}" loading="eager" style="opacity:0" onload="this.style.opacity=1" onerror="this.remove()">') if url else ""
     h, mw, fs = (118, 220, 46) if big else (76, 132, 34)
     return (f'<div class="brandmark" style="height:{h}px;min-width:{mw}px">'
@@ -1148,7 +1133,7 @@ def _deal_card2(p, P, handle):
   <div class="placard"><span class="kick">Deal Drop</span><span class="code">SK · CUELINKS</span></div>
   <span class="spark" style="top:150px;right:110px">✦</span>
   <div style="position:absolute;left:60px;right:60px;top:180px;z-index:2;display:flex;flex-direction:column;gap:26px;align-items:flex-start">
-    {_deal_logo(brand, P, big=True, logo_url=_official_logo(p))}
+    {_deal_logo(brand, P, big=True)}
     {big_off}
     <div class="pname" style="font-size:40px;max-width:920px">{hook}</div>
     {coupon_teaser}

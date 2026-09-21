@@ -1042,9 +1042,10 @@ def cuelinks_deal_merchants() -> dict:
     return {"ok": bool(res.get("ok")), **data, "cached": False}
 
 
-async def _build_product_items(picks: list, content: Optional[str], source: str) -> list:
-    """Shared PRODUCT pipeline (Flipkart + Shopify): AI compose → flatten product onto the pin →
-    Cuelinks-monetise the product URL → content item. Products carry a REAL image_url."""
+async def _build_product_items(picks: list, content: Optional[str], source: str, *, convert: bool = True) -> list:
+    """Shared PRODUCT pipeline (Flipkart + Shopify + own store): AI compose → flatten product onto
+    the pin → (optionally) Cuelinks-monetise the product URL → content item. Products carry a REAL
+    image_url. `convert=False` keeps the raw URL (used for the owner's OWN store — direct sale)."""
     from chains.compose import compose_pins
     from performance import cuelinks
     pins = await compose_pins(picks, [], [], [], count=len(picks), content_style=(content or "auto"))
@@ -1064,11 +1065,14 @@ async def _build_product_items(picks: list, content: Optional[str], source: str)
         pin["product_url"] = prod.get("url", "")
         pin["category"] = prod.get("category", "") or source
         url = prod.get("url", "")
-        try:
-            conv = cuelinks.convert_link(url) if url else {}
-            pin["affiliate_link"] = conv.get("tracking_url") or url
-        except Exception:
-            pin["affiliate_link"] = url
+        if convert:
+            try:
+                conv = cuelinks.convert_link(url) if url else {}
+                pin["affiliate_link"] = conv.get("tracking_url") or url
+            except Exception:
+                pin["affiliate_link"] = url
+        else:
+            pin["affiliate_link"] = url                    # own store → direct link, no conversion
         it = _content_item(pin)
         it["source"] = source
         items.append(it)
@@ -1134,7 +1138,6 @@ async def _build_deal_items(merchants: list, count: int, cats: list, *, prefer_a
             "coupon_code": d.get("code", ""),
             "affiliate_link": d.get("url", ""),
             "image_url": "",                              # deals have no product photo → brand-card render
-            "merchant_logo": cuelinks.campaign_logo(merchant),  # OFFICIAL Cuelinks store logo (real branded art)
             "deal": True,
             "source": _re.sub(r"[^a-z0-9]", "", merchant.lower()) or "cuelinks",
             "hook": hooks[i] if i < len(hooks) else "",
@@ -1293,6 +1296,79 @@ async def cuelinks_store_generate(
     return JSONResponse(status_code=200, content={
         "ok": len(items) > 0, "status": "done" if items else "empty", "engine": engine,
         "market": mk.get("id"), "store": name, "query": query, "count": len(items), "items": items,
+        "caption": (items[0].get("summary") if items else ""),
+        "hashtags": (items[0].get("hashtags") if items else []),
+        "cover_title": (items[0].get("cover_title") if items else ""),
+        "cover_subtitle": (items[0].get("cover_subtitle") if items else ""),
+        "deduped": len(dups)})
+
+
+# ── My Store — the owner's OWN Shopify store as a first-party product source ───────────────────
+@app.get("/api/mystore/status")
+def mystore_status() -> dict:
+    """Connection status for the My Store panel (connected? shop name? product count?)."""
+    from tools import my_shopify
+    return my_shopify.status()
+
+
+@app.get("/api/mystore/collections")
+def mystore_collections() -> dict:
+    """The owner's Shopify collections — for the panel's collection dropdown."""
+    from tools import my_shopify
+    return my_shopify.collections()
+
+
+@app.get("/api/mystore/generate")
+async def mystore_generate(
+    q: Optional[str] = Query(default=None, max_length=80, description="Search within YOUR store's catalogue."),
+    collection: Optional[str] = Query(default=None, description="Restrict to one collection id."),
+    products_per_run: int = Query(default=8, ge=2, le=10),
+    min_rating: Optional[float] = Query(default=None, ge=0, le=5),
+    price_max: Optional[int] = Query(default=None, ge=0),
+    content: Optional[str] = Query(default=None),
+    audience: Optional[str] = Query(default=None),
+    brands: Optional[str] = Query(default=None),
+    attrs: Optional[str] = Query(default=None),
+) -> JSONResponse:
+    """MY STORE product engine — pull the owner's OWN Shopify products (Admin API) → rank to the
+    Amazon-style filters → dedup → AI copy → queue-ready posts. Links stay RAW (direct sale)."""
+    from tools import my_shopify
+    from tools.amazon import _finalize_pool
+    from rag.dedup import dedup_store
+
+    if not my_shopify.configured():
+        return JSONResponse(status_code=200, content={"ok": False, "status": "not_connected", "items": [],
+                            "note": "Connect your store first (add SHOPIFY_STORE_DOMAIN + SHOPIFY_ADMIN_TOKEN)."})
+    aud = (audience or "").strip().lower()
+    query = (q or "").strip()
+    query = f"{aud} {query}".strip() if aud and query and aud not in query.lower() else query
+    sc = my_shopify.scrape_products(query=query, count=products_per_run, collection_id=(collection or ""), max_pages=5)
+    if not sc.get("ok"):
+        return JSONResponse(status_code=200, content={"ok": False, "status": "error", "source": "mystore",
+                            "error": sc.get("error", "store fetch failed"), "items": []})
+    raw = sc.get("items", [])
+    quality: dict = {}
+    if min_rating is not None:
+        quality["min_rating"] = min_rating
+    if price_max is not None:
+        quality["price_max"] = price_max
+    if brands and brands.strip():
+        quality["brands"] = [b.strip() for b in brands.split(",") if b.strip()][:6]
+    if attrs and attrs.strip():
+        quality["attrs"] = [a.strip() for a in attrs.split(",") if a.strip()][:12]
+    pool = _finalize_pool(raw, quality, cap=40, need=products_per_run)
+    try:
+        new, dups = dedup_store.filter_unseen(pool)
+    except Exception:
+        new, dups = pool, []
+    picks = new[:products_per_run]
+    if not picks:
+        return JSONResponse(status_code=200, content={"ok": True, "status": "empty", "source": "mystore", "items": [],
+                            "note": "No fresh products (all recently posted, add products, or nothing matched)."})
+    items = await _build_product_items(picks, content, "mystore", convert=False)
+    return JSONResponse(status_code=200, content={
+        "ok": len(items) > 0, "status": "done" if items else "empty", "source": "mystore",
+        "query": query, "count": len(items), "items": items,
         "caption": (items[0].get("summary") if items else ""),
         "hashtags": (items[0].get("hashtags") if items else []),
         "cover_title": (items[0].get("cover_title") if items else ""),
