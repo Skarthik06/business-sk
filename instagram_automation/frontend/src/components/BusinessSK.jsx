@@ -1644,7 +1644,7 @@ function StoreGenerate({ markets, say, setQueue }) {
   const [slides, setSlides] = useState(null);
   const [prev, setPrev] = useState(false);
 
-  useEffect(() => { setQ(''); setDims([]); setPicks({}); setGroup(null); setSlides(null); }, [sel]);
+  useEffect(() => { setQ(''); setDims([]); setPicks({}); setGroup(null); setSlides(null); setPushed(false); }, [sel]);
   useEffect(() => {
     if (!canProd) { setDims([]); return; }
     const s = q.trim();
@@ -1660,15 +1660,33 @@ function StoreGenerate({ markets, say, setQueue }) {
   const brandSel = (brandDim ? picks[brandDim] : []).filter(Boolean);
   const attrSel = Object.entries(picks).filter(([k]) => !isBrand(k)).flatMap(([, v]) => v).filter(Boolean);
 
+  const [pushing, setPushing] = useState(false);
+  const [pushed, setPushed] = useState(false);
   const previewSlides = async () => {
     if (!group) return;
     setPrev(true); setSlides(null);
     try { const res = await api.skRenderPreview(group.products.slice(0, 10), { category: group.category }); setSlides(res.images || res.local || []); if (!(res.images || []).length) say?.('Rendered but no images returned', 'error'); }
     catch { say?.('Preview render failed', 'error'); } finally { setPrev(false); }
   };
+  // Pipeline: push these products INTO the owner's Shopify store, then link the IG posts to the store page.
+  const pushToStore = async () => {
+    if (!group) return;
+    setPushing(true);
+    try {
+      const r = await skApi.myStorePush(group.products, true);
+      if (r.ok) {
+        const byId = Object.fromEntries((r.results || []).filter((x) => x.ok && x.shopify_url).map((x) => [x.asin, x.shopify_url]));
+        const ng = { ...group, products: group.products.map((p) => (byId[p.asin] ? { ...p, affiliate_link: byId[p.asin], store_url: byId[p.asin] } : p)) };
+        setGroup(ng);
+        setQueue && setQueue((prevQ) => (prevQ || []).map((x) => (x.id === ng.id ? ng : x)));
+        setPushed(true);
+        say?.(`Pushed ${r.created}/${r.total} into your Shopify store — posts now link to your store`);
+      } else say?.(r.error || 'Push failed — is My Store write connected?', 'error');
+    } catch { say?.('Push to store failed', 'error'); } finally { setPushing(false); }
+  };
   const gen = async () => {
     if (!mk) return say?.('Pick a store first', 'error');
-    setRunning(true); setSlides(null);
+    setRunning(true); setSlides(null); setPushed(false);
     try {
       const opts = { count, content: style, goal, audience: aud };
       if (canProd) { opts.q = q.trim(); opts.brands = brandSel; opts.attrs = attrSel; if (minRating) opts.min_rating = minRating; if (priceMax) opts.price_max = priceMax; }
@@ -1752,7 +1770,9 @@ function StoreGenerate({ markets, say, setQueue }) {
             <div>
               <div className="flex items-center gap-2 mb-2 flex-wrap">
                 <span className="prog-badge">✓ {group.products.length} {canProd ? 'products' : 'deals'} → Post to IG</span>
+                {pushed && <span className="style-tag" style={{ color: '#3fb950' }}>🏪 in your store · posts link here</span>}
                 <span className="flex-1" />
+                <button className="btn btn-sm btn-ghost" onClick={pushToStore} disabled={pushing} title="Create these as products in your Shopify store; the IG posts will then link to your store page">{pushing ? <Spinner size={12} /> : <Icon name="ext" size={12} />} Push to my store</button>
                 <button className="btn btn-sm btn-ghost" onClick={previewSlides} disabled={prev} title="Render the carousel and see the actual slides">{prev ? <Spinner size={12} /> : <Icon name="doc" size={12} />} Preview slides</button>
               </div>
               {group.caption && <div className="panel p-3 mb-2" style={{ background: 'var(--panel-2)' }}><div className="text-xs" style={{ color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{group.caption}</div></div>}

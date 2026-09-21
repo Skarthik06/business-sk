@@ -93,6 +93,8 @@ export default {
   // My Store — the owner's OWN Shopify store as a first-party product source
   myStoreStatus:       () => sk.get('/mystore/status').then(data),
   myStoreCollections:  () => sk.get('/mystore/collections').then(data),
+  // Pipeline — push generated products INTO your Shopify store; returns each new store URL
+  myStorePush:         (products, link_to_store = true) => sk.post('/mystore/push', { products, link_to_store }).then(data),
   myStoreGenerate:     (opts = {}) => sk.get('/mystore/generate', { params: {
       products_per_run: opts.count || 8,
       ...(opts.q ? { q: opts.q } : {}),

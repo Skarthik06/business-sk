@@ -227,6 +227,61 @@ def _admin_products(query: str, count: int, collection_id: str, max_pages: int) 
         return {"ok": False, "error": str(e)[:140], "items": [it for _s, it in scored][:count]}
 
 
+def _price_num(s) -> float:
+    d = re.sub(r"[^\d.]", "", str(s or ""))
+    try:
+        return float(d) if d else 0.0
+    except Exception:
+        return 0.0
+
+
+def create_product(p: dict) -> dict:
+    """Create a product in the owner's Shopify store from a generated product dict (Studio / Flipkart /
+    boAt / curated). The DESTINATION affiliate link is stored as a tag `aff:<link>` and a body button,
+    so the store page can link out to it. Requires a write token. Returns {ok,id,handle,url,admin_url}."""
+    if not (_domain() and _has_token()):
+        return {"ok": False, "error": "My Store write not configured (need SHOPIFY_ADMIN_TOKEN)."}
+    title = (p.get("product_title") or p.get("title") or "").strip()[:255]
+    if not title:
+        return {"ok": False, "error": "no title"}
+    aff = (p.get("affiliate_link") or p.get("url") or "").strip()
+    img = (p.get("image_url") or p.get("image") or "").strip()
+    price = _price_num(p.get("price"))
+    mrp = _price_num(p.get("orig_price"))
+    tags = ["sk-pipeline", "source:" + (p.get("source") or "sk")]
+    if aff:
+        tags.append("aff:" + aff)
+    body = str(p.get("summary") or p.get("hook") or "")
+    if aff:
+        body += f'<p><a href="{aff}" target="_blank" rel="nofollow sponsored">Buy now →</a></p>'
+    variant = {"price": f"{price:.2f}" if price else "0.00"}
+    if mrp and mrp > price:
+        variant["compare_at_price"] = f"{mrp:.2f}"
+    payload = {"product": {
+        "title": title, "body_html": body,
+        "vendor": str(p.get("brand") or "")[:80],
+        "product_type": str(p.get("category") or "")[:80],
+        "status": "active", "tags": ", ".join(tags),
+        "variants": [variant],
+    }}
+    if img:
+        payload["product"]["images"] = [{"src": img}]
+    try:
+        r = requests.post(f"{_base()}/products.json", headers={**_headers(), "Content-Type": "application/json"},
+                          json=payload, timeout=30)
+        if not r.ok:
+            return {"ok": False, "error": f"Shopify {r.status_code}: {r.text[:160]}"}
+        prod = r.json().get("product", {}) or {}
+        handle = prod.get("handle", "")
+        store = _domain().split(".")[0]
+        return {"ok": True, "id": str(prod.get("id", "")), "handle": handle,
+                "url": f"https://{_domain()}/products/{handle}" if handle else "",
+                "admin_url": f"https://admin.shopify.com/store/{store}/products/{prod.get('id')}"}
+    except Exception as e:
+        log.warning(f"[my_shopify] create_product failed: {e}")
+        return {"ok": False, "error": str(e)[:160]}
+
+
 def scrape_products(query: str = "", count: int = 8, collection_id: str = "", max_pages: int = 5) -> dict:
     """Pull the owner's OWN products. Uses the Admin API when a token is set (private store), else the
     public /products.json feed. source='mystore'. Same shape as the scrapers. Never raises."""

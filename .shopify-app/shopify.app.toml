@@ -1,0 +1,16 @@
+client_id = "ac64b30d6d3b6aa5741d2bed2b1ed30a"
+name = "Business-SK Poster"
+application_url = "https://140-238-247-18.nip.io"
+embedded = false
+
+[access_scopes]
+scopes = "read_products,write_products"
+use_legacy_install_flow = true
+
+[auth]
+redirect_urls = [
+  "https://140-238-247-18.nip.io/shopify/callback"
+]
+
+[webhooks]
+api_version = "2026-07"

@@ -1379,6 +1379,31 @@ async def mystore_generate(
         "deduped": len(dups)})
 
 
+class MyStorePushReq(BaseModel):
+    model_config = {"extra": "forbid"}
+    products:      list[dict]
+    link_to_store: bool = True      # rewrite each post link to the new Shopify product page
+
+
+@app.post("/api/mystore/push")
+def mystore_push(body: MyStorePushReq) -> dict:
+    """PIPELINE — push generated products INTO the owner's Shopify store (create each as a product,
+    affiliate link stored on it). With link_to_store, returns each item's new Shopify product URL so
+    the IG post links to YOUR store (which links out to the affiliate). Requires a write token."""
+    from tools import my_shopify
+    if not (my_shopify.configured() and my_shopify._has_token()):
+        return {"ok": False, "error": "My Store write not connected — add SHOPIFY_ADMIN_TOKEN.", "results": []}
+    results, created = [], 0
+    for p in (body.products or []):
+        res = my_shopify.create_product(p)
+        row = {"asin": p.get("asin"), "ok": bool(res.get("ok")), "shopify_url": res.get("url", ""),
+               "admin_url": res.get("admin_url", ""), "error": res.get("error", "")}
+        if res.get("ok"):
+            created += 1
+        results.append(row)
+    return {"ok": created > 0, "created": created, "total": len(body.products or []), "results": results}
+
+
 class CuelinksConvertReq(BaseModel):
     model_config = {"extra": "forbid"}
     url:        str
