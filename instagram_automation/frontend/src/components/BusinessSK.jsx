@@ -217,6 +217,22 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
     setQueue((q) => (q || []).filter((g) => g.id !== gid));
     say('Post discarded — it won’t be posted or added to the store');
   };
+  // Pipeline: push a whole post's products INTO the owner's Shopify store, then link the IG post there.
+  const [pushGid, setPushGid] = useState(null);
+  const pushGroupToStore = async (g) => {
+    setPushGid(g.id);
+    try {
+      const r = await skApi.myStorePush(g.products, true);
+      if (r.ok) {
+        const byId = Object.fromEntries((r.results || []).filter((x) => x.ok && x.shopify_url).map((x) => [x.asin, x.shopify_url]));
+        const upd = (list) => (list || []).map((x) => (x.id === g.id
+          ? { ...x, pushed: true, products: x.products.map((p) => (byId[p.asin] ? { ...p, affiliate_link: byId[p.asin], store_url: byId[p.asin] } : p)) }
+          : x));
+        setGroups(upd); setQueue(upd);
+        say(`Pushed ${r.created}/${r.total} into your Shopify store — this post now links to your store`);
+      } else say(r.error || 'Push failed — connect My Store first (needs the write token)', 'error');
+    } catch { say('Push to store failed', 'error'); } finally { setPushGid(null); }
+  };
 
   const run = async () => {
     if (!jobs.length) return say('Select a category or type a product to search', 'error');
@@ -460,7 +476,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
           {total === 0 ? <Empty text="No new products (deduped). Try other subcategories or lower the quality filters." /> : (
             (groups.filter((g) => g.products.length)).map((g) => (
               <div key={g.id} className="mb-6">
-                <div className="group-head"><span className="chip-sk on" style={{ textTransform: 'capitalize' }}>{g.label}</span><span className="text-xs" style={{ color: 'var(--faint)' }}>{g.products.length} products · 1 post · 1 caption</span>{g.content_style && g.content_style !== 'UNKNOWN' && <span className="style-tag">{g.content_style.replace(/_/g, ' ').toLowerCase()}</span>}{g.products[0]?.content_tokens?.total ? <span className="style-tag" title={`AI used ${g.products[0].content_tokens.total} tokens (${g.products[0].content_tokens.input}→${g.products[0].content_tokens.output}) to write this post`}>🧠 {g.products[0].content_tokens.total} tok</span> : null}{(g.warnings || []).length > 0 && <span className="warn-tag" title={g.warnings.join('\n')}>⚠ {g.warnings.length}</span>}<span className="flex-1" /><button className="btn btn-sm btn-ghost" onClick={() => discardGroup(g.id)} title="Discard this whole post — it won’t be posted or added to the store" style={{ color: 'var(--danger)' }}><Icon name="x" size={12} /> Discard post</button></div>
+                <div className="group-head"><span className="chip-sk on" style={{ textTransform: 'capitalize' }}>{g.label}</span><span className="text-xs" style={{ color: 'var(--faint)' }}>{g.products.length} products · 1 post · 1 caption</span>{g.content_style && g.content_style !== 'UNKNOWN' && <span className="style-tag">{g.content_style.replace(/_/g, ' ').toLowerCase()}</span>}{g.products[0]?.content_tokens?.total ? <span className="style-tag" title={`AI used ${g.products[0].content_tokens.total} tokens (${g.products[0].content_tokens.input}→${g.products[0].content_tokens.output}) to write this post`}>🧠 {g.products[0].content_tokens.total} tok</span> : null}{(g.warnings || []).length > 0 && <span className="warn-tag" title={g.warnings.join('\n')}>⚠ {g.warnings.length}</span>}{g.pushed && <span className="style-tag" style={{ color: '#3fb950' }}>🏪 in your store</span>}<span className="flex-1" /><button className="btn btn-sm btn-ghost" onClick={() => pushGroupToStore(g)} disabled={pushGid === g.id} title="Create these products in your Shopify store; this post will then link to your store page">{pushGid === g.id ? <Spinner size={12} /> : <Icon name="ext" size={12} />} Push to my store</button><button className="btn btn-sm btn-ghost" onClick={() => discardGroup(g.id)} title="Discard this whole post — it won’t be posted or added to the store" style={{ color: 'var(--danger)' }}><Icon name="x" size={12} /> Discard post</button></div>
                 {g.caption && (
                   <div className="panel p-3 mb-3" style={{ background: 'var(--panel-2)' }}>
                     <div className="flex items-center gap-2 mb-1"><span className="eyebrow">Carousel caption</span><span className="flex-1" /><button className="btn btn-sm btn-ghost" onClick={() => copy(g.caption + '\n\n' + (g.hashtags || []).map((h) => '#' + h).join(' '), 'Caption')}><Icon name="quote" size={12} /> Copy</button></div>
