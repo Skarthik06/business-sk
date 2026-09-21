@@ -22,11 +22,44 @@ _finalize_pool → dedup → compose → render → publish pipeline. Own-store 
 from __future__ import annotations
 
 import os
+import re
 
 import requests
 
 from utils.logger import log
 from tools import shopify_scrape
+
+# Affiliate-link curation: a My Store product can carry the DESTINATION affiliate link (e.g. a Nykaa/
+# Myntra link for a product you can't scrape) — put it in a product TAG like `aff:https://…` (also
+# accepts link:/buy:/url:), or just paste the URL into the product description. The post then links
+# there instead of your store page. This turns your Shopify store into a curation + image warehouse
+# for ANY unscrapable affiliate: upload the image once, set the link, and the engine posts it.
+_URL_RE = re.compile(r"https?://[^\s\"'<>)]+")
+_AFF_PREFIXES = ("aff:", "link:", "buy:", "url:", "go:")
+
+
+def _affiliate_link(tags: str, descr: str) -> str:
+    for t in re.split(r"[,\n]", tags or ""):
+        t = t.strip()
+        low = t.lower()
+        for pre in _AFF_PREFIXES:
+            if low.startswith(pre):
+                u = t[len(pre):].strip()
+                if u.startswith("http"):
+                    return u
+    m = _URL_RE.search(descr or "")
+    return m.group(0) if m else ""
+
+
+def _apply_aff(items: list) -> list:
+    """If a product carries an affiliate link (tag `aff:…` or a URL in its description), post links
+    there instead of the store page. Keeps the Shopify image + details."""
+    for it in items or []:
+        aff = _affiliate_link(it.get("tags", ""), it.get("descr", ""))
+        if aff:
+            it["url"] = aff
+            it["curated"] = True
+    return items
 
 _API_VERSION = "2024-10"
 _TIMEOUT = 15
@@ -140,7 +173,7 @@ def _admin_products(query: str, count: int, collection_id: str, max_pages: int) 
     try:
         for pg in range(1, max(1, min(max_pages, 8)) + 1):
             params = {"limit": 250, "page": pg, "status": "active",
-                      "fields": "id,title,handle,vendor,product_type,tags,images,variants"}
+                      "fields": "id,title,handle,vendor,product_type,tags,body_html,images,variants"}
             if collection_id:
                 params["collection_id"] = collection_id
             r = requests.get(f"{_base()}/products.json", headers=_headers(), timeout=_TIMEOUT, params=params)
@@ -182,11 +215,12 @@ def _admin_products(query: str, count: int, collection_id: str, max_pages: int) 
                     "discount_pct": disc, "rating": None, "reviews": 0, "bought_past_month": "", "badge": "",
                     "image": img, "url": f"https://{dom}/products/{handle}",
                     "brand": (p.get("vendor") or "").strip(), "source": "mystore",
+                    "tags": tag_s, "descr": (p.get("body_html") or "")[:2000],
                 }))
             if len(prods) < 250 or len(scored) >= count * 8:
                 break
         scored.sort(key=lambda x: x[0], reverse=True)
-        items = [it for _s, it in scored]
+        items = _apply_aff([it for _s, it in scored])
         return {"ok": True, "count": len(items), "items": items[: max(count * 4, count)]}
     except Exception as e:
         log.warning(f"[my_shopify] admin products failed: {e}")
@@ -205,4 +239,5 @@ def scrape_products(query: str = "", count: int = 8, collection_id: str = "", ma
     for it in res.get("items", []):
         it["source"] = "mystore"
         it["asin"] = "my_" + str(it.get("asin", "")).replace("shp_", "")
+    _apply_aff(res.get("items", []))
     return res

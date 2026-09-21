@@ -127,6 +127,7 @@ def scrape_products(domain: str, query: str = "", count: int = 8, max_pages: int
                     "discount_pct": disc, "rating": None, "reviews": 0, "bought_past_month": "", "badge": "",
                     "image": img, "url": f"{base}/products/{handle}",
                     "brand": (p.get("vendor") or "").strip(), "source": "shopify",
+                    "tags": tag_s, "descr": (p.get("body_html") or "")[:2000],   # for My Store affiliate-link extraction
                 }))
             if len(prods) < 250 or len(scored) >= count * 8:
                 break

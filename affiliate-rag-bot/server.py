@@ -1065,7 +1065,10 @@ async def _build_product_items(picks: list, content: Optional[str], source: str,
         pin["product_url"] = prod.get("url", "")
         pin["category"] = prod.get("category", "") or source
         url = prod.get("url", "")
-        if convert:
+        # convert: True=always Cuelinks-convert, False=never, "auto"=only curated affiliate links
+        # (own-store products stay a direct link; a curated Nykaa/Myntra link gets monetised).
+        do_convert = (convert is True) or (convert == "auto" and prod.get("curated"))
+        if do_convert:
             try:
                 conv = cuelinks.convert_link(url) if url else {}
                 pin["affiliate_link"] = conv.get("tracking_url") or url
@@ -1365,7 +1368,7 @@ async def mystore_generate(
     if not picks:
         return JSONResponse(status_code=200, content={"ok": True, "status": "empty", "source": "mystore", "items": [],
                             "note": "No fresh products (all recently posted, add products, or nothing matched)."})
-    items = await _build_product_items(picks, content, "mystore", convert=False)
+    items = await _build_product_items(picks, content, "mystore", convert="auto")
     return JSONResponse(status_code=200, content={
         "ok": len(items) > 0, "status": "done" if items else "empty", "source": "mystore",
         "query": query, "count": len(items), "items": items,
