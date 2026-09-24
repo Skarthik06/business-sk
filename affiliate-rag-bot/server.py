@@ -1042,75 +1042,28 @@ def cuelinks_deal_merchants() -> dict:
     return {"ok": bool(res.get("ok")), **data, "cached": False}
 
 
-# ── Residential scrape worker: the cloud coordinates, your PC/phone fetches ────────────────────
-# Amazon/Flipkart block datacenter IPs (this server). A worker on your PC/phone (residential IP)
-# polls this queue, fetches the page, and posts the HTML back — so the fetch leaves from an
-# UNBLOCKED IP. This is our own free "ScraperAPI": cloud = coordinator, your device = the proxy.
-import os as _os_scrape
-import time as _time
-import uuid as _uuid
-import threading as _threading
-import gzip as _gzip
-import base64 as _base64
-
-_SCRAPE_JOBS: dict = {}                 # job_id -> {url, kind, status, html, error, created}
-_SCRAPE_LOCK = _threading.Lock()
-_SCRAPE_WORKER = {"seen": 0.0}          # last time any worker polled/returned
-
-
-def _worker_token_ok(tok: str) -> bool:
-    want = (_os_scrape.getenv("SCRAPE_WORKER_TOKEN") or "").strip()
-    return (not want) or (tok == want)
-
-
-def _worker_online() -> bool:
-    return _SCRAPE_WORKER["seen"] > 0 and (_time.time() - _SCRAPE_WORKER["seen"]) < 40
+# ── Residential scrape worker (shared bus in tools/scrape_bus) ─────────────────────────────────
+# Amazon/Flipkart block datacenter IPs (this server). A worker on the user's PC/phone (residential
+# IP) polls the queue, fetches the page, and posts the HTML back — the fetch leaves an UNBLOCKED IP.
+# The bus is shared so BOTH the Cuelinks store-generate AND the legacy Amazon pipeline use it.
+from tools import scrape_bus
 
 
 def scrape_via_worker(url: str, kind: str, timeout: float = 55.0) -> dict:
-    """Enqueue a fetch job and wait for a residential worker to return the page HTML.
-    Returns {ok, html} or {ok:False, error}. Never raises."""
-    jid = _uuid.uuid4().hex[:12]
-    with _SCRAPE_LOCK:
-        _SCRAPE_JOBS[jid] = {"url": url, "kind": kind, "status": "pending", "html": "", "error": "",
-                             "created": _time.time()}
-    deadline = _time.time() + timeout
-    try:
-        while _time.time() < deadline:
-            _time.sleep(0.6)
-            with _SCRAPE_LOCK:
-                j = _SCRAPE_JOBS.get(jid) or {}
-                if j.get("status") == "done":
-                    html = j.get("html", "")
-                    _SCRAPE_JOBS.pop(jid, None)
-                    return {"ok": bool(html), "html": html}
-                if j.get("status") == "error":
-                    err = j.get("error", "worker error")
-                    _SCRAPE_JOBS.pop(jid, None)
-                    return {"ok": False, "error": err}
-    finally:
-        with _SCRAPE_LOCK:
-            _SCRAPE_JOBS.pop(jid, None)
-    if not _worker_online():
-        return {"ok": False, "error": "No scrape worker connected — start the PC worker (scripts/scrape_worker.py)."}
-    return {"ok": False, "error": "Scrape worker timed out — is the worker running and online?"}
+    return scrape_bus.fetch(url, kind, timeout)
+
+
+def _worker_online() -> bool:
+    return scrape_bus.worker_online()
 
 
 @app.get("/api/scrape/jobs")
 def scrape_jobs(token: str = Query(default=""), max: int = Query(default=3, ge=1, le=8)) -> dict:
     """A residential worker polls this to claim pending fetch jobs."""
-    if not _worker_token_ok(token):
+    r = scrape_bus.take_jobs(token, max)
+    if r.get("code") == 403:
         return JSONResponse(status_code=403, content={"ok": False, "error": "bad token"})
-    _SCRAPE_WORKER["seen"] = _time.time()
-    out = []
-    with _SCRAPE_LOCK:
-        for jid, j in _SCRAPE_JOBS.items():
-            if j["status"] == "pending":
-                j["status"] = "taken"
-                out.append({"job_id": jid, "url": j["url"], "kind": j["kind"]})
-            if len(out) >= max:
-                break
-    return {"ok": True, "jobs": out}
+    return r
 
 
 class ScrapeResultReq(BaseModel):
@@ -1125,38 +1078,16 @@ class ScrapeResultReq(BaseModel):
 @app.post("/api/scrape/result")
 def scrape_result(body: ScrapeResultReq) -> dict:
     """The worker posts the fetched page HTML (or an error) back here."""
-    if not _worker_token_ok(body.token):
+    r = scrape_bus.submit_result(body.token, body.job_id, body.html, body.gz, body.error)
+    if r.get("code") == 403:
         return JSONResponse(status_code=403, content={"ok": False, "error": "bad token"})
-    _SCRAPE_WORKER["seen"] = _time.time()
-    html = body.html
-    if body.gz and html:
-        try:
-            html = _gzip.decompress(_base64.b64decode(html)).decode("utf-8", "ignore")
-        except Exception as e:
-            html = ""
-            body.error = body.error or f"gunzip failed: {str(e)[:60]}"
-    with _SCRAPE_LOCK:
-        j = _SCRAPE_JOBS.get(body.job_id)
-        if j:
-            if body.error and not html:
-                j["status"] = "error"; j["error"] = body.error
-            else:
-                j["status"] = "done"; j["html"] = html
-    return {"ok": True}
+    return r
 
 
 @app.get("/api/scrape/worker-status")
 def scrape_worker_status() -> dict:
     """Whether a residential scrape worker is currently connected (for the panel indicator)."""
-    seen = _SCRAPE_WORKER["seen"]
-    with _SCRAPE_LOCK:
-        total = len(_SCRAPE_JOBS)
-        pending = sum(1 for j in _SCRAPE_JOBS.values() if j["status"] == "pending")
-        statuses = [j["status"] for j in _SCRAPE_JOBS.values()][:8]
-    return {"ok": True, "online": _worker_online(),
-            "last_seen_secs": (round(_time.time() - seen) if seen else None),
-            "queue_total": total, "queue_pending": pending, "queue_statuses": statuses,
-            "pid": _os_scrape.getpid()}
+    return scrape_bus.status()
 
 
 async def _build_product_items(picks: list, content: Optional[str], source: str, *, convert: bool = True) -> list:

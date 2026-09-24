@@ -327,6 +327,29 @@ async def _scrape_page(page: Page, category: str, marketplace: str,
     if page_num > 1:
         url += f"&page={page_num}"
 
+    # Residential worker path — Amazon blocks this datacenter server, but the user's PC/phone worker
+    # (residential IP) isn't blocked. If a worker is online, fetch through it; else fall to Playwright.
+    try:
+        import asyncio as _aio
+        from tools import scrape_bus, amazon_html
+        if scrape_bus.worker_online():
+            from config import cfg as _cfg
+            res = await _aio.to_thread(scrape_bus.fetch, url, "amazon")
+            if res.get("ok"):
+                sc = amazon_html.parse_search(res["html"], count=60,
+                                              tag=_cfg.amazon.associate_tag, marketplace=marketplace)
+                prods = sc.get("items", [])
+                for p in prods:
+                    p["image"] = _hi_res_image(p.get("image"))
+                    p["source_query"] = term
+                    p["source_page"] = page_num
+                if prods:
+                    log.success(f"Amazon: {len(prods)} via residential worker ('{term}' p{page_num})")
+                    return prods
+                log.warning(f"worker returned no Amazon products for '{term}' — trying Playwright")
+    except Exception as _e:
+        log.warning(f"Amazon worker path error ({str(_e)[:60]}); using Playwright")
+
     from config import cfg
     proxied = cfg.scraper_proxy.enabled
     # A residential proxy / scraping API adds latency and is per-IP flaky, so allow longer
