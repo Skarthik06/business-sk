@@ -1106,6 +1106,79 @@ def _savings2(p, img, P, handle):
     return _page2(P, inner, handle=handle)
 
 
+def _bold2(p, img, P, handle):
+    """STATEMENT — the product name set BIG as the hero (editorial typography), the product framed
+    below, price at the foot. A clean typographic change of pace; works for any product."""
+    inner = f"""
+  <div class="placard"><span class="kick">The Statement</span><span class="code">SK · EDIT</span></div>
+  <span class="spark" style="top:150px;right:110px">✦</span>
+  <div style="position:absolute;left:60px;right:60px;top:150px;z-index:2">
+    <div class="serif" style="font-size:84px;line-height:.92;letter-spacing:-.02em;max-width:960px">{_multiline(_clean_title(p, limit=52))}</div>
+  </div>
+  <div class="stage" style="position:absolute;left:130px;right:130px;top:450px;height:390px;z-index:1"><img src="{img}"></div>
+  <div style="position:absolute;left:60px;right:60px;bottom:120px;z-index:2;display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">{_pricecard(p)}{_side_chips(p, P)}</div>
+"""
+    return _page2(P, inner, handle=handle)
+
+
+def _stat_tiles(p, P) -> str:
+    """A row of REAL stat tiles from the product's own data — never invented."""
+    def tile(big, sub):
+        return (f'<div style="flex:1 1 0;min-width:150px;background:#FFFFFFF0;border:1.5px solid {P["border"]};'
+                f'border-radius:18px;padding:20px 20px;display:flex;flex-direction:column;gap:2px">'
+                f'<div style="font-family:{_SANS};font-weight:800;font-size:42px;color:{P["text"]};line-height:1">{big}</div>'
+                f'<div style="font-family:{_MONO};font-size:19px;color:{P["muted"]}">{sub}</div></div>')
+    off = _discount_pct(p) or 0
+    r = _num(p.get("rating")); rv = _num(p.get("reviews"))
+    pr = _num(p.get("price")); mr = _num(p.get("orig_price") or p.get("mrp"))
+    saved = (mr - pr) if (mr and pr and mr > pr) else 0
+    dem = _clean_count(p.get("bought_past_month"))
+    tiles = []
+    if off >= 10:
+        tiles.append(tile(f"{off}%", "off today"))
+    if r:
+        tiles.append(tile(f"{r}★", "shopper rating"))
+    if rv and rv >= 50:
+        tiles.append(tile(_fmt_count(rv), "ratings"))
+    if saved >= 100:
+        tiles.append(tile(f"₹{int(saved):,}", "you save"))
+    if dem and any(c in dem for c in "0123456789"):
+        tiles.append(tile(_fmt_count(dem), "bought recently"))
+    if not tiles:
+        tiles.append(tile(_esc(_store_name(p)), "in stock now"))
+    return "".join(tiles[:4])
+
+
+def _stat2(p, img, P, handle):
+    """BY THE NUMBERS — product image over a strip of REAL stat tiles (rating, ratings, % off, ₹ saved,
+    demand). All grounded in the product's own data; strong for well-reviewed / discounted picks."""
+    inner = f"""
+  <div class="placard"><span class="kick">By the numbers</span><span class="code">SK · STATS</span></div>
+  <div class="stage" style="position:absolute;left:56px;right:56px;top:130px;height:500px;z-index:1"><img src="{img}"></div>
+  <div style="position:absolute;left:60px;right:60px;bottom:110px;z-index:2;display:flex;flex-direction:column;gap:20px">
+    <div class="pname" style="font-size:38px;max-width:940px">{_esc(_clean_title(p, limit=56))}</div>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:stretch">{_stat_tiles(p, P)}</div>
+    {_pricecard(p)}
+  </div>
+"""
+    return _page2(P, inner, handle=handle)
+
+
+def _minimal2(p, img, P, handle):
+    """MINIMAL — a calm, centered hero: product floating on the palette, name + price centered below.
+    Lots of whitespace; premium and scroll-stopping for well-shot products."""
+    inner = f"""
+  <div class="placard"><span class="kick">Simply put</span><span class="code">SK · MINIMAL</span></div>
+  <span class="spark" style="top:160px;left:96px;font-size:26px">✧</span>
+  <div class="stage" style="position:absolute;left:180px;right:180px;top:210px;height:540px;z-index:1"><img src="{img}"></div>
+  <div style="position:absolute;left:80px;right:80px;bottom:150px;z-index:2;display:flex;flex-direction:column;align-items:center;gap:20px;text-align:center">
+    <div class="serif" style="font-size:52px;line-height:1.02;max-width:840px">{_multiline(_clean_title(p, limit=46))}</div>
+    <div style="display:flex;justify-content:center">{_pricecard(p)}</div>
+  </div>
+"""
+    return _page2(P, inner, handle=handle)
+
+
 def _deal_logo(brand: str, P: Dict[str, str], *, big: bool = False) -> str:
     """A single merchant logo block (Clearbit) with a serif wordmark fallback — for deal slides."""
     url = _brand_logo_url(brand)
@@ -1186,8 +1259,8 @@ def _closer2(P, handle):
     return _page2(P, inner, foot_right="FOLLOW + COMMENT → DM", handle=handle)
 
 
-# The six Instagram-worthy per-product templates the renderer agent chooses between.
-_PROD_TEMPLATES = ("spotlight", "savings", "proof", "feature", "editorial", "lookbook")
+# The Instagram-worthy per-product templates the renderer agent chooses between.
+_PROD_TEMPLATES = ("spotlight", "savings", "proof", "feature", "editorial", "lookbook", "bold", "stat", "minimal")
 
 
 def _template_scores(p: Dict[str, Any]) -> Dict[str, float]:
@@ -1209,6 +1282,9 @@ def _template_scores(p: Dict[str, Any]) -> Dict[str, float]:
         "feature":   26 + rating * 3 + badge,                # well-rated / badged
         "editorial": 30.0,                                   # clean neutral hero
         "lookbook":  30.0,                                   # lifestyle neutral, high visual appeal
+        "bold":      28.0,                                   # typographic statement, neutral
+        "stat":      18 + rev_s * 0.45 + min(off, 60) * 0.35 + rating * 2 + (10 if saved >= 200 else 0),
+        "minimal":   29.0,                                   # calm centered hero, neutral
     }
 
 
@@ -1413,6 +1489,7 @@ def _render_htmls(htmls: List[str], out_dir: Path, cdn_prefix: str, slug: str) -
 _TMPL_LABEL = {"cover": "Teaser cover", "spotlight": "Price-Drop Spotlight",
                "savings": "Savings Hero", "editorial": "Editorial Hero", "proof": "Social-Proof",
                "feature": "Why-We-Love-It", "lookbook": "Lookbook", "closer": "Shop-the-set CTA",
+               "bold": "Statement", "stat": "By-the-Numbers", "minimal": "Minimal Hero",
                "deal_cover": "Deals cover", "deal": "Deal card"}
 
 
@@ -1472,6 +1549,12 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
             htmls.append(_feature2(ps[0], imgs[0], P, handle))
         elif t == "lookbook":
             htmls.append(_lookbook2(ps[0], imgs[0], P, handle))
+        elif t == "bold":
+            htmls.append(_bold2(ps[0], imgs[0], P, handle))
+        elif t == "stat":
+            htmls.append(_stat2(ps[0], imgs[0], P, handle))
+        elif t == "minimal":
+            htmls.append(_minimal2(ps[0], imgs[0], P, handle))
         elif t == "deal_cover":
             htmls.append(_deal_cover2(sp.get("products", []), P, title=sp.get("title", ""), subtitle=sp.get("subtitle", ""), handle=handle))
         elif t == "deal":
