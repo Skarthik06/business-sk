@@ -1375,9 +1375,11 @@ async def cuelinks_store_generate(
     aud = (audience or "").strip().lower()
     query = (q or "").strip() or name
     query = f"{aud} {query}".strip() if aud and aud not in query.lower() else query
+    # All scrapers below do BLOCKING I/O (worker wait / requests) — run them in a thread so the
+    # async event loop stays free to serve the residential worker's poll + result callbacks.
     if engine == "amazon":
         from tools import amazon_html
-        res = scrape_via_worker(amazon_html.search_url(query, cfg.amazon.marketplace), "amazon")
+        res = await asyncio.to_thread(scrape_via_worker, amazon_html.search_url(query, cfg.amazon.marketplace), "amazon")
         if not res.get("ok"):
             return JSONResponse(status_code=200, content={"ok": False, "status": "error", "engine": engine,
                                 "market": mk.get("id"), "store": name, "error": res.get("error", "worker fetch failed"), "items": []})
@@ -1386,17 +1388,17 @@ async def cuelinks_store_generate(
     elif engine == "flipkart":
         from tools import flipkart_scrape
         if _worker_online():                                        # residential worker → free, no proxy
-            sc = flipkart_scrape.scrape_products(query, count=products_per_run * 4, max_pages=1,
-                                                 fetch=lambda u: scrape_via_worker(u, "flipkart").get("html", ""))
+            sc = await asyncio.to_thread(flipkart_scrape.scrape_products, query, products_per_run * 4, 1,
+                                         lambda u: scrape_via_worker(u, "flipkart").get("html", ""))
         else:                                                       # fall back to ScraperAPI (needs credits)
-            sc = flipkart_scrape.scrape_products(query, count=products_per_run * 4, max_pages=3)
+            sc = await asyncio.to_thread(flipkart_scrape.scrape_products, query, products_per_run * 4, 3)
     elif engine == "shopsy":
         from tools import shopsy_scrape
-        sc = shopsy_scrape.scrape_products(query, count=products_per_run, max_pages=2)
+        sc = await asyncio.to_thread(shopsy_scrape.scrape_products, query, products_per_run, 2)
     else:  # shopify
         from tools import shopify_scrape
-        sc = shopify_scrape.scrape_products(mk.get("domain", ""), query=(q or "").strip(),
-                                            count=products_per_run, max_pages=5)
+        sc = await asyncio.to_thread(shopify_scrape.scrape_products, mk.get("domain", ""), (q or "").strip(),
+                                     products_per_run, 5)
     if not sc.get("ok"):
         return JSONResponse(status_code=200, content={"ok": False, "status": "error", "engine": engine,
                             "market": mk.get("id"), "store": name, "error": sc.get("error", "scrape failed"),
