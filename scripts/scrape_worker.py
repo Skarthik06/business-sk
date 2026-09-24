@@ -31,14 +31,44 @@ UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 POLL = 2.0
 FETCH_TIMEOUT = 45
+# Full browser-like headers so Amazon/Flipkart treat us like a real visitor (NOT Accept-Encoding —
+# we want plain HTML, not gzip we'd have to decode).
+_BROWSER = {
+    "User-Agent": UA,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-IN,en-GB;q=0.9,en;q=0.8",
+    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+    "sec-ch-ua-mobile": "?0",
+    "sec-ch-ua-platform": '"Windows"',
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
 
 
-def _get(url: str, timeout: int = 30) -> bytes:
-    req = urllib.request.Request(url, headers={"User-Agent": UA,
-                                               "Accept": "text/html,application/xhtml+xml,*/*;q=0.8",
-                                               "Accept-Language": "en-IN,en;q=0.9"})
+def _get(url: str, timeout: int = 30, headers: dict | None = None) -> bytes:
+    req = urllib.request.Request(url, headers=headers or {"User-Agent": UA})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return r.read()
+
+
+def _fetch_page(url: str) -> bytes:
+    """Fetch a shopping page like a real browser, with retry/backoff. Retries when the site returns
+    a tiny 'block' page (Amazon/Flipkart anti-bot) so a transient throttle doesn't kill the job."""
+    last = b""
+    for attempt in range(1, 4):
+        try:
+            last = _get(url, FETCH_TIMEOUT, headers=_BROWSER)
+            # a real search page is large; a few-KB page is a bot-check/robot page → back off & retry
+            if len(last) > 80_000:
+                return last
+        except Exception as e:
+            if attempt == 3:
+                raise
+        time.sleep(3 * attempt + 1)          # 4s, 7s — let the throttle cool down
+    return last                               # return whatever we got (server will judge)
 
 
 def _post_json(url: str, obj: dict, timeout: int = 60) -> None:
@@ -72,7 +102,7 @@ def main():
         for j in jobs:
             jid, url, kind = j.get("job_id"), j.get("url", ""), j.get("kind", "")
             try:
-                html = _get(url, FETCH_TIMEOUT)
+                html = _fetch_page(url)
                 payload = base64.b64encode(gzip.compress(html)).decode("ascii")
                 _post_json(result_url, {"token": TOKEN, "job_id": jid, "html": payload, "gz": True})
                 print(f"[worker] OK  {kind:9s} {len(html):>8,d} bytes  {url[:70]}")
