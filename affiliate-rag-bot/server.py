@@ -1042,6 +1042,116 @@ def cuelinks_deal_merchants() -> dict:
     return {"ok": bool(res.get("ok")), **data, "cached": False}
 
 
+# ── Residential scrape worker: the cloud coordinates, your PC/phone fetches ────────────────────
+# Amazon/Flipkart block datacenter IPs (this server). A worker on your PC/phone (residential IP)
+# polls this queue, fetches the page, and posts the HTML back — so the fetch leaves from an
+# UNBLOCKED IP. This is our own free "ScraperAPI": cloud = coordinator, your device = the proxy.
+import time as _time
+import uuid as _uuid
+import threading as _threading
+import gzip as _gzip
+import base64 as _base64
+
+_SCRAPE_JOBS: dict = {}                 # job_id -> {url, kind, status, html, error, created}
+_SCRAPE_LOCK = _threading.Lock()
+_SCRAPE_WORKER = {"seen": 0.0}          # last time any worker polled/returned
+
+
+def _worker_token_ok(tok: str) -> bool:
+    want = (os.getenv("SCRAPE_WORKER_TOKEN") or "").strip()
+    return (not want) or (tok == want)
+
+
+def _worker_online() -> bool:
+    return _SCRAPE_WORKER["seen"] > 0 and (_time.time() - _SCRAPE_WORKER["seen"]) < 40
+
+
+def scrape_via_worker(url: str, kind: str, timeout: float = 55.0) -> dict:
+    """Enqueue a fetch job and wait for a residential worker to return the page HTML.
+    Returns {ok, html} or {ok:False, error}. Never raises."""
+    jid = _uuid.uuid4().hex[:12]
+    with _SCRAPE_LOCK:
+        _SCRAPE_JOBS[jid] = {"url": url, "kind": kind, "status": "pending", "html": "", "error": "",
+                             "created": _time.time()}
+    deadline = _time.time() + timeout
+    try:
+        while _time.time() < deadline:
+            _time.sleep(0.6)
+            with _SCRAPE_LOCK:
+                j = _SCRAPE_JOBS.get(jid) or {}
+                if j.get("status") == "done":
+                    html = j.get("html", "")
+                    _SCRAPE_JOBS.pop(jid, None)
+                    return {"ok": bool(html), "html": html}
+                if j.get("status") == "error":
+                    err = j.get("error", "worker error")
+                    _SCRAPE_JOBS.pop(jid, None)
+                    return {"ok": False, "error": err}
+    finally:
+        with _SCRAPE_LOCK:
+            _SCRAPE_JOBS.pop(jid, None)
+    if not _worker_online():
+        return {"ok": False, "error": "No scrape worker connected — start the PC worker (scripts/scrape_worker.py)."}
+    return {"ok": False, "error": "Scrape worker timed out — is the worker running and online?"}
+
+
+@app.get("/api/scrape/jobs")
+def scrape_jobs(token: str = Query(default=""), max: int = Query(default=3, ge=1, le=8)) -> dict:
+    """A residential worker polls this to claim pending fetch jobs."""
+    if not _worker_token_ok(token):
+        return JSONResponse(status_code=403, content={"ok": False, "error": "bad token"})
+    _SCRAPE_WORKER["seen"] = _time.time()
+    out = []
+    with _SCRAPE_LOCK:
+        for jid, j in _SCRAPE_JOBS.items():
+            if j["status"] == "pending":
+                j["status"] = "taken"
+                out.append({"job_id": jid, "url": j["url"], "kind": j["kind"]})
+            if len(out) >= max:
+                break
+    return {"ok": True, "jobs": out}
+
+
+class ScrapeResultReq(BaseModel):
+    model_config = {"extra": "forbid"}
+    token:   str = ""
+    job_id:  str
+    html:    str = ""          # raw HTML, or gzip+base64 when gz=True
+    gz:      bool = False
+    error:   str = ""
+
+
+@app.post("/api/scrape/result")
+def scrape_result(body: ScrapeResultReq) -> dict:
+    """The worker posts the fetched page HTML (or an error) back here."""
+    if not _worker_token_ok(body.token):
+        return JSONResponse(status_code=403, content={"ok": False, "error": "bad token"})
+    _SCRAPE_WORKER["seen"] = _time.time()
+    html = body.html
+    if body.gz and html:
+        try:
+            html = _gzip.decompress(_base64.b64decode(html)).decode("utf-8", "ignore")
+        except Exception as e:
+            html = ""
+            body.error = body.error or f"gunzip failed: {str(e)[:60]}"
+    with _SCRAPE_LOCK:
+        j = _SCRAPE_JOBS.get(body.job_id)
+        if j:
+            if body.error and not html:
+                j["status"] = "error"; j["error"] = body.error
+            else:
+                j["status"] = "done"; j["html"] = html
+    return {"ok": True}
+
+
+@app.get("/api/scrape/worker-status")
+def scrape_worker_status() -> dict:
+    """Whether a residential scrape worker is currently connected (for the panel indicator)."""
+    seen = _SCRAPE_WORKER["seen"]
+    return {"ok": True, "online": _worker_online(),
+            "last_seen_secs": (round(_time.time() - seen) if seen else None)}
+
+
 async def _build_product_items(picks: list, content: Optional[str], source: str, *, convert: bool = True) -> list:
     """Shared PRODUCT pipeline (Flipkart + Shopify + own store): AI compose → flatten product onto
     the pin → (optionally) Cuelinks-monetise the product URL → content item. Products carry a REAL
@@ -1264,9 +1374,21 @@ async def cuelinks_store_generate(
     aud = (audience or "").strip().lower()
     query = (q or "").strip() or name
     query = f"{aud} {query}".strip() if aud and aud not in query.lower() else query
-    if engine == "flipkart":
+    if engine == "amazon":
+        from tools import amazon_html
+        res = scrape_via_worker(amazon_html.search_url(query, cfg.amazon.marketplace), "amazon")
+        if not res.get("ok"):
+            return JSONResponse(status_code=200, content={"ok": False, "status": "error", "engine": engine,
+                                "market": mk.get("id"), "store": name, "error": res.get("error", "worker fetch failed"), "items": []})
+        sc = amazon_html.parse_search(res["html"], count=products_per_run,
+                                      tag=cfg.amazon.associate_tag, marketplace=cfg.amazon.marketplace)
+    elif engine == "flipkart":
         from tools import flipkart_scrape
-        sc = flipkart_scrape.scrape_products(query, count=products_per_run * 4, max_pages=3)
+        if _worker_online():                                        # residential worker → free, no proxy
+            sc = flipkart_scrape.scrape_products(query, count=products_per_run * 4, max_pages=1,
+                                                 fetch=lambda u: scrape_via_worker(u, "flipkart").get("html", ""))
+        else:                                                       # fall back to ScraperAPI (needs credits)
+            sc = flipkart_scrape.scrape_products(query, count=products_per_run * 4, max_pages=3)
     elif engine == "shopsy":
         from tools import shopsy_scrape
         sc = shopsy_scrape.scrape_products(query, count=products_per_run, max_pages=2)

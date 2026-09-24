@@ -37,14 +37,19 @@ def configured() -> bool:
     return bool(_key())
 
 
+def search_url(query: str, page: int = 1) -> str:
+    url = f"https://www.flipkart.com/search?q={quote_plus(query)}"
+    if page > 1:
+        url += f"&page={page}"
+    return url
+
+
 def _fetch(query: str, page: int = 1) -> str:
     """Fetch a Flipkart search page via ScraperAPI premium. Premium is slow/flaky, so retry a few
     times (a fresh attempt usually lands on a faster backend); succeed as soon as the page carries
     the product JSON."""
     import time as _t
-    url = f"https://www.flipkart.com/search?q={quote_plus(query)}"
-    if page > 1:
-        url += f"&page={page}"
+    url = search_url(query, page)
     for attempt in range(1, _ATTEMPTS + 1):
         try:
             r = requests.get(_API, timeout=_TIMEOUT, params={
@@ -158,19 +163,36 @@ def _parse(html: str) -> list[dict]:
     return out
 
 
-def scrape_products(query: str, count: int = 8, max_pages: int = 2) -> dict:
+def parse_products(html: str, count: int = 8) -> dict:
+    """Parse already-fetched Flipkart search HTML → products. Used with the residential worker
+    (server fetches the HTML from a residential IP, then hands it here). Never raises."""
+    items: list[dict] = []
+    seen: set = set()
+    try:
+        for p in _parse(html or ""):
+            if p["asin"] not in seen and p.get("image"):
+                seen.add(p["asin"]); items.append(p)
+        return {"ok": True, "count": len(items), "items": items[:count]}
+    except Exception as e:
+        log.warning(f"[flipkart_scrape] parse failed: {e}")
+        return {"ok": False, "error": str(e)[:160], "items": items[:count]}
+
+
+def scrape_products(query: str, count: int = 8, max_pages: int = 2, fetch=None) -> dict:
     """Search Flipkart → normalised products (same shape as the Amazon scrape). Never raises.
-    Returns {ok, count, items:[...]}. Paginates until it has `count` renderable products."""
-    if not configured():
-        return {"ok": False, "error": "SCRAPER_PROXY_PASS (ScraperAPI key) not set.", "items": []}
+    `fetch(url)->html` optionally overrides the fetch (e.g. the residential worker); default uses
+    ScraperAPI. Returns {ok, count, items:[...]}. Paginates until it has `count` products."""
     q = (query or "").strip()
     if len(q) < 2:
         return {"ok": False, "error": "query too short", "items": []}
+    if fetch is None and not configured():
+        return {"ok": False, "error": "SCRAPER_PROXY_PASS (ScraperAPI key) not set.", "items": []}
     items: list[dict] = []
     seen: set = set()
     try:
         for pg in range(1, max(1, min(max_pages, 4)) + 1):
-            for p in _parse(_fetch(q, pg)):
+            html = fetch(search_url(q, pg)) if fetch else _fetch(q, pg)
+            for p in _parse(html or ""):
                 if p["asin"] not in seen and p.get("image"):
                     seen.add(p["asin"]); items.append(p)
             if len(items) >= count:
