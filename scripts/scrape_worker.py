@@ -25,8 +25,19 @@ import time
 import urllib.parse
 import urllib.request
 
+def _load_token() -> str:
+    t = os.getenv("SK_WORKER_TOKEN", "").strip()
+    if t:
+        return t
+    try:                                   # fallback: a local token file (kept out of git)
+        with open(os.path.join(os.path.expanduser("~"), ".sk_worker_token"), "r") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
 BASE = os.getenv("SK_WORKER_URL", "https://140-238-247-18.nip.io/sk-api").rstrip("/")
-TOKEN = os.getenv("SK_WORKER_TOKEN", "")
+TOKEN = _load_token()
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
 POLL = 2.0
@@ -115,7 +126,14 @@ def main():
 
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\n[worker] stopped.")
+    # Self-healing: if main() ever crashes unexpectedly, wait and restart (so an always-on
+    # scheduled task keeps the worker alive indefinitely without manual intervention).
+    while True:
+        try:
+            main()
+        except KeyboardInterrupt:
+            print("\n[worker] stopped.")
+            break
+        except Exception as e:
+            print(f"[worker] crashed: {str(e)[:120]} — restarting in 10s")
+            time.sleep(10)
