@@ -1149,8 +1149,14 @@ def scrape_result(body: ScrapeResultReq) -> dict:
 def scrape_worker_status() -> dict:
     """Whether a residential scrape worker is currently connected (for the panel indicator)."""
     seen = _SCRAPE_WORKER["seen"]
+    with _SCRAPE_LOCK:
+        total = len(_SCRAPE_JOBS)
+        pending = sum(1 for j in _SCRAPE_JOBS.values() if j["status"] == "pending")
+        statuses = [j["status"] for j in _SCRAPE_JOBS.values()][:8]
     return {"ok": True, "online": _worker_online(),
-            "last_seen_secs": (round(_time.time() - seen) if seen else None)}
+            "last_seen_secs": (round(_time.time() - seen) if seen else None),
+            "queue_total": total, "queue_pending": pending, "queue_statuses": statuses,
+            "pid": _os_scrape.getpid()}
 
 
 async def _build_product_items(picks: list, content: Optional[str], source: str, *, convert: bool = True) -> list:
