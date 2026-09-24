@@ -33,10 +33,25 @@ from utils.logger import log
 #   • flipkart → Flipkart product scrape (official JSON via premium proxy)
 #   • boAt / Noise / Mamaearth → the merchant's PUBLIC Shopify feed (/products.json) — verified live
 MARKETS: list[dict] = [
-    {"id": "flipkart",  "name": "Flipkart",  "category": "Marketplace", "commission": 6.0,  "aov": "₹1k–3k",   "cookie": 30, "note": "Widest catalogue — electronics, home, fashion (scraped)."},
-    {"id": "boat",      "name": "boAt",      "category": "Electronics", "commission": 8.0,  "aov": "₹1k–3k",   "cookie": 30, "note": "Audio & wearables — Shopify product feed."},
-    {"id": "noise",     "name": "Noise",     "category": "Electronics", "commission": 8.0,  "aov": "₹1.5k–4k", "cookie": 30, "note": "Smartwatches & buds — Shopify product feed."},
-    {"id": "mamaearth", "name": "Mamaearth", "category": "Beauty",      "commission": 11.0, "aov": "₹600–1.5k","cookie": 30, "note": "D2C skincare — Shopify product feed."},
+    # Free public Shopify product feeds (no proxy/ScraperAPI needed) — verified live.
+    {"id": "boat",           "name": "boAt",            "category": "Electronics", "commission": 8.0,  "aov": "₹1k–3k",   "cookie": 30, "note": "Audio & wearables — free Shopify feed."},
+    {"id": "noise",          "name": "Noise",           "category": "Electronics", "commission": 8.0,  "aov": "₹1.5k–4k", "cookie": 30, "note": "Smartwatches & buds — free Shopify feed."},
+    {"id": "mamaearth",      "name": "Mamaearth",       "category": "Beauty",      "commission": 11.0, "aov": "₹600–1.5k","cookie": 30, "note": "D2C skincare — free Shopify feed."},
+    {"id": "sugarcosmetics", "name": "SUGAR Cosmetics", "category": "Beauty",      "commission": 12.0, "aov": "₹600–1.5k","cookie": 30, "note": "Makeup — free Shopify feed."},
+    {"id": "plum",           "name": "Plum",            "category": "Beauty",      "commission": 10.0, "aov": "₹500–1.4k","cookie": 30, "note": "Clean skincare — free Shopify feed."},
+    {"id": "mcaffeine",      "name": "mCaffeine",       "category": "Beauty",      "commission": 10.0, "aov": "₹500–1.3k","cookie": 30, "note": "Caffeinated skincare — free Shopify feed."},
+    {"id": "pilgrim",        "name": "Pilgrim",         "category": "Beauty",      "commission": 12.0, "aov": "₹500–1.5k","cookie": 30, "note": "Global beauty rituals — free Shopify feed."},
+    {"id": "minimalist",     "name": "Minimalist",      "category": "Beauty",      "commission": 10.0, "aov": "₹500–1.5k","cookie": 30, "note": "Active-led skincare — free Shopify feed."},
+    {"id": "juicychemistry", "name": "Juicy Chemistry", "category": "Beauty",      "commission": 10.0, "aov": "₹600–1.8k","cookie": 30, "note": "Organic skincare — free Shopify feed."},
+    {"id": "sirona",         "name": "Sirona",          "category": "Beauty",      "commission": 10.0, "aov": "₹400–1.2k","cookie": 30, "note": "Hygiene & wellness — free Shopify feed."},
+    {"id": "themancompany",  "name": "The Man Company", "category": "Grooming",    "commission": 12.0, "aov": "₹600–1.6k","cookie": 30, "note": "Men's grooming — free Shopify feed."},
+    {"id": "beardo",         "name": "Beardo",          "category": "Grooming",    "commission": 12.0, "aov": "₹500–1.5k","cookie": 30, "note": "Men's grooming — free Shopify feed."},
+    {"id": "bombayshaving",  "name": "Bombay Shaving Co","category": "Grooming",   "commission": 12.0, "aov": "₹500–1.5k","cookie": 30, "note": "Shaving & grooming — free Shopify feed."},
+    {"id": "snitch",         "name": "Snitch",          "category": "Fashion",     "commission": 10.0, "aov": "₹900–2.5k","cookie": 30, "note": "Men's fast fashion — free Shopify feed."},
+    {"id": "chumbak",        "name": "Chumbak",         "category": "Home",        "commission": 10.0, "aov": "₹700–2.5k","cookie": 30, "note": "Quirky decor & lifestyle — free Shopify feed."},
+    {"id": "sleepycat",      "name": "SleepyCat",       "category": "Home",        "commission": 8.0,  "aov": "₹8k–25k",  "cookie": 30, "note": "Mattresses & sleep — free Shopify feed."},
+    # Flipkart — scraped via ScraperAPI (needs API credits; free quota resets monthly).
+    {"id": "flipkart",       "name": "Flipkart",        "category": "Marketplace", "commission": 6.0,  "aov": "₹1k–3k",   "cookie": 30, "note": "Widest catalogue — scraped (needs ScraperAPI credits)."},
 ]
 _CATEGORIES = sorted({m["category"] for m in MARKETS})
 _IDS = {m["id"] for m in MARKETS}
@@ -45,10 +60,23 @@ _IDS = {m["id"] for m in MARKETS}
 #   • flipkart → Flipkart product scrape (official JSON via premium proxy)
 #   • shopify  → the merchant's PUBLIC Shopify feed (/products.json) — boAt, Noise, Mamaearth
 _ENGINES: dict[str, tuple[str, str]] = {
-    "flipkart":  ("flipkart", "flipkart.com"),
-    "boat":      ("shopify",  "boat-lifestyle.com"),
-    "noise":     ("shopify",  "gonoise.com"),
-    "mamaearth": ("shopify",  "mamaearth.in"),
+    "flipkart":       ("flipkart", "flipkart.com"),
+    "boat":           ("shopify",  "boat-lifestyle.com"),
+    "noise":          ("shopify",  "gonoise.com"),
+    "mamaearth":      ("shopify",  "mamaearth.in"),
+    "sugarcosmetics": ("shopify",  "sugarcosmetics.com"),
+    "plum":           ("shopify",  "plumgoodness.com"),
+    "mcaffeine":      ("shopify",  "mcaffeine.com"),
+    "pilgrim":        ("shopify",  "discoverpilgrim.com"),
+    "minimalist":     ("shopify",  "beminimalist.co"),
+    "juicychemistry": ("shopify",  "juicychemistry.com"),
+    "sirona":         ("shopify",  "thesirona.com"),
+    "themancompany":  ("shopify",  "themancompany.com"),
+    "beardo":         ("shopify",  "beardo.in"),
+    "bombayshaving":  ("shopify",  "bombayshavingcompany.com"),
+    "snitch":         ("shopify",  "snitch.co.in"),
+    "chumbak":        ("shopify",  "chumbak.com"),
+    "sleepycat":      ("shopify",  "sleepycat.in"),
 }
 
 
