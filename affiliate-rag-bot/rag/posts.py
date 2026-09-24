@@ -45,15 +45,22 @@ _SessionLocal = None
 
 
 def _session() -> Session:
+    # Guard on the SESSION FACTORY (not the engine): if a transient DB outage breaks init after
+    # the engine is built, we must RETRY next call — otherwise _SessionLocal stays None forever
+    # and every later call raises "'NoneType' object is not callable" until a restart.
     global _engine, _SessionLocal
-    if _engine is None:
-        _engine = create_engine(cfg.storage.sqlalchemy_url, pool_pre_ping=True, echo=False)
-        Base.metadata.create_all(_engine)
-        # Idempotent migration for the `products` column on pre-existing tables.
-        with _engine.begin() as c:
-            c.execute(text("ALTER TABLE sk_posts ADD COLUMN IF NOT EXISTS products TEXT NOT NULL DEFAULT '[]'"))
-            c.execute(text("ALTER TABLE sk_posts ADD COLUMN IF NOT EXISTS content_style VARCHAR(30) NOT NULL DEFAULT ''"))
-        _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
+    if _SessionLocal is None:
+        eng = create_engine(cfg.storage.sqlalchemy_url, pool_pre_ping=True, echo=False)
+        Base.metadata.create_all(eng)
+        # Idempotent migration for the `products` column on pre-existing tables (never fatal).
+        try:
+            with eng.begin() as c:
+                c.execute(text("ALTER TABLE sk_posts ADD COLUMN IF NOT EXISTS products TEXT NOT NULL DEFAULT '[]'"))
+                c.execute(text("ALTER TABLE sk_posts ADD COLUMN IF NOT EXISTS content_style VARCHAR(30) NOT NULL DEFAULT ''"))
+        except Exception as e:
+            log.warning(f"[Posts] optional migration skipped: {str(e)[:80]}")
+        _engine = eng                                  # publish only after a successful init
+        _SessionLocal = sessionmaker(bind=eng, expire_on_commit=False)
         log.success("[Posts] sk_posts table ready ✓")
     return _SessionLocal()
 

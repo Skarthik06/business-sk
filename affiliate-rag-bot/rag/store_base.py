@@ -22,9 +22,11 @@ _ensured: set = set()
 
 def _get_engine():
     global _engine, _SessionLocal
-    if _engine is None:
-        _engine = create_engine(cfg.storage.sqlalchemy_url, pool_pre_ping=True, echo=False)
-        _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
+    # Guard on the SESSION FACTORY so a partial init is RETRIED rather than cached forever.
+    if _SessionLocal is None:
+        eng = create_engine(cfg.storage.sqlalchemy_url, pool_pre_ping=True, echo=False)
+        _engine = eng                                  # publish only after a successful init
+        _SessionLocal = sessionmaker(bind=eng, expire_on_commit=False)
     return _engine
 
 

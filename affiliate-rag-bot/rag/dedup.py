@@ -71,11 +71,14 @@ _SessionLocal = None
 
 def _get_session() -> Session:
     global _engine, _SessionLocal
-    if _engine is None:
-        _engine = _make_engine()
+    # Guard on the SESSION FACTORY so a transient DB outage during init is RETRIED (guarding on
+    # _engine would leave _SessionLocal None forever → "'NoneType' object is not callable").
+    if _SessionLocal is None:
+        eng = _make_engine()
         # Auto-create the table if it doesn't exist
-        Base.metadata.create_all(_engine)
-        _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
+        Base.metadata.create_all(eng)
+        _engine = eng                                  # publish only after a successful init
+        _SessionLocal = sessionmaker(bind=eng, expire_on_commit=False)
         log.success("[Dedup] seen_products table ready ✓")
     return _SessionLocal()
 
