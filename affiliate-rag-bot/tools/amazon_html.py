@@ -8,6 +8,7 @@ the SAME shape as the other scrapers, so products flow through the identical ran
 """
 from __future__ import annotations
 
+import html as _html
 import re
 from urllib.parse import quote_plus
 
@@ -49,7 +50,8 @@ def parse_search(html: str, count: int = 8, *, tag: str = "yourtag-21", marketpl
             if not img_m:                                   # ads / non-product rows have no s-image
                 continue
             tm = _TITLE.search(block) or _TITLE2.search(block)
-            title = re.sub(r"\s+", " ", tm.group(1)).strip() if tm else ""
+            # decode HTML entities (&amp; &#39; …) so titles read cleanly on the rendered slides
+            title = _html.unescape(re.sub(r"\s+", " ", tm.group(1)).strip()) if tm else ""
             if len(title) < 4:
                 continue
             pw = _PRICE_WHOLE.search(block)
