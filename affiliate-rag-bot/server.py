@@ -1046,6 +1046,7 @@ def cuelinks_deal_merchants() -> dict:
 # Amazon/Flipkart block datacenter IPs (this server). A worker on your PC/phone (residential IP)
 # polls this queue, fetches the page, and posts the HTML back — so the fetch leaves from an
 # UNBLOCKED IP. This is our own free "ScraperAPI": cloud = coordinator, your device = the proxy.
+import os as _os_scrape
 import time as _time
 import uuid as _uuid
 import threading as _threading
@@ -1058,7 +1059,7 @@ _SCRAPE_WORKER = {"seen": 0.0}          # last time any worker polled/returned
 
 
 def _worker_token_ok(tok: str) -> bool:
-    want = (os.getenv("SCRAPE_WORKER_TOKEN") or "").strip()
+    want = (_os_scrape.getenv("SCRAPE_WORKER_TOKEN") or "").strip()
     return (not want) or (tok == want)
 
 
