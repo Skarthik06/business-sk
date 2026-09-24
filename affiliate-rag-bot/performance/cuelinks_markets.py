@@ -50,6 +50,8 @@ MARKETS: list[dict] = [
     {"id": "snitch",         "name": "Snitch",          "category": "Fashion",     "commission": 10.0, "aov": "₹900–2.5k","cookie": 30, "note": "Men's fast fashion — free Shopify feed."},
     {"id": "chumbak",        "name": "Chumbak",         "category": "Home",        "commission": 10.0, "aov": "₹700–2.5k","cookie": 30, "note": "Quirky decor & lifestyle — free Shopify feed."},
     {"id": "sleepycat",      "name": "SleepyCat",       "category": "Home",        "commission": 8.0,  "aov": "₹8k–25k",  "cookie": 30, "note": "Mattresses & sleep — free Shopify feed."},
+    # Shopsy (Flipkart's app) — FREE direct scrape (no proxy); resells the Flipkart catalogue.
+    {"id": "shopsy",         "name": "Shopsy",          "category": "Marketplace", "commission": 6.0,  "aov": "₹200–1.5k","cookie": 30, "note": "Flipkart's value marketplace — FREE direct scrape, Cuelinks-monetised."},
     # Flipkart — scraped via ScraperAPI (needs API credits; free quota resets monthly).
     {"id": "flipkart",       "name": "Flipkart",        "category": "Marketplace", "commission": 6.0,  "aov": "₹1k–3k",   "cookie": 30, "note": "Widest catalogue — scraped (needs ScraperAPI credits)."},
 ]
@@ -61,6 +63,7 @@ _IDS = {m["id"] for m in MARKETS}
 #   • shopify  → the merchant's PUBLIC Shopify feed (/products.json) — boAt, Noise, Mamaearth
 _ENGINES: dict[str, tuple[str, str]] = {
     "flipkart":       ("flipkart", "flipkart.com"),
+    "shopsy":         ("shopsy",   "shopsy.in"),
     "boat":           ("shopify",  "boat-lifestyle.com"),
     "noise":          ("shopify",  "gonoise.com"),
     "mamaearth":      ("shopify",  "mamaearth.in"),
@@ -92,7 +95,7 @@ def _market_domain(mid: str) -> str:
 for _m in MARKETS:
     _m["engine"] = _market_engine(_m["id"])
     _m["domain"] = _market_domain(_m["id"])
-    _m["can_products"] = _m["engine"] in ("flipkart", "shopify")
+    _m["can_products"] = _m["engine"] in ("flipkart", "shopify", "shopsy")
 
 
 def market_by_id(mid: str) -> dict | None:
@@ -101,7 +104,7 @@ def market_by_id(mid: str) -> dict | None:
         if m.get("id") == mid:
             return {**m, "engine": m.get("engine") or _market_engine(mid),
                     "domain": m.get("domain") or _market_domain(mid),
-                    "can_products": (m.get("engine") or _market_engine(mid)) in ("flipkart", "shopify")}
+                    "can_products": (m.get("engine") or _market_engine(mid)) in ("flipkart", "shopify", "shopsy")}
     return None
 
 # The default constraints the AI planner starts from (all overridable from the panel).
@@ -227,7 +230,7 @@ def catalog() -> dict:
     markets = [{**m, "active": m.get("id") in active,
                 "engine": m.get("engine") or _market_engine(m.get("id", "")),
                 "domain": m.get("domain") or _market_domain(m.get("id", "")),
-                "can_products": (m.get("engine") or _market_engine(m.get("id", ""))) in ("flipkart", "shopify")}
+                "can_products": (m.get("engine") or _market_engine(m.get("id", ""))) in ("flipkart", "shopify", "shopsy")}
                for m in base]
     cats = sorted({m.get("category", "") for m in base if m.get("category")}) or _CATEGORIES
     return {

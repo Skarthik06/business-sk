@@ -1267,6 +1267,9 @@ async def cuelinks_store_generate(
     if engine == "flipkart":
         from tools import flipkart_scrape
         sc = flipkart_scrape.scrape_products(query, count=products_per_run * 4, max_pages=3)
+    elif engine == "shopsy":
+        from tools import shopsy_scrape
+        sc = shopsy_scrape.scrape_products(query, count=products_per_run, max_pages=2)
     else:  # shopify
         from tools import shopify_scrape
         sc = shopify_scrape.scrape_products(mk.get("domain", ""), query=(q or "").strip(),
