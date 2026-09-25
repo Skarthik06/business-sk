@@ -761,22 +761,57 @@ def _closer_html(tint: str, handle: str, idx: int, total: int) -> str:
 # One product per slide (no cramped grids); every slide shows a big, unmissable
 # price lockup; per-product template auto-chosen by the data; selectable palette.
 # ══════════════════════════════════════════════════════════════════════════════
+# Instagram-worthy slide palettes. `card` is the raised-surface colour (price card, stat tiles,
+# CTA rows) — it MUST track the palette, otherwise a dark theme renders dark text on a white chip.
+# `tint` is the accent; "warm" leaves it None so it keeps the per-category tint (fashion/tech/home…).
 _PALETTES = {
-    "warm": {"g1": "#FBF8F2", "g2": "#EFE9E1", "g3": "#E7DFD2", "text": "#221E18",
-             "muted": "#8B8171", "border": "#CFC5B2", "chip": "#F6F2EB", "stage": "#E4DBCC"},
-    "sky":  {"g1": "#F4F9FD", "g2": "#E7F0F8", "g3": "#DCE8F3", "text": "#16273A",
-             "muted": "#6E8296", "border": "#C4D6E6", "chip": "#EEF5FB", "stage": "#DCE8F3"},
+    "warm":  {"label": "Warm Sand",  "tint": None,      "g1": "#FBF8F2", "g2": "#EFE9E1", "g3": "#E7DFD2",
+              "text": "#221E18", "muted": "#8B8171", "border": "#CFC5B2", "chip": "#F6F2EB",
+              "stage": "#E4DBCC", "card": "#FFFFFFF0"},
+    "sky":   {"label": "Sky Blue",   "tint": "#2E7DC4", "g1": "#F4F9FD", "g2": "#E7F0F8", "g3": "#DCE8F3",
+              "text": "#16273A", "muted": "#6E8296", "border": "#C4D6E6", "chip": "#EEF5FB",
+              "stage": "#DCE8F3", "card": "#FFFFFFF0"},
+    "noir":  {"label": "Noir Gold",  "tint": "#D8B45A", "g1": "#262A30", "g2": "#1B1E23", "g3": "#121417",
+              "text": "#F4F2ED", "muted": "#9BA3AE", "border": "#3C424B", "chip": "#2A2F36",
+              "stage": "#2A2F36", "card": "#2A2F36F2"},
+    "rose":  {"label": "Rose Blush", "tint": "#D95C77", "g1": "#FFF7F8", "g2": "#FCEBEE", "g3": "#F7DDE3",
+              "text": "#3A1F26", "muted": "#9E7B84", "border": "#EFCBD4", "chip": "#FFF1F4",
+              "stage": "#F6DDE3", "card": "#FFFFFFF0"},
+    "mint":  {"label": "Fresh Mint", "tint": "#2E9E6B", "g1": "#F4FBF7", "g2": "#E6F5EC", "g3": "#D8ECE1",
+              "text": "#12291F", "muted": "#6E8C7C", "border": "#C0DFCD", "chip": "#EFF9F3",
+              "stage": "#DCEFE4", "card": "#FFFFFFF0"},
+    "lilac": {"label": "Lilac Pop",  "tint": "#7C5CD6", "g1": "#F9F6FE", "g2": "#F0EAFB", "g3": "#E4DBF6",
+              "text": "#241B36", "muted": "#7E7295", "border": "#D5C8EE", "chip": "#F5F0FD",
+              "stage": "#E7DFF7", "card": "#FFFFFFF0"},
+    "clay":  {"label": "Terracotta", "tint": "#C0743A", "g1": "#FBF6EF", "g2": "#F2E8DA", "g3": "#E8DBC6",
+              "text": "#2C2118", "muted": "#907F68", "border": "#DCC9AC", "chip": "#F7F0E5",
+              "stage": "#ECDFCB", "card": "#FFFFFFF0"},
+    "mono":  {"label": "Mono Ink",   "tint": "#141416", "g1": "#FFFFFF", "g2": "#F4F4F5", "g3": "#E7E7EA",
+              "text": "#111113", "muted": "#77777E", "border": "#D6D6DA", "chip": "#FAFAFB",
+              "stage": "#EDEDEF", "card": "#FFFFFFF2"},
 }
+
+# Public list for the UI palette picker: [{id, label, tint, swatch}]
+def palette_options() -> List[Dict[str, str]]:
+    out = []
+    for k, v in _PALETTES.items():
+        out.append({"id": k, "label": v.get("label", k.title()),
+                    "tint": v.get("tint") or "#B0763C", "swatch": v["g2"],
+                    "dark": k == "noir"})
+    return out
 
 
 def _palette(name: str, category: str) -> Dict[str, str]:
     """Resolve a palette. 'warm' keeps the per-category tint (fashion/tech/home…);
     'sky' is the cool blue identity. Anything else → warm."""
     key = (name or "warm").strip().lower()
-    if key == "sky":
-        P = dict(_PALETTES["sky"]); P["tint"] = "#2E7DC4"; P["name"] = "sky"
-    else:
-        P = dict(_PALETTES["warm"]); P["tint"] = _tint(category); P["name"] = "warm"
+    src = _PALETTES.get(key)
+    if src is None:
+        key, src = "warm", _PALETTES["warm"]
+    P = dict(src)
+    # "warm" has no fixed accent — it keeps the per-category tint (fashion/tech/home…).
+    P["tint"] = src.get("tint") or _tint(category)
+    P["name"] = key
     return P
 
 
@@ -807,7 +842,7 @@ body{{font-family:{_SANS};background:{P['g2']};color:{P['text']};overflow:hidden
 .chip{{display:inline-flex;align-items:center;gap:9px;border:1.5px solid {P['border']};background:{P['chip']};border-radius:100px;
    padding:10px 20px;font-family:{_MONO};font-size:21px;color:{P['muted']}}}
 .chip b{{color:{P['text']};font-weight:700}}
-.pricecard{{display:inline-flex;flex-direction:column;gap:8px;background:#FFFFFFEE;border:1.5px solid {P['border']};
+.pricecard{{display:inline-flex;flex-direction:column;gap:8px;background:{P['card']};border:1.5px solid {P['border']};
    border-radius:16px;padding:18px 24px;box-shadow:0 18px 40px rgba(20,30,45,.14)}}
 .prow{{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}}
 .big-price{{font-family:{_SANS};font-weight:800;font-size:88px;letter-spacing:-.02em;color:{P['text']};font-variant-numeric:tabular-nums;line-height:.9}}
@@ -823,7 +858,7 @@ body{{font-family:{_SANS};background:{P['g2']};color:{P['text']};overflow:hidden
 .brandeyebrow{{font-family:{_MONO};font-size:20px;letter-spacing:.22em;text-transform:uppercase;color:{P['muted']}}}
 .brandrow{{display:flex;gap:16px;flex-wrap:wrap;align-items:center}}
 .brandmark{{position:relative;display:inline-flex;align-items:center;justify-content:center;height:76px;min-width:132px;
-   padding:0 24px;background:#FFFFFFF7;border:1.5px solid {P['border']};border-radius:16px;box-shadow:0 12px 28px rgba(20,30,45,.10)}}
+   padding:0 24px;background:{P['card']};border:1.5px solid {P['border']};border-radius:16px;box-shadow:0 12px 28px rgba(20,30,45,.10)}}
 .brandmark .wm{{font-family:{_SERIF};font-size:34px;font-weight:600;color:{P['text']};letter-spacing:.01em;white-space:nowrap;line-height:1}}
 .brandmark img{{position:absolute;left:14px;top:12px;width:calc(100% - 28px);height:calc(100% - 24px);object-fit:contain;background:#fff;border-radius:8px}}
 .collage{{display:grid;gap:14px;height:100%}}
@@ -832,7 +867,7 @@ body{{font-family:{_SANS};background:{P['g2']};color:{P['text']};overflow:hidden
 .ccell>img{{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:8%;
    filter:drop-shadow(0 16px 20px {t}45) drop-shadow(0 6px 8px rgba(20,30,45,.12))}}
 .ctag{{position:absolute;left:9px;right:9px;bottom:9px;display:flex;justify-content:space-between;align-items:center;gap:8px;
-   background:#FFFFFFF2;border:1px solid {P['border']};border-radius:11px;padding:8px 13px;box-shadow:0 8px 18px rgba(20,30,45,.10)}}
+   background:{P['card']};border:1px solid {P['border']};border-radius:11px;padding:8px 13px;box-shadow:0 8px 18px rgba(20,30,45,.10)}}
 .ctag span{{font-family:{_MONO};font-size:19px;font-weight:700;color:{P['text']};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .ctag b{{font-family:{_SANS};font-size:21px;font-weight:800;color:{t};white-space:nowrap}}
 .coff{{position:absolute;top:10px;right:10px;font-family:{_MONO};font-weight:700;font-size:17px;color:#fff;background:{t};padding:5px 10px;border-radius:8px}}
@@ -1124,7 +1159,7 @@ def _bold2(p, img, P, handle):
 def _stat_tiles(p, P) -> str:
     """A row of REAL stat tiles from the product's own data — never invented."""
     def tile(big, sub):
-        return (f'<div style="flex:1 1 0;min-width:150px;background:#FFFFFFF0;border:1.5px solid {P["border"]};'
+        return (f'<div style="flex:1 1 0;min-width:150px;background:{P["card"]};border:1.5px solid {P["border"]};'
                 f'border-radius:18px;padding:20px 20px;display:flex;flex-direction:column;gap:2px">'
                 f'<div style="font-family:{_SANS};font-weight:800;font-size:42px;color:{P["text"]};line-height:1">{big}</div>'
                 f'<div style="font-family:{_MONO};font-size:19px;color:{P["muted"]}">{sub}</div></div>')
@@ -1198,7 +1233,7 @@ def _deal_card2(p, P, handle):
     hook = _esc((p.get("hook") or _clean_title(p, limit=64)))
     big_off = (f'<div class="megaoff" style="font-size:150px">{off}%<span style="font-size:52px"> OFF</span></div>'
                if off else '<div class="megaoff" style="font-size:100px">Deal Drop</div>')
-    coupon_teaser = ('<div style="display:inline-flex;align-items:center;gap:14px;background:#FFFFFFF0;'
+    coupon_teaser = (f'<div style="display:inline-flex;align-items:center;gap:14px;background:{P["card"]};'
                      f'border:2px dashed {P["tint"]};border-radius:14px;padding:14px 26px">'
                      f'<span style="font-size:34px">🎟️</span>'
                      f'<span style="font-family:{_MONO};font-weight:700;font-size:26px;color:{P["text"]}">Coupon available in the store</span></div>') if has_code else ""
@@ -1239,7 +1274,7 @@ def _closer2(P, handle):
     """Elegant final CTA: comment→auto-DM (any comment triggers the DM link), link in
     bio, and a follow nudge for the account."""
     def row(icon, big, sub):
-        return (f'<div style="display:flex;align-items:center;gap:22px;background:#FFFFFFF0;'
+        return (f'<div style="display:flex;align-items:center;gap:22px;background:{P["card"]};'
                 f'border:1.5px solid {P["border"]};border-radius:20px;padding:22px 28px;'
                 f'box-shadow:0 14px 34px rgba(20,30,45,.10)">'
                 f'<div style="font-size:46px;line-height:1">{icon}</div>'
