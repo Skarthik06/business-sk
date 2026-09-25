@@ -534,7 +534,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     if (!pins.length) { say('No products to preview', 'error'); return; }
     setPreviewing(g.id); setPreview(null);
     try {
-      const res = await api.skRenderPreview(pins, { category: g.category, palette, cover_tags: g.cover_tags || [] });
+      const res = await api.skRenderPreview(pins, { category: g.category, palette, cover_tags: g.cover_tags || [], account_id: account || null });
       setPreview({ id: g.id, images: res.images || [], plan: res.plan || [], palette: res.palette });
     } catch (e) {
       say(e?.response?.data?.detail || e?.message || 'Preview failed', 'error');

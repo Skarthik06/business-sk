@@ -59,8 +59,8 @@ export default {
 
   // Business-SK — render the Still Set designed slides for a set of products WITHOUT posting.
   // Returns { images:[cdn urls], plan:[{tmpl,label,n,product}], count, palette } — the real post preview.
-  skRenderPreview: (products, { category = '', arc = 'auto', theme = '', palette = 'warm', cover_tags = [] } = {}) =>
-    http.post('/sk/render-preview', { products, category, arc, theme, palette, cover_tags }).then(data),
+  skRenderPreview: (products, { category = '', arc = 'auto', theme = '', palette = 'warm', cover_tags = [], account_id = null } = {}) =>
+    http.post('/sk/render-preview', { products, category, arc, theme, palette, cover_tags, ...(account_id ? { account_id } : {}) }).then(data),
 
   // Business-SK — public storefront (GitHub Pages): one Amazon-tagged page with all products.
   skStorefrontUrl: () => http.get('/sk/storefront/url').then(data),

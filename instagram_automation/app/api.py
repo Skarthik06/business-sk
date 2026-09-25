@@ -246,7 +246,8 @@ class SkRenderReq(BaseModel):
     category: str = ""
     arc: str = "auto"
     theme: str = ""
-    handle: str = "@business.sk"
+    account_id: int | None = None      # resolve the REAL @handle from this account (preview == post)
+    handle: str = ""                   # explicit override; blank ⇒ resolved from the account
     palette: str = "warm"              # slide palette: warm | sky
     cover_tags: list[str] = []         # selection tags for the cover
 
@@ -398,7 +399,7 @@ def sk_carousel(body: SkCarouselReq):
     if body.design and products:
         try:
             designed = _render_sk_slides(products, category=body.category, arc=body.arc,
-                                         theme=body.theme, handle=(account.get("handle") or "@business.sk"),
+                                         theme=body.theme, handle=_at(account.get("handle")),
                                          palette=(getattr(body, "palette", None) or "warm"),
                                          cover_tags=getattr(body, "cover_tags", None) or [])
             if designed.get("images"):
@@ -473,6 +474,34 @@ def _render_sk_slides(products: list[dict], *, category: str, arc: str, theme: s
             "isolated": res.get("isolated"), "local_only": True}
 
 
+def _at(handle: str | None) -> str:
+    """Always render the account handle with a leading @ (the CTA slide reads 'Follow @x')."""
+    h = (handle or "").strip()
+    if not h:
+        return "@business.sk"
+    return h if h.startswith("@") else "@" + h
+
+
+def _preview_handle(body) -> str:
+    """The @handle the CTA slide should show in a PREVIEW. The preview is advertised as
+    "exactly what posts", so it must use the SAME handle the real post uses (the connected
+    account) — not a hardcoded default. Order: explicit override → named account → the first
+    active account → first account → generic fallback."""
+    h = (getattr(body, "handle", "") or "").strip()
+    if h:
+        return h
+    try:
+        acct = rags.get_account(body.account_id) if getattr(body, "account_id", None) else None
+        if not acct:
+            accts = rags.list_accounts(active_only=True) or rags.list_accounts()
+            acct = accts[0] if accts else None
+        if acct and (acct.get("handle") or "").strip():
+            return _at(acct["handle"])
+    except Exception:
+        pass
+    return "@business.sk"
+
+
 @app.post("/api/sk/render-preview")
 def sk_render_preview(body: SkRenderReq):
     """Render the Still Set slides for a set of products and return preview URLs WITHOUT
@@ -485,7 +514,7 @@ def sk_render_preview(body: SkRenderReq):
     out_dir = settings.IMAGES_DIR / "sk_slides"
     res = sk_render.render_carousel(body.products, category=body.category, out_dir=out_dir,
                                     cdn_prefix="/cdn/sk_slides", slug=slug, arc=body.arc,
-                                    theme=body.theme, handle=body.handle,
+                                    theme=body.theme, handle=_preview_handle(body),
                                     palette=(getattr(body, "palette", None) or "warm"),
                                     cover_tags=getattr(body, "cover_tags", None) or [],
                                     track_cover=False)   # preview: don't consume the cover-uniqueness history
