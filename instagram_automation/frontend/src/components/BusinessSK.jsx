@@ -525,6 +525,9 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   const [palette, setPalette] = useState(() => load('sk_palette', 'warm'));   // slide palette: warm | sky
   const [preview, setPreview] = useState(null);    // { id, images, plan, palette } from render-preview
   const [previewing, setPreviewing] = useState(null);
+  const [renderOpts, setRenderOpts] = useState({ palettes: [], templates: [] });  // from /sk/render-options
+  const [tmplPick, setTmplPick] = useState({});   // { groupId: [tmplId|'' per product slide] }
+  useEffect(() => { api.skRenderOptions().then(setRenderOpts).catch(() => {}); }, []);
   useEffect(() => { save('sk_palette', palette); }, [palette]);
 
   // Render the designed slides for a staged post WITHOUT publishing — shows the exact
@@ -534,7 +537,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     if (!pins.length) { say('No products to preview', 'error'); return; }
     setPreviewing(g.id); setPreview(null);
     try {
-      const res = await api.skRenderPreview(pins, { category: g.category, palette, cover_tags: g.cover_tags || [], account_id: account || null });
+      const res = await api.skRenderPreview(pins, { category: g.category, palette, cover_tags: g.cover_tags || [], account_id: account || null, templates: tmplPick[g.id] || [] });
       setPreview({ id: g.id, images: res.images || [], plan: res.plan || [], palette: res.palette });
     } catch (e) {
       say(e?.response?.data?.detail || e?.message || 'Preview failed', 'error');
@@ -568,7 +571,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       const images = pins.map((p) => hiRes(p.image_url)).filter(Boolean);        // full-resolution images
       let media_id = null, permalink = null, status = 'dry';
       if (!dryRun) {
-        const res = await api.skCarousel(account, images, caption, { category: g.category, products: pins, palette, cover_tags: g.cover_tags || [] });
+        const res = await api.skCarousel(account, images, caption, { category: g.category, products: pins, palette, cover_tags: g.cover_tags || [], templates: tmplPick[g.id] || [] });
         media_id = res.ig_media_id; permalink = res.permalink; status = 'posted';
       }
       const rec = await skApi.recordPost({ category: g.category, products: pins, media_id, permalink, caption, status, content_style: g.content_style || '' });
@@ -649,8 +652,11 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
               <div>
                 <label className="text-xs" style={{ color: 'var(--muted)' }}>Slide palette</label>
                 <div className="ctrl-chips" style={{ marginTop: 6 }}>
-                  {[{ k: 'warm', label: '🟤 Warm' }, { k: 'sky', label: '🔵 Sky blue' }].map((o) => (
-                    <button key={o.k} type="button" className={cx('opt-card', palette === o.k && 'on')} onClick={() => setPalette(o.k)}>{o.label}</button>
+                  {(renderOpts.palettes?.length ? renderOpts.palettes : [{ id: 'warm', label: 'Warm Sand', swatch: '#EFE9E1', tint: '#B04A32' }, { id: 'sky', label: 'Sky Blue', swatch: '#E7F0F8', tint: '#2E7DC4' }]).map((o) => (
+                    <button key={o.id} type="button" className={cx('opt-card', palette === o.id && 'on')} onClick={() => setPalette(o.id)} title={o.dark ? 'Dark theme' : ''} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ width: 16, height: 16, borderRadius: 5, flex: 'none', background: o.swatch, border: `2px solid ${o.tint}`, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.12)' }} />
+                      {o.label}{o.dark ? ' 🌙' : ''}
+                    </button>
                   ))}
                 </div>
               </div>
@@ -671,13 +677,54 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                   <button className="btn btn-sm btn-ghost" onClick={() => setPreview(null)}><Icon name="x" size={12} /> Close</button>
                 </div>
                 <div className="flex flex-col gap-1 mb-3">
-                  {preview.plan.map((s, i) => (
-                    <div key={i} className="flex items-center gap-2 text-xs">
-                      <span className="prog-badge" style={{ minWidth: 26, textAlign: 'center' }}>{i + 1}</span>
-                      <b style={{ color: 'var(--accent)' }}>{s.label}</b>
-                      {s.product && <span style={{ color: 'var(--faint)' }}>· {String(s.product).slice(0, 40)}</span>}
+                  {(() => { let pi = -1; return preview.plan.map((s, i) => {
+                    if (s.editable) pi += 1;
+                    const slotIdx = pi;                       // index among PRODUCT slides only
+                    const picks = tmplPick[preview.id] || [];
+                    const chosen = s.editable ? (picks[slotIdx] || '') : '';
+                    return (
+                      <div key={i} className="flex items-center gap-2 text-xs flex-wrap">
+                        <span className="prog-badge" style={{ minWidth: 26, textAlign: 'center' }}>{i + 1}</span>
+                        {s.editable ? (
+                          <>
+                            <select
+                              className="sk-input"
+                              style={{ padding: '3px 8px', fontSize: 12, maxWidth: 230 }}
+                              value={chosen}
+                              title={(renderOpts.templates || []).find((o) => o.id === (chosen || s.tmpl))?.best_for || ''}
+                              onChange={(ev) => {
+                                const next = [...picks];
+                                while (next.length <= slotIdx) next.push('');
+                                next[slotIdx] = ev.target.value;
+                                setTmplPick((m) => ({ ...m, [preview.id]: next }));
+                              }}
+                            >
+                              <option value="">✨ AI pick{s.ai_label ? ` — ${s.ai_label}` : ''}</option>
+                              {(renderOpts.templates || []).map((o) => (
+                                <option key={o.id} value={o.id}>{o.label}{o.id === s.ai_tmpl ? '  ✨' : ''}</option>
+                              ))}
+                            </select>
+                            <b style={{ color: 'var(--accent)' }}>{s.label}</b>
+                            {!chosen && <span className="style-tag" style={{ color: '#3fb950' }}>AI</span>}
+                          </>
+                        ) : (
+                          <b style={{ color: 'var(--accent)' }}>{s.label}</b>
+                        )}
+                        {s.product && <span style={{ color: 'var(--faint)' }}>· {String(s.product).slice(0, 34)}</span>}
+                      </div>
+                    );
+                  }); })()}
+                  {(tmplPick[preview.id] || []).some(Boolean) && (
+                    <div className="flex items-center gap-2 mt-1">
+                      <button className="btn btn-sm" onClick={() => previewSlides(queue.find((x) => x.id === preview.id) || { id: preview.id, products: [], category: '' })} disabled={previewing}>
+                        {previewing ? <Spinner size={12} /> : <Icon name="bolt" size={12} />} Re-render with my templates
+                      </button>
+                      <button className="btn btn-sm btn-ghost" onClick={() => setTmplPick((m) => ({ ...m, [preview.id]: [] }))}>
+                        <Icon name="x" size={12} /> Reset to AI
+                      </button>
+                      <span className="text-xs" style={{ color: 'var(--faint)' }}>these templates are used when you post</span>
                     </div>
-                  ))}
+                  )}
                 </div>
                 <div className="flex gap-2 overflow-x-auto" style={{ paddingBottom: 6 }}>
                   {preview.images.map((u, i) => (

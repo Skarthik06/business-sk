@@ -54,13 +54,16 @@ export default {
 
   // Business-SK — post an affiliate carousel via a selected IG account (token stays server-side).
   // category + products let the backend attach a post-specific comment→DM automation.
-  skCarousel: (accountId, imageUrls, caption, { category = '', products = [], palette = 'warm', cover_tags = [] } = {}) =>
-    http.post('/sk/carousel', { account_id: Number(accountId), image_urls: imageUrls, caption, category, products, palette, cover_tags }).then(data),
+  skCarousel: (accountId, imageUrls, caption, { category = '', products = [], palette = 'warm', cover_tags = [], templates = [] } = {}) =>
+    http.post('/sk/carousel', { account_id: Number(accountId), image_urls: imageUrls, caption, category, products, palette, cover_tags, templates }).then(data),
 
   // Business-SK — render the Still Set designed slides for a set of products WITHOUT posting.
   // Returns { images:[cdn urls], plan:[{tmpl,label,n,product}], count, palette } — the real post preview.
-  skRenderPreview: (products, { category = '', arc = 'auto', theme = '', palette = 'warm', cover_tags = [], account_id = null } = {}) =>
-    http.post('/sk/render-preview', { products, category, arc, theme, palette, cover_tags, ...(account_id ? { account_id } : {}) }).then(data),
+  skRenderPreview: (products, { category = '', arc = 'auto', theme = '', palette = 'warm', cover_tags = [], account_id = null, templates = [] } = {}) =>
+    http.post('/sk/render-preview', { products, category, arc, theme, palette, cover_tags, templates, ...(account_id ? { account_id } : {}) }).then(data),
+
+  // Palettes + per-slide templates (with details) for the Content Studio pickers.
+  skRenderOptions: () => http.get('/sk/render-options').then(data),
 
   // Business-SK — public storefront (GitHub Pages): one Amazon-tagged page with all products.
   skStorefrontUrl: () => http.get('/sk/storefront/url').then(data),
