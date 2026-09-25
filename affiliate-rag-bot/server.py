@@ -41,6 +41,9 @@ from chains import discovery as _discovery
 MAX_PRODUCTS_PER_RUN = 25   # hard ceiling (matches the Amazon scrape cap)
 
 # Pretty display names per product `source` — for storefront store badges/filters.
+# Display names for the storefront's per-product STORE badge. Legacy/most-seen names are static;
+# every CURRENT store is merged in from the live market catalog, so adding a store to the catalog
+# automatically gives it a proper label here (no more "Sugarcosmetics"/"Themancompany" drift).
 _STORE_LABELS = {
     "amazon": "Amazon", "flipkart": "Flipkart", "myntra": "Myntra", "nykaa": "Nykaa",
     "nykaabeauty": "Nykaa", "ajio": "AJIO", "meesho": "Meesho", "tatacliq": "Tata CLiQ",
@@ -48,7 +51,22 @@ _STORE_LABELS = {
     "reliancedigital": "Reliance Digital", "pharmeasy": "PharmEasy", "decathlon": "Decathlon",
     "bigbasket": "BigBasket", "snapdeal": "Snapdeal", "makemytrip": "MakeMyTrip", "urbanic": "Urbanic",
     "mamaearth": "Mamaearth", "boat": "boAt", "noise": "Noise", "wow": "WOW Skin Science",
-    "muscleblaze": "MuscleBlaze", "cuelinks": "Cuelinks",
+    "muscleblaze": "MuscleBlaze", "cuelinks": "Cuelinks", "mystore": "My Store",
+}
+try:                                        # auto-sync every store in the catalog
+    from performance.cuelinks_markets import MARKETS as _MK
+    for _m in _MK:
+        _STORE_LABELS.setdefault(_m["id"], _m["name"])
+except Exception:
+    pass
+
+# Brand colour per store so the storefront badge is instantly recognisable (easy differentiation).
+_STORE_COLORS = {
+    "amazon": "#E8850C", "flipkart": "#2874F0", "shopsy": "#E4007C", "boat": "#EE1C25",
+    "noise": "#111827", "mamaearth": "#43A047", "sugarcosmetics": "#E4007C", "plum": "#6A4C93",
+    "mcaffeine": "#4E342E", "pilgrim": "#0F766E", "minimalist": "#0EA5E9", "juicychemistry": "#7CB342",
+    "sirona": "#8E24AA", "themancompany": "#1A237E", "beardo": "#B71C1C", "bombayshaving": "#00695C",
+    "snitch": "#1F1F1F", "chumbak": "#F4511E", "sleepycat": "#3949AB", "mystore": "#B0763C",
 }
 MAX_CATEGORIES       = 8    # categories per request
 ALLOWED_MARKETPLACES = {    # Amazon domains the scraper/deep-link support
@@ -1639,6 +1657,11 @@ def hub_json(category: Optional[str] = None) -> dict:
     return {"ok": True, "category": category, "products": post_store.all_products(category)}
 
 
+def _store_color_css() -> str:
+    """One `.store-<id>` background rule per known store, so each badge carries its brand colour."""
+    return " ".join(".store-%s{background:%s}" % (k, v) for k, v in _STORE_COLORS.items())
+
+
 @app.get("/hub", response_class=HTMLResponse)
 def hub_page(category: Optional[str] = None) -> HTMLResponse:
     """The public storefront — the 'link in bio' surface. A polished, converting shop:
@@ -1748,7 +1771,7 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
  .imgwrap{{position:relative;aspect-ratio:1;background:#fff;display:grid;place-items:center;padding:10px}} .imgwrap img{{max-width:100%;max-height:100%;object-fit:contain}}
  .badge{{position:absolute;top:10px;left:10px;background:var(--accent);color:#fff;font:700 12px 'Space Mono',monospace;padding:4px 9px;border-radius:8px}}
  .store{{position:absolute;top:10px;right:10px;font:700 10px 'Space Mono',monospace;letter-spacing:.04em;color:#fff;padding:4px 8px;border-radius:7px;background:#241c17;text-transform:uppercase}}
- .store-flipkart{{background:#2874F0}} .store-amazon{{background:#E8850C}}
+ {_store_color_css()}
  .schip{{flex:none;font-family:'Space Mono',monospace;font-size:12px;font-weight:700;color:var(--muted);background:#fff;border:1.5px solid var(--line);border-radius:100px;padding:7px 14px;cursor:pointer;display:flex;gap:6px;align-items:center;white-space:nowrap;transition:.15s}}
  .schip.on{{color:#fff;background:var(--ink);border-color:var(--ink)}} .schip b{{opacity:.7}}
  .srcbar{{padding-top:0}}
