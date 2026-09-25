@@ -1111,11 +1111,12 @@ def _feature2(p, img, P, handle):
         for i, f in enumerate(pts))
     inner = f"""
   <div class="placard"><span class="kick">Why we love it</span><span class="code">SK · PICK</span></div>
-  <div class="stage" style="position:absolute;left:48px;top:150px;width:470px;height:620px;z-index:1"><img src="{img}"></div>
-  <div style="position:absolute;right:56px;top:172px;width:470px;z-index:2;display:flex;flex-direction:column;gap:26px">
+  <div class="stage" style="position:absolute;left:48px;top:150px;bottom:150px;width:470px;z-index:1"><img src="{img}"></div>
+  <div style="position:absolute;right:56px;top:150px;bottom:150px;width:470px;z-index:2;display:flex;
+       flex-direction:column;gap:26px;justify-content:center">
     <div class="pname" style="font-size:40px">{_esc(_clean_title(p, limit=52))}</div>
     <div style="display:flex;flex-direction:column;gap:18px">{items}</div>
-    {_pricecard(p)}
+    <div style="display:flex">{_pricecard(p)}</div>
   </div>
 """
     return _page2(P, inner, handle=handle)
