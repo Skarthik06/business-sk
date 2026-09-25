@@ -862,19 +862,6 @@ body{{font-family:{_SANS};background:{P['g2']};color:{P['text']};overflow:hidden
 .brandmark .wm{{font-family:{_SERIF};font-size:34px;font-weight:600;color:{P['text']};letter-spacing:.01em;white-space:nowrap;line-height:1}}
 .brandmark img{{position:absolute;left:14px;top:12px;width:calc(100% - 28px);height:calc(100% - 24px);object-fit:contain;background:#fff;border-radius:8px}}
 .collage{{display:grid;gap:14px;height:100%}}
-/* SCATTER collage (cover): slanted, overlapping cards that bleed past the frame edges. */
-.scatter{{position:relative;height:100%;width:100%}}
-.scard{{position:absolute;border-radius:18px;border:1.5px solid {P['border']};overflow:hidden;
-   background:radial-gradient(120% 100% at 50% 18%, {t}26 0%, {t}0F 55%, {P['stage']} 100%);
-   box-shadow:0 26px 50px rgba(20,30,45,.20), 0 8px 16px rgba(20,30,45,.12)}}
-.scard>img{{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:9%;
-   filter:drop-shadow(0 14px 18px {t}40) drop-shadow(0 5px 7px rgba(20,30,45,.12))}}
-.stag{{position:absolute;left:8px;right:8px;bottom:8px;background:{P['card']};border:1px solid {P['border']};
-   border-radius:10px;padding:6px 10px;box-shadow:0 8px 18px rgba(20,30,45,.10)}}
-.stag span{{display:block;font-family:{_MONO};font-size:16px;font-weight:700;color:{P['text']};
-   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.soff{{position:absolute;top:8px;right:8px;font-family:{_MONO};font-weight:700;font-size:15px;color:#fff;
-   background:{t};padding:4px 9px;border-radius:7px;box-shadow:0 6px 14px rgba(20,30,45,.22)}}
 .ccell{{position:relative;border-radius:16px;border:1.5px solid {P['border']};overflow:hidden;
    background:radial-gradient(120% 100% at 50% 18%, {t}26 0%, {t}0F 55%, {P['stage']} 100%)}}
 .ccell>img{{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;padding:8%;
@@ -950,57 +937,6 @@ def _badges_strip(products: List[Dict[str, Any]]) -> str:
     return '<div style="display:flex;gap:12px;flex-wrap:wrap">' + "".join(pills[:3]) + "</div>"
 
 
-def _scatter_layout(n: int) -> List[Dict[str, float]]:
-    """Card placement for the SLANTED, OVERLAPPING cover collage — driven by the product COUNT.
-    x/y/w/h are % of the collage box and heights are EXPLICIT (an aspect-ratio card blows past the
-    box: the box is ~960x642, so a 46%-wide square is ~74% tall). Cards are tuned to sit inside the
-    box with only a SLIGHT bleed past the left/right edges, never swallowing the footer."""
-    if n <= 1:
-        return [{"x": 16, "y": 6, "w": 68, "h": 84, "r": -4, "z": 3}]
-    if n == 2:
-        return [{"x": -6, "y": 4, "w": 56, "h": 78, "r": -7, "z": 2},
-                {"x": 48, "y": 14, "w": 56, "h": 78, "r": 6, "z": 3}]
-    if n == 3:
-        return [{"x": -7, "y": 10, "w": 44, "h": 68, "r": -8, "z": 2},
-                {"x": 29, "y": 2, "w": 46, "h": 72, "r": 3, "z": 4},
-                {"x": 65, "y": 16, "w": 44, "h": 68, "r": 9, "z": 3}]
-    if n == 4:
-        return [{"x": -6, "y": 1, "w": 40, "h": 47, "r": -8, "z": 2},
-                {"x": 34, "y": 6, "w": 40, "h": 47, "r": 4, "z": 4},
-                {"x": 6, "y": 50, "w": 40, "h": 47, "r": 6, "z": 3},
-                {"x": 50, "y": 53, "w": 42, "h": 46, "r": -6, "z": 5}]
-    if n == 5:
-        return [{"x": -7, "y": 2, "w": 35, "h": 45, "r": -9, "z": 2},
-                {"x": 30, "y": 6, "w": 35, "h": 45, "r": 2, "z": 3},
-                {"x": 66, "y": 0, "w": 37, "h": 45, "r": 8, "z": 2},
-                {"x": 2, "y": 52, "w": 36, "h": 45, "r": 5, "z": 4},
-                {"x": 44, "y": 54, "w": 38, "h": 44, "r": -6, "z": 5}]
-    if n == 6:
-        return [{"x": -6, "y": 1, "w": 34, "h": 45, "r": -8, "z": 2},
-                {"x": 31, "y": 6, "w": 34, "h": 45, "r": 3, "z": 3},
-                {"x": 66, "y": 0, "w": 36, "h": 45, "r": 7, "z": 2},
-                {"x": -4, "y": 52, "w": 34, "h": 45, "r": 6, "z": 4},
-                {"x": 32, "y": 55, "w": 34, "h": 44, "r": -4, "z": 5},
-                {"x": 66, "y": 50, "w": 36, "h": 45, "r": 9, "z": 3}]
-    # 7+ -> three/four loose rows, alternating tilt, slight bleed on both edges
-    out: List[Dict[str, float]] = []
-    per = 3 if n <= 9 else 4
-    rows = (n + per - 1) // per
-    wv = 33.0 if per == 3 else 26.0
-    hv = max(26.0, (96.0 / rows) - 4.0)
-    span = (104.0 - wv) / max(per - 1, 1)
-    for i in range(n):
-        r, c = divmod(i, per)
-        out.append({
-            "x": -5.0 + c * span,
-            "y": r * (96.0 / rows) + (0.0 if c % 2 == 0 else 3.0),
-            "w": wv, "h": hv,
-            "r": float(-8 + (i * 5) % 17),
-            "z": float(2 + (i % 4)),
-        })
-    return out
-
-
 def _collage(products: List[Dict[str, Any]], imgs: List[str], P: Dict[str, str]) -> str:
     """A COLLAGE of every product on the cover — a tidy grid of product cutouts, each with a
     NAME tag (prices are intentionally NOT shown on the cover — the tease is the look, the price
@@ -1009,20 +945,20 @@ def _collage(products: List[Dict[str, Any]], imgs: List[str], P: Dict[str, str])
     n = len(products)
     if n == 0:
         return ""
-    lay = _scatter_layout(n)
+    cols = 2 if n <= 2 else 3 if n == 3 else 2 if n == 4 else 3 if n <= 6 else 4
     cells: List[str] = []
-    card = ('<div class="scard" style="left:{x:.1f}%;top:{y:.1f}%;width:{w:.1f}%;height:{h:.1f}%;'
-            'transform:rotate({r:.0f}deg);z-index:{z}">{inner}</div>')
-    for idx, (p, img) in enumerate(zip(products, imgs)):
-        s = lay[idx] if idx < len(lay) else lay[-1]
-        nm = _esc(_clean_title(p, limit=22))
+    for p, img in zip(products, imgs):
+        nm = _esc(_clean_title(p, limit=26))
         off = _discount_pct(p) or 0
-        im = '<img src="%s">' % img if img else '<div style="position:absolute;inset:0"></div>'
-        offflag = '<div class="soff">-%d%%</div>' % off if off >= 40 else ''
-        tag = '<div class="stag"><span>%s</span></div>' % nm
-        cells.append(card.format(x=s['x'], y=s['y'], w=s['w'], h=s['h'], r=s['r'], z=int(s['z']),
-                                 inner=im + offflag + tag))
-    return '<div class="scatter">%s</div>' % ''.join(cells)
+        im = f'<img src="{img}">' if img else '<div style="position:absolute;inset:0"></div>'
+        offflag = f'<div class="coff">-{off}%</div>' if off >= 40 else ""   # discount hook, not a price
+        tag = f'<div class="ctag"><span>{nm}</span></div>'                  # NAME only — no cost on the cover
+        cells.append(f'<div class="ccell">{im}{offflag}{tag}</div>')
+    rows = (n + cols - 1) // cols
+    if cols * rows > n:                      # fill an odd trailing slot with a CTA tile
+        cells.append('<div class="ccell ctile"><div>MORE<small>SWIPE →</small></div></div>')
+    return (f'<div class="collage" style="grid-template-columns:repeat({cols},1fr);grid-auto-rows:1fr">'
+            f'{"".join(cells)}</div>')
 
 
 def _sel_chips(cover_tags: Optional[List[str]], P: Dict[str, str]) -> str:
@@ -1050,10 +986,10 @@ def _cover2(products, imgs, P, *, title, subtitle, handle, cover_tags=None):
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:20px">{off_pill}{_badges_strip(products)}</div>
     {_sel_chips(cover_tags, P)}
   </div>
-  <div style="position:absolute;left:60px;right:60px;top:560px;bottom:148px;z-index:2">{_collage(products, imgs, P)}</div>
-  <div style="position:absolute;left:60px;bottom:88px;z-index:2"><span class="swipe">Swipe → {n} pieces inside</span></div>
+  <div style="position:absolute;left:60px;right:60px;top:560px;bottom:104px;z-index:2">{_collage(products, imgs, P)}</div>
 """
-    return _page2(P, inner, foot_right="SWIPE →", handle=handle)
+    # "Swipe" lives in the small footer (bottom of the slide) rather than as a large line above it.
+    return _page2(P, inner, foot_right=f"SWIPE → {n} INSIDE", handle=handle)
 
 
 def _deal_word(p: Dict[str, Any]) -> str:
@@ -1329,9 +1265,8 @@ def _deal_cover2(deals, P, *, title, subtitle, handle):
     <div class="serif" style="font-size:42px;font-style:italic;color:{P['tint']};margin-top:10px">{_esc(subtitle or f"{n} live offers inside")}</div>
   </div>
   <div style="position:absolute;left:60px;right:60px;top:540px;bottom:150px;z-index:2">{_brand_marks(deals, P, limit=6)}</div>
-  <div style="position:absolute;left:60px;bottom:88px;z-index:2"><span class="swipe">Swipe → {n} deals</span></div>
 """
-    return _page2(P, inner, foot_right="SWIPE →", handle=handle)
+    return _page2(P, inner, foot_right=f"SWIPE → {n} DEALS", handle=handle)
 
 
 def _closer2(P, handle):
