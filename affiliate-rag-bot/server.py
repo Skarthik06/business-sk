@@ -1641,6 +1641,34 @@ def set_agent_setting(body: AgentSettingRequest) -> dict:
     return runtime.set_value(body.key, body.value)
 
 
+class ResetStoreReq(BaseModel):
+    model_config = {"extra": "forbid"}
+    confirm:      str                      # must be exactly "RESET" — guards against accidents
+    clear_posts:  bool = True              # posted history == the storefront's products
+    clear_dedup:  bool = True              # the "already used" ledger, so old picks can post again
+
+
+@app.post("/api/admin/reset-store")
+def reset_store(body: ResetStoreReq) -> dict:
+    """DESTRUCTIVE — wipe the posted history (and therefore the public storefront) and/or the dedup
+    ledger, for a clean relaunch. Your SETTINGS (agents, cuelinks) and the trend/discovery learning
+    data are always kept. Requires confirm="RESET"."""
+    if (body.confirm or "").strip() != "RESET":
+        return JSONResponse(status_code=400, content={"ok": False, "error": 'confirm must be "RESET"'})
+    out: dict = {"ok": True, "cleared": {}}
+    if body.clear_posts:
+        from rag.posts import _session as _psession, SkPost
+        with _psession() as s:
+            out["cleared"]["sk_posts"] = s.query(SkPost).delete()
+            s.commit()
+    if body.clear_dedup:
+        from rag.dedup import _session as _dsession, SeenProduct
+        with _dsession() as s:
+            out["cleared"]["seen_products"] = s.query(SeenProduct).delete()
+            s.commit()
+    return out
+
+
 @app.delete("/api/agents/settings/{key}")
 def clear_agent_setting(key: str) -> dict:
     """Reset a constraint to its config/env default."""
