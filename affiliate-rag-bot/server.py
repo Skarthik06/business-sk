@@ -1662,7 +1662,7 @@ def reset_store(body: ResetStoreReq) -> dict:
             out["cleared"]["sk_posts"] = s.query(SkPost).delete()
             s.commit()
     if body.clear_dedup:
-        from rag.dedup import _session as _dsession, SeenProduct
+        from rag.dedup import _get_session as _dsession, SeenProduct
         with _dsession() as s:
             out["cleared"]["seen_products"] = s.query(SeenProduct).delete()
             s.commit()
