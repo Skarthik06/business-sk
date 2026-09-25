@@ -16,6 +16,21 @@ export default defineConfig({
     strictPort: true,
     allowedHosts: true,  // allow access via a reverse proxy / custom domain (e.g. the nip.io HTTPS host)
     watch: { usePolling: true },   // reliable HMR on Docker Desktop / Windows mounts
+    // This dev server is reachable from the public internet, so bots constantly probe it for
+    // secrets (`/.env` is the most-scanned path there is; `/Dockerfile` too). Without this,
+    // Vite tries to LOAD the probed path as a module, throws, and then broadcasts that error
+    // to every connected browser as a full-screen red overlay. Deny them outright instead.
+    fs: {
+      strict: true,                       // never serve anything outside the project root
+      deny: [
+        '.env', '.env.*', '*.pem', '*.key', '*.crt',
+        'Dockerfile', 'Dockerfile.*', 'docker-compose*',
+        '.git/**', '**/.git/**', '**/node_modules/.cache/**',
+      ],
+    },
+    // Never let a server-side error (almost always internet scanner noise on this public host)
+    // blank out the app with the HMR error overlay. Real build errors still log to the console.
+    hmr: { overlay: false },
     proxy: {
       // API + locally-rendered preview images both live on the backend.
       '/api': { target: API_TARGET, changeOrigin: true },
