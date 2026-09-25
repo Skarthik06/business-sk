@@ -1047,8 +1047,8 @@ def _proof2(p, img, P, handle):
     chips = _chips2(p)
     inner = f"""
   <div class="placard"><span class="kick">Loved by shoppers</span><span class="code">SK · PROOF</span></div>
-  <div style="position:absolute;left:60px;right:60px;top:150px;bottom:150px;z-index:2;display:flex;flex-direction:column;gap:28px;justify-content:center">
-    <div class="stage" style="height:560px"><img src="{img}"></div>
+  <div style="position:absolute;left:60px;right:60px;top:150px;bottom:150px;z-index:2;display:flex;flex-direction:column;gap:24px">
+    <div class="stage" style="flex:1 1 auto;min-height:0"><img src="{img}"></div>
     <div style="display:flex;flex-direction:column;gap:15px">
       <div style="display:flex;gap:12px;flex-wrap:wrap">{chips or '<span class="chip">Verified pick</span>'}</div>
       <div class="pname" style="font-size:40px;max-width:940px">{_esc(_clean_title(p))}</div>
@@ -1148,11 +1148,9 @@ def _bold2(p, img, P, handle):
     inner = f"""
   <div class="placard"><span class="kick">The Statement</span><span class="code">SK · EDIT</span></div>
   <span class="spark" style="top:150px;right:110px">✦</span>
-  <div style="position:absolute;left:60px;right:60px;top:150px;z-index:2">
+  <div style="position:absolute;inset:150px 60px 120px 60px;z-index:2;display:flex;flex-direction:column;gap:18px">
     <div class="serif" style="font-size:84px;line-height:.92;letter-spacing:-.02em;max-width:960px">{_multiline(_clean_title(p, limit=52))}</div>
-  </div>
-  <div style="position:absolute;inset:430px 60px 120px 60px;z-index:2;display:flex;flex-direction:column;gap:20px">
-    <div class="stage" style="flex:1 1 auto;min-height:0;width:80%;align-self:center"><img src="{img}"></div>
+    <div class="stage" style="flex:1 1 auto;min-height:0;width:86%;align-self:center"><img src="{img}"></div>
     <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">{_pricecard(p)}{_side_chips(p, P)}</div>
   </div>
 """
