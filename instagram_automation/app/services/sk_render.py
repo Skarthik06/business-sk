@@ -1016,8 +1016,8 @@ def _spotlight2(p, img, P, handle):
     inner = f"""
   <div class="placard"><span class="kick">Price Drop</span><span class="code">SK · DEAL</span></div>
   <span class="spark" style="top:150px;right:110px">✦</span>
-  <div class="stage" style="position:absolute;left:56px;right:56px;top:120px;height:600px;z-index:1"><img src="{img}"></div>
-  <div style="position:absolute;left:60px;right:60px;bottom:130px;z-index:2;display:flex;flex-direction:column;gap:18px">
+  <div style="position:absolute;inset:120px 60px 130px 60px;z-index:2;display:flex;flex-direction:column;gap:18px">
+    <div class="stage" style="flex:1 1 auto;min-height:0"><img src="{img}"></div>
     <div style="display:flex;align-items:flex-end;gap:22px">
       <div class="megaoff" style="font-size:150px">{off}%</div><div class="megaoff" style="font-size:50px;padding-bottom:20px">{word}</div>
     </div>
@@ -1033,8 +1033,8 @@ def _editorial2(p, img, P, handle):
     inner = f"""
   <div class="placard"><span class="kick">Editor's Pick</span><span class="code">SK · HERO</span></div>
   <span class="spark" style="top:150px;right:110px">✦</span>
-  <div class="stage" style="position:absolute;left:56px;right:56px;top:120px;height:720px;z-index:1"><img src="{img}"></div>
-  <div style="position:absolute;left:60px;right:60px;bottom:130px;z-index:2;display:flex;flex-direction:column;gap:16px">
+  <div style="position:absolute;inset:120px 60px 130px 60px;z-index:2;display:flex;flex-direction:column;gap:16px">
+    <div class="stage" style="flex:1 1 auto;min-height:0"><img src="{img}"></div>
     {f'<div style="display:flex;gap:12px;flex-wrap:wrap">{chips}</div>' if chips else ''}
     <div class="pname" style="font-size:42px;max-width:940px">{_esc(_clean_title(p))}</div>
     {_pricecard(p)}
@@ -1151,8 +1151,10 @@ def _bold2(p, img, P, handle):
   <div style="position:absolute;left:60px;right:60px;top:150px;z-index:2">
     <div class="serif" style="font-size:84px;line-height:.92;letter-spacing:-.02em;max-width:960px">{_multiline(_clean_title(p, limit=52))}</div>
   </div>
-  <div class="stage" style="position:absolute;left:130px;right:130px;top:450px;height:390px;z-index:1"><img src="{img}"></div>
-  <div style="position:absolute;left:60px;right:60px;bottom:120px;z-index:2;display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">{_pricecard(p)}{_side_chips(p, P)}</div>
+  <div style="position:absolute;inset:430px 60px 120px 60px;z-index:2;display:flex;flex-direction:column;gap:20px">
+    <div class="stage" style="flex:1 1 auto;min-height:0;width:80%;align-self:center"><img src="{img}"></div>
+    <div style="display:flex;align-items:flex-end;gap:24px;flex-wrap:wrap">{_pricecard(p)}{_side_chips(p, P)}</div>
+  </div>
 """
     return _page2(P, inner, handle=handle)
 
@@ -1190,11 +1192,11 @@ def _stat2(p, img, P, handle):
     demand). All grounded in the product's own data; strong for well-reviewed / discounted picks."""
     inner = f"""
   <div class="placard"><span class="kick">By the numbers</span><span class="code">SK · STATS</span></div>
-  <div class="stage" style="position:absolute;left:56px;right:56px;top:130px;height:500px;z-index:1"><img src="{img}"></div>
-  <div style="position:absolute;left:60px;right:60px;bottom:110px;z-index:2;display:flex;flex-direction:column;gap:20px">
+  <div style="position:absolute;inset:130px 60px 110px 60px;z-index:2;display:flex;flex-direction:column;gap:20px">
+    <div class="stage" style="flex:1 1 auto;min-height:0"><img src="{img}"></div>
     <div class="pname" style="font-size:38px;max-width:940px">{_esc(_clean_title(p, limit=56))}</div>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:stretch">{_stat_tiles(p, P)}</div>
-    {_pricecard(p)}
+    <div style="display:flex">{_pricecard(p)}</div>
   </div>
 """
     return _page2(P, inner, handle=handle)
@@ -1206,8 +1208,8 @@ def _minimal2(p, img, P, handle):
     inner = f"""
   <div class="placard"><span class="kick">Simply put</span><span class="code">SK · MINIMAL</span></div>
   <span class="spark" style="top:160px;left:96px;font-size:26px">✧</span>
-  <div class="stage" style="position:absolute;left:180px;right:180px;top:210px;height:540px;z-index:1"><img src="{img}"></div>
-  <div style="position:absolute;left:80px;right:80px;bottom:150px;z-index:2;display:flex;flex-direction:column;align-items:center;gap:20px;text-align:center">
+  <div style="position:absolute;inset:170px 80px 130px 80px;z-index:2;display:flex;flex-direction:column;align-items:center;gap:20px;text-align:center">
+    <div class="stage" style="flex:1 1 auto;min-height:0;width:74%"><img src="{img}"></div>
     <div class="serif" style="font-size:52px;line-height:1.02;max-width:840px">{_multiline(_clean_title(p, limit=46))}</div>
     <div style="display:flex;justify-content:center">{_pricecard(p)}</div>
   </div>
