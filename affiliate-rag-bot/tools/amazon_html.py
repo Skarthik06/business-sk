@@ -12,13 +12,19 @@ import html as _html
 import re
 from urllib.parse import quote_plus
 
-_TITLE = re.compile(r'<h2[^>]*>.*?<span[^>]*>([^<]{4,})</span>', re.S)
-_TITLE2 = re.compile(r'<a[^>]*class="[^"]*a-link-normal[^"]*"[^>]*>\s*<span[^>]*>([^<]{4,})</span>', re.S)
+# Amazon renders TWO <h2> blocks per card: a short BRAND line ("Generic", "BLUE TYGA") and the
+# real product title. Collect every candidate and keep the LONGEST — the brand line is always the
+# short one, so this never returns a brand as the title.
+_TITLE_ANY = re.compile(r'<h2[^>]*>.*?<span[^>]*>([^<]{3,})</span>', re.S)
+_TITLE_LINK = re.compile(r'<a[^>]*class="[^"]*a-link-normal[^"]*"[^>]*>\s*<span[^>]*>([^<]{8,})</span>', re.S)
+_BRAND = re.compile(r'<h2[^>]*a-size-mini[^>]*>.*?<span[^>]*>([^<]{2,40})</span>', re.S)
 _IMG = re.compile(r'class="s-image"[^>]*src="([^"]+)"')
 _PRICE_WHOLE = re.compile(r'class="a-price-whole">([\d,]+)')
 _OFFSCREEN = re.compile(r'class="a-offscreen">\s*₹?\s*([\d,]+)')
 _RATING = re.compile(r'([\d.]+)\s+out of\s+5\s+stars')
-_REVIEWS = re.compile(r'aria-label="([\d,]+)"[^>]*>\s*<span[^>]*class="[^"]*s-underline-text')
+# "54 ratings" in an aria-label, or the "(54)" next to the stars.
+_REVIEWS = re.compile(r'aria-label="([\d,]+)\s+ratings?"')
+_REVIEWS2 = re.compile(r's-underline-text"\s*>\(([\d,]+)\)')
 
 
 def search_url(query: str, marketplace: str = "amazon.in") -> str:
@@ -49,9 +55,9 @@ def parse_search(html: str, count: int = 8, *, tag: str = "yourtag-21", marketpl
             img_m = _IMG.search(block)
             if not img_m:                                   # ads / non-product rows have no s-image
                 continue
-            tm = _TITLE.search(block) or _TITLE2.search(block)
-            # decode HTML entities (&amp; &#39; …) so titles read cleanly on the rendered slides
-            title = _html.unescape(re.sub(r"\s+", " ", tm.group(1)).strip()) if tm else ""
+            cands = _TITLE_ANY.findall(block) + _TITLE_LINK.findall(block)
+            cands = [_html.unescape(re.sub(r"\s+", " ", c).strip()) for c in cands]
+            title = max(cands, key=len) if cands else ""      # longest = the real product title
             if len(title) < 4:
                 continue
             pw = _PRICE_WHOLE.search(block)
@@ -68,8 +74,12 @@ def parse_search(html: str, count: int = 8, *, tag: str = "yourtag-21", marketpl
             disc = int(round((mrp - sell) / mrp * 100)) if mrp and mrp > sell else None
             rt = _RATING.search(block)
             rating = float(rt.group(1)) if rt else None
-            rv = _REVIEWS.search(block)
+            rv = _REVIEWS.search(block) or _REVIEWS2.search(block)
             reviews = _int(rv.group(1)) if rv else None
+            bm = _BRAND.search(block)
+            brand = _html.unescape(bm.group(1).strip()) if bm else ""
+            if brand and brand.lower() in ("generic", "unbranded"):
+                brand = ""                                    # not a real brand — don't show it
             img = img_m.group(1).replace("&amp;", "&")
             seen.add(asin)
             items.append({
@@ -79,7 +89,7 @@ def parse_search(html: str, count: int = 8, *, tag: str = "yourtag-21", marketpl
                 "bought_past_month": "", "badge": "",
                 "image": img,
                 "url": f"https://www.{marketplace}/dp/{asin}?tag={tag}",
-                "brand": "", "source": "amazon",
+                "brand": brand, "source": "amazon",
             })
             if len(items) >= count * 3:
                 break
