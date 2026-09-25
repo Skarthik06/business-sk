@@ -237,8 +237,9 @@ class SkCarouselReq(BaseModel):
     design: bool = True                # render the Still Set designed slides (vs raw product images)
     arc: str = "auto"                  # carousel story arc: auto | ranking
     theme: str = ""                    # optional collection theme line for the cover
-    palette: str = "warm"              # slide palette: warm | sky
+    palette: str = "warm"              # slide palette id (see sk_render.palette_options())
     cover_tags: list[str] = []         # selection tags for the cover (audience/style/deals/price/rating)
+    templates: list[str] = []          # per-product-slide template overrides ("" = keep the AI pick)
 
 
 class SkRenderReq(BaseModel):
@@ -248,6 +249,7 @@ class SkRenderReq(BaseModel):
     theme: str = ""
     account_id: int | None = None      # resolve the REAL @handle from this account (preview == post)
     handle: str = ""                   # explicit override; blank ⇒ resolved from the account
+    templates: list[str] = []          # per-product-slide template overrides ("" = keep the AI pick)
     palette: str = "warm"              # slide palette: warm | sky
     cover_tags: list[str] = []         # selection tags for the cover
 
@@ -401,7 +403,8 @@ def sk_carousel(body: SkCarouselReq):
             designed = _render_sk_slides(products, category=body.category, arc=body.arc,
                                          theme=body.theme, handle=_at(account.get("handle")),
                                          palette=(getattr(body, "palette", None) or "warm"),
-                                         cover_tags=getattr(body, "cover_tags", None) or [])
+                                         cover_tags=getattr(body, "cover_tags", None) or [],
+                                         templates=getattr(body, "templates", None) or [])
             if designed.get("images"):
                 images = designed["images"]        # GitHub-raw URLs of the rendered PNGs
                 design_meta = {"rendered": True, "count": designed["count"], "plan": designed.get("plan")}
@@ -436,7 +439,7 @@ def sk_carousel(body: SkCarouselReq):
 
 def _render_sk_slides(products: list[dict], *, category: str, arc: str, theme: str,
                       handle: str, palette: str = "warm", cover_tags: list[str] | None = None,
-                      track_cover: bool = True) -> dict:
+                      templates: list[str] | None = None, track_cover: bool = True) -> dict:
     """Render Still Set slides for these products, publish the PNGs to GitHub raw (IG-fetchable),
     and return the raw URLs + plan. Used by /api/sk/carousel (design=True) and the preview."""
     import hashlib
@@ -447,7 +450,8 @@ def _render_sk_slides(products: list[dict], *, category: str, arc: str, theme: s
     res = sk_render.render_carousel(products, category=category, out_dir=out_dir,
                                     cdn_prefix="/cdn/sk_slides", slug=slug, arc=arc,
                                     theme=theme, handle=handle, palette=palette,
-                                    cover_tags=cover_tags or [], track_cover=track_cover)
+                                    cover_tags=cover_tags or [], templates=templates or [],
+                                    track_cover=track_cover)
     if not res.get("rendered") or not res.get("local"):
         return {"images": [], "count": 0, "plan": res.get("plan"), "error": res.get("error")}
     # push the rendered PNGs to GitHub raw so Instagram can fetch them, then wait for the CDN
@@ -472,6 +476,15 @@ def _render_sk_slides(products: list[dict], *, category: str, arc: str, theme: s
     # no GitHub token → serve locally (fine for preview; IG needs a public URL to post)
     return {"images": res["images"], "count": res["count"], "plan": res.get("plan"),
             "isolated": res.get("isolated"), "local_only": True}
+
+
+@app.get("/api/sk/render-options")
+def sk_render_options():
+    """Palettes + per-slide templates for the Content Studio pickers (with human details)."""
+    from app.services import sk_render
+    return {"success": True,
+            "palettes": sk_render.palette_options(),
+            "templates": sk_render.template_options()}
 
 
 def _at(handle: str | None) -> str:
@@ -517,6 +530,7 @@ def sk_render_preview(body: SkRenderReq):
                                     theme=body.theme, handle=_preview_handle(body),
                                     palette=(getattr(body, "palette", None) or "warm"),
                                     cover_tags=getattr(body, "cover_tags", None) or [],
+                                    templates=getattr(body, "templates", None) or [],
                                     track_cover=False)   # preview: don't consume the cover-uniqueness history
     if not res.get("rendered"):
         raise HTTPException(500, f"Render failed: {res.get('error')}")

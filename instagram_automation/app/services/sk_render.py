@@ -1298,6 +1298,27 @@ def _closer2(P, handle):
 _PROD_TEMPLATES = ("spotlight", "savings", "proof", "feature", "editorial", "lookbook", "bold", "stat", "minimal")
 
 
+# Human-facing details for the template picker. `best_for` explains WHEN the agent favours it,
+# so a manual override is an informed choice rather than a guess.
+_TMPL_INFO = {
+    "spotlight": {"label": "Price-Drop Spotlight", "best_for": "Deep % discounts — leads with a huge % OFF"},
+    "savings":   {"label": "Savings Hero",         "best_for": "Big ₹ saved — leads with the rupee amount"},
+    "proof":     {"label": "Social-Proof",         "best_for": "Lots of ratings/reviews — trust first"},
+    "feature":   {"label": "Why-We-Love-It",       "best_for": "Well-rated / badged — numbered reasons"},
+    "editorial": {"label": "Editorial Hero",       "best_for": "Any product — clean magazine hero"},
+    "lookbook":  {"label": "Lookbook",             "best_for": "Fashion / home — full-bleed lifestyle"},
+    "bold":      {"label": "Statement",            "best_for": "Any product — big typographic name"},
+    "stat":      {"label": "By-the-Numbers",       "best_for": "Strong real numbers — rating/reviews/₹ tiles"},
+    "minimal":   {"label": "Minimal Hero",         "best_for": "Well-shot products — calm, premium, centered"},
+}
+
+
+def template_options() -> List[Dict[str, str]]:
+    """The per-product templates a user may pick manually (cover/closer are structural)."""
+    return [{"id": k, "label": _TMPL_INFO[k]["label"], "best_for": _TMPL_INFO[k]["best_for"]}
+            for k in _PROD_TEMPLATES]
+
+
 def _template_scores(p: Dict[str, Any]) -> Dict[str, float]:
     """Fit each template to the product's REAL signals (discount depth, savings ₹, rating,
     reviews, badge). BOUNDED + comparable (~16–62 each) so the variety penalties in the planner
@@ -1355,7 +1376,8 @@ def _plan_templates(products: List[Dict[str, Any]]) -> List[str]:
 
 # ── the planner: product count + arc → slide specs ────────────────────────────
 def plan_slides(products: List[Dict[str, Any]], *, category: str = "", arc: str = "auto",
-                handle: str = "@business.sk", theme: str = "", cover_tags: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+                handle: str = "@business.sk", theme: str = "", cover_tags: Optional[List[str]] = None,
+                templates: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """Carousel-FIRST plan: every product gets its OWN full slide (no cramped grids).
     2–8 products → teaser Cover → one auto-chosen template per product → CTA closer.
     The per-product template is picked from the product's own data (deep discount →
@@ -1377,9 +1399,14 @@ def plan_slides(products: List[Dict[str, Any]], *, category: str = "", arc: str 
         return specs[:10]
     if n == 1:                                      # single product → just its own hero
         p = products[0]
-        specs.append({"tmpl": _pick_tmpl(p), "products": [p], "kick": kick})
+        one = (templates[0] if templates and templates[0] in _PROD_TEMPLATES else _pick_tmpl(p))
+        specs.append({"tmpl": one, "products": [p], "kick": kick})
         return specs
     _tmpls = _plan_templates(products[:8])          # agentic: fit-scored + variety-enforced
+    # Manual override: templates[i] replaces the agent's pick for slide i ("" / unknown = keep AI).
+    if templates:
+        _tmpls = [((templates[i] if i < len(templates) and templates[i] in _PROD_TEMPLATES else a))
+                  for i, a in enumerate(_tmpls)]
     # teaser cover → one slide per product → closer (Instagram hard-caps at 10 slides)
     # Cover copy priority: explicit theme (user override) → AI-written cover_title from the
     # composer → deterministic fallback. Same for the subtitle.
@@ -1531,7 +1558,8 @@ _TMPL_LABEL = {"cover": "Teaser cover", "spotlight": "Price-Drop Spotlight",
 def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_dir: Path,
                     cdn_prefix: str, slug: str, arc: str = "auto", handle: str = "@business.sk",
                     theme: str = "", isolate: bool = True, palette: str = "warm",
-                    track_cover: bool = True, cover_tags: Optional[List[str]] = None) -> Dict[str, Any]:
+                    track_cover: bool = True, cover_tags: Optional[List[str]] = None,
+                    templates: Optional[List[str]] = None) -> Dict[str, Any]:
     """Full pipeline (Template System v2): plan a carousel-first sequence → prep each
     product image (staged, product-true) → render designed PNGs in the chosen palette
     (warm | sky). Returns cdn urls + local paths + the plan (with human labels).
@@ -1539,7 +1567,8 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
     `track_cover` (posts only, not previews): dedupe the front-slide headline against recent
     posts and remember it, so the cover NEVER repeats across posts."""
     P = _palette(palette, category)
-    specs = plan_slides(products, category=category, arc=arc, handle=handle, theme=theme, cover_tags=cover_tags)
+    specs = plan_slides(products, category=category, arc=arc, handle=handle, theme=theme,
+                        cover_tags=cover_tags, templates=templates)
     if not specs:
         return {"rendered": False, "images": [], "local": [], "count": 0, "error": "no products"}
 
@@ -1600,8 +1629,18 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
             htmls.append(_editorial2(ps[0], imgs[0], P, handle))
 
     result = _render_htmls(htmls, out_dir, cdn_prefix, slug)
+    # What the AGENT would pick per product slide (independent of any manual override) — the UI
+    # badges "AI pick" on that option so a manual choice is always an informed one.
+    _prod_slides = [s for s in specs if s["tmpl"] in _PROD_TEMPLATES]
+    _ai = _plan_templates([s["products"][0] for s in _prod_slides]) if _prod_slides else []
+    _ai_by_id = {}
+    for s, a in zip(_prod_slides, _ai):
+        _ai_by_id[id(s)] = a
     result["plan"] = [{"tmpl": s["tmpl"], "label": _TMPL_LABEL.get(s["tmpl"], s["tmpl"]),
                        "n": len(s["products"]),
+                       "editable": s["tmpl"] in _PROD_TEMPLATES,
+                       "ai_tmpl": _ai_by_id.get(id(s)),
+                       "ai_label": _TMPL_LABEL.get(_ai_by_id.get(id(s)), None),
                        "product": (s["products"][0].get("product_title") if s["products"] else None)}
                       for s in specs]
     result["palette"] = P["name"]
