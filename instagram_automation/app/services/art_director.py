@@ -510,13 +510,37 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "", s
         if plan["scene"].get("new"):
             plan["scene"]["new"]["palette"] = plan["palette"]
     forced = parse_styles(styles)
+    # NO EXCUSES: if the LLM gave no scene (error / no key / invalid answer), synthesise one
+    # deterministically from the palette row + presets, so every post still gets its own
+    # preset-built scene painted by the laptop.
+    _rows_all = _palette_rows()
+    if allow_new and not plan["scene"].get("new") and _rows_all:
+        if plan.get("palette") not in _rows_all:
+            plan["palette"] = "noir" if "noir" in _rows_all else next(iter(_rows_all))
+        _row = _rows_all[plan["palette"]]
+        _mats = [m.strip() for m in _row["materials"].split(",") if m.strip()]
+        _fields = {"setting": "minimal editorial photo studio corner",
+                   "wall": _mats[0] if _mats else "", "floor": _mats[1] if len(_mats) > 1 else "",
+                   "light": _row["light"], "props": _mats[2] if len(_mats) > 2 else "",
+                   "camera": "eye-level, straight-on, 35mm, deep focus", "mood": _row["mood"],
+                   "colors": [c.strip() for c in _row["colors"].split(",")][:3]}
+        import hashlib as _h
+        _p = _assemble_prompt(_fields)
+        plan["scene"]["new"] = {"key": f"{plan['palette']}_studio_{_h.sha1(_p.encode()).hexdigest()[:6]}",
+                                "prompt": _p, "palette": plan["palette"], "mood": _row["mood"],
+                                "niches": [], "tags": [], "fields": _fields}
     _pal = plan.get("palette")
     plan["presets"] = forced or _fill_presets(
         [p for p in (plan.get("presets") or []) if _pal in presets().get(p, {}).get("palettes", [])],
         _pal, plan.get("analysis") or [], products, want=int(_knob("ART_PRESETS_PER_POST", "3")))
+    if not plan["presets"]:                               # never empty: coherent filler for the palette
+        plan["presets"] = _fill_presets([], _pal or "noir", plan.get("analysis") or [], products)
     _new = plan["scene"].get("new")
     if _new and _new.get("fields") and any(_new["fields"].get(k) for k in ("setting", "wall", "floor", "light")):
-        _new["prompt"] = _assemble_prompt(_new["fields"], plan["presets"])
+        _new["prompt"] = _assemble_prompt(_new["fields"], plan["presets"])   # preset phrases ALWAYS in the prompt
+    elif _new and plan["presets"]:                        # a free-text prompt still gets the preset phrases
+        _new["prompt"] = (_new["prompt"] + ", " + ", ".join(presets()[p]["adds"] for p in plan["presets"]
+                                                            if p in presets()))[:900]
     plan["look"] = lk
     new = plan["scene"].get("new")
     if new:
