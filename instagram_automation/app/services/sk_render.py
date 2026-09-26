@@ -480,7 +480,7 @@ body{{font-family:{_SANS};background:#EDE7DD;color:#221E18;overflow:hidden;-webk
 
 
 def _page(tint: str, inner: str, *, idx: int = 1, total: int = 1,
-          foot_left: str = "@business.sk", foot_right: str = "") -> str:
+          foot_left: str = "@lostinframes0605.exe", foot_right: str = "") -> str:
     # No edition code (top-right) and no slide counter (footer) — per brand: clean, uncluttered.
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -881,7 +881,7 @@ body{{font-family:{_SANS};background:{P['g2']};color:{P['text']};overflow:hidden
 """
 
 
-def _page2(P: Dict[str, str], inner: str, *, foot_right: str = "SWIPE →", handle: str = "@business.sk") -> str:
+def _page2(P: Dict[str, str], inner: str, *, foot_right: str = "SWIPE →", handle: str = "@lostinframes0605.exe") -> str:
     return f"""<!doctype html><html><head><meta charset="utf-8">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -1376,7 +1376,7 @@ def _plan_templates(products: List[Dict[str, Any]]) -> List[str]:
 
 # ── the planner: product count + arc → slide specs ────────────────────────────
 def plan_slides(products: List[Dict[str, Any]], *, category: str = "", arc: str = "auto",
-                handle: str = "@business.sk", theme: str = "", cover_tags: Optional[List[str]] = None,
+                handle: str = "@lostinframes0605.exe", theme: str = "", cover_tags: Optional[List[str]] = None,
                 templates: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """Carousel-FIRST plan: every product gets its OWN full slide (no cramped grids).
     2–8 products → teaser Cover → one auto-chosen template per product → CTA closer.
@@ -1556,7 +1556,7 @@ _TMPL_LABEL = {"cover": "Teaser cover", "spotlight": "Price-Drop Spotlight",
 
 
 def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_dir: Path,
-                    cdn_prefix: str, slug: str, arc: str = "auto", handle: str = "@business.sk",
+                    cdn_prefix: str, slug: str, arc: str = "auto", handle: str = "@lostinframes0605.exe",
                     theme: str = "", isolate: bool = True, palette: str = "warm",
                     track_cover: bool = True, cover_tags: Optional[List[str]] = None,
                     templates: Optional[List[str]] = None) -> Dict[str, Any]:

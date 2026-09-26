@@ -491,7 +491,7 @@ def _at(handle: str | None) -> str:
     """Always render the account handle with a leading @ (the CTA slide reads 'Follow @x')."""
     h = (handle or "").strip()
     if not h:
-        return "@business.sk"
+        return "@lostinframes0605.exe"
     return h if h.startswith("@") else "@" + h
 
 
@@ -512,7 +512,7 @@ def _preview_handle(body) -> str:
             return _at(acct["handle"])
     except Exception:
         pass
-    return "@business.sk"
+    return "@lostinframes0605.exe"
 
 
 @app.post("/api/sk/render-preview")
