@@ -83,7 +83,7 @@ def _pick_scene(category: str, products: List[Dict[str, Any]], lib: List[Dict[st
 
 
 def _layout_for(meta: Optional[Dict[str, Any]], i: int, used_split: int) -> str:
-    if meta and meta.get("subject") == "person":
+    if meta and meta.get("subject") == "person" and meta.get("touches_bottom"):
         return "scene_hero"
     if i % 3 == 2 and used_split < 2:
         return "scene_split"

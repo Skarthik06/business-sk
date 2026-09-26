@@ -117,6 +117,26 @@ class Models:
 
 
 # ── jobs ─────────────────────────────────────────────────────────────────────
+_FACE_MODEL = os.path.join(os.path.expanduser("~"), "sk-ai", "models", "face_detection_yunet_2023mar.onnx")
+
+
+def _has_face(img):
+    """True/False if a face is visible (YuNet, OpenCV model zoo); None if the detector is unavailable."""
+    try:
+        import cv2
+        import numpy as np
+        if not os.path.exists(_FACE_MODEL):
+            return None
+        small = img.copy()
+        small.thumbnail((640, 640))
+        bgr = cv2.cvtColor(np.array(small.convert("RGB")), cv2.COLOR_RGB2BGR)
+        det = cv2.FaceDetectorYN.create(_FACE_MODEL, "", (bgr.shape[1], bgr.shape[0]), 0.8)
+        _, faces = det.detect(bgr)
+        return faces is not None and len(faces) > 0
+    except Exception:
+        return None
+
+
 def do_cutout(M: Models, job: dict) -> tuple[str, dict]:
     from PIL import Image, ImageFilter
     from torchvision import transforms
@@ -150,7 +170,15 @@ def do_cutout(M: Models, job: dict) -> tuple[str, dict]:
     solid.paste(small, mask=small.split()[-1])
     pal = solid.quantize(colors=4).convert("RGB").getcolors(96 * 96) or []
     colors = ["#%02X%02X%02X" % c for _, c in sorted(pal, reverse=True) if c != (255, 255, 255)][:3]
-    subject = "person" if (touches_bottom and aspect < 1.0) else "object"
+    # A MODEL shot = a face is visible (YuNet face detector). Fallback without the model file: a
+    # silhouette rule (wide at the bottom edge, narrow at the top).
+    face = _has_face(img)
+    if face is None:
+        def _row_width(frac: float) -> float:
+            y = min(alpha.height - 1, max(0, int(alpha.height * frac)))
+            return sum(1 for x in range(alpha.width) if alpha.getpixel((x, y)) > 128) / max(1, alpha.width)
+        face = touches_bottom and aspect < 1.0 and _row_width(0.97) >= 0.45 and _row_width(0.08) <= 0.6
+    subject = "person" if face else "object"
     buf = io.BytesIO()
     cut.save(buf, format="PNG", optimize=True)
     return base64.b64encode(buf.getvalue()).decode("ascii"), {

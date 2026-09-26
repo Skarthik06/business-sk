@@ -1980,18 +1980,21 @@ def _apply_art(specs: List[Dict[str, Any]], products: List[Dict[str, Any]], art:
             if _src(p) not in cuts:
                 continue                                   # no image at all → nothing to place
             lay = lays[i] if 0 <= i < len(lays) else ""
+            meta = _cut_meta(p) or {}
+            cropped_model = meta.get("subject") == "person" and bool(meta.get("touches_bottom"))
             if lay not in _SCENE_LAYOUTS:
-                meta = _cut_meta(p)
-                lay = "scene_hero" if (meta and meta.get("subject") == "person") else "scene_float"
+                lay = "scene_hero" if cropped_model else "scene_float"
+            # Measured facts refine the LLM's pick: a Hero needs a photo cropped at the bottom (the
+            # panel hides that edge); a model (face detected) cropped at the bottom must be a Hero,
+            # never floating cut off in mid-air.
+            if lay == "scene_hero" and meta and not meta.get("touches_bottom"):
+                lay = "scene_float"
+            elif lay != "scene_hero" and cropped_model:
+                lay = "scene_hero"
             sp["ai_layout"] = lay
             if templates and 0 <= i < len(templates) and templates[i] in _SCENE_LAYOUTS:
                 sp["tmpl"] = templates[i]                  # manual scene-layout pick wins
                 continue
-            meta = _cut_meta(p)
-            if lay == "scene_hero" and meta and meta.get("subject") == "object":
-                lay = "scene_float"                        # whole object → float, never cropped by the panel
-            elif lay == "scene_float" and meta and meta.get("subject") == "person":
-                lay = "scene_hero"                         # cropped model → stand on the panel edge
             sp["tmpl"] = lay
         elif t == "cover":
             ready = [p for p in sp.get("all", sp["products"]) if _src(p) in cuts][:6]
