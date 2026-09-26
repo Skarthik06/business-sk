@@ -668,6 +668,30 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
           </div>
         ) : (
           <>
+          <div className="mb-4">
+              <label className="text-xs" style={{ color: 'var(--muted)' }}>Design · Look</label>
+              <div className="text-sm" style={{ marginTop: 8, fontWeight: 700 }}>✨ AI Art Director</div>
+              <div className="ctrl-chips" style={{ marginTop: 6, flexWrap: 'wrap', maxWidth: 'none' }}>
+                {[{ key: 'premium', label: '🖤 Premium dark (Noir Gold)', tip: 'Brand look: dark panels + gold accents; the AI writes a dark, luxurious scene for each post' },
+                  { key: 'ai', label: '✨ AI free', tip: 'The AI picks any scene + palette per post' },
+                  ...((renderOpts.palettes || []).filter((o) => o.id !== 'noir').map((o) => ({ key: o.id, label: o.label, swatch: o.swatch, tint: o.tint, tip: `${o.label}: the AI writes a scene in this palette's colours (agents/scene-prompt.agents.md)` })))]
+                  .map((o) => (
+                    <button key={o.key} type="button" className={cx('opt-card', look === o.key && 'on')} title={o.tip}
+                      onClick={() => setLook(o.key)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                      {o.swatch && <span style={{ width: 14, height: 14, borderRadius: 4, flex: 'none', background: o.swatch, border: `2px solid ${o.tint}` }} />}
+                      {o.label}
+                    </button>
+                  ))}
+              </div>
+              <div className="text-xs" style={{ marginTop: 3, color: scenes?.status?.worker_online ? '#3fb950' : 'var(--faint)' }}
+                title="The Art Director designs every post: an AI scene, each slide's layout and the headline. Products stay 100% real. The laptop GPU makes sharper cut-outs + new scenes; without it the server cuts products out itself.">
+                {scenes?.status
+                  ? (scenes.status.worker_online
+                      ? `● Laptop GPU online · ${scenes.status.library_ready} scenes${scenes.status.queued ? ` · ${scenes.status.queued} queued` : ''}`
+                      : `○ Laptop GPU offline · ${scenes.status.library_ready} scenes · server cut-outs`)
+                  : 'checking…'}
+              </div>
+            </div>
             <div className="flex flex-wrap items-end gap-4 mb-2">
               <div>
                 <label className="text-xs" style={{ color: 'var(--muted)' }}>Instagram account</label>
@@ -675,30 +699,6 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                   {accounts.length === 0 && <option value="">— none linked —</option>}
                   {accounts.map((a) => <option key={a.id} value={a.id}>{a.label} {a.handle ? `(@${a.handle})` : ''}</option>)}
                 </select>
-              </div>
-              <div>
-                <label className="text-xs" style={{ color: 'var(--muted)' }}>Design · Look</label>
-                <div className="text-sm" style={{ marginTop: 8, fontWeight: 700 }}>✨ AI Art Director</div>
-                <div className="ctrl-chips" style={{ marginTop: 6, flexWrap: 'wrap', maxWidth: 520 }}>
-                  {[{ key: 'premium', label: '🖤 Premium dark (Noir Gold)', tip: 'Brand look: dark panels + gold accents; the AI writes a dark, luxurious scene for each post' },
-                    { key: 'ai', label: '✨ AI free', tip: 'The AI picks any scene + palette per post' },
-                    ...((renderOpts.palettes || []).filter((o) => o.id !== 'noir').map((o) => ({ key: o.id, label: o.label, swatch: o.swatch, tint: o.tint, tip: `${o.label}: the AI writes a scene in this palette's colours (agents/scene-prompt.agents.md)` })))]
-                    .map((o) => (
-                      <button key={o.key} type="button" className={cx('opt-card', look === o.key && 'on')} title={o.tip}
-                        onClick={() => setLook(o.key)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                        {o.swatch && <span style={{ width: 14, height: 14, borderRadius: 4, flex: 'none', background: o.swatch, border: `2px solid ${o.tint}` }} />}
-                        {o.label}
-                      </button>
-                    ))}
-                </div>
-                <div className="text-xs" style={{ marginTop: 3, color: scenes?.status?.worker_online ? '#3fb950' : 'var(--faint)' }}
-                  title="The Art Director designs every post: an AI scene, each slide's layout and the headline. Products stay 100% real. The laptop GPU makes sharper cut-outs + new scenes; without it the server cuts products out itself.">
-                  {scenes?.status
-                    ? (scenes.status.worker_online
-                        ? `● Laptop GPU online · ${scenes.status.library_ready} scenes${scenes.status.queued ? ` · ${scenes.status.queued} queued` : ''}`
-                        : `○ Laptop GPU offline · ${scenes.status.library_ready} scenes · server cut-outs`)
-                    : 'checking…'}
-                </div>
               </div>
               <button className="btn btn-lg btn-post" onClick={() => publishAll(false)} disabled={busyAll || !!busyId || accounts.length === 0} style={{ minWidth: 210, justifyContent: 'center' }}>
                 {busyAll ? <><Spinner size={16} /> Posting…</> : <><Icon name="pin" size={17} /> Post all {queue.length} to Instagram</>}
