@@ -258,6 +258,28 @@ def action_already_succeeded(rule_id: int, event_id: int, action_type: str) -> b
         return cur.fetchone() is not None
 
 
+def first_held_at(account_id: int, comment_id: Optional[str]):
+    """When the follow gate first HELD the DM for this comment (None = never held)."""
+    if not comment_id:
+        return None
+    with connect() as c:
+        cur = c.cursor()
+        cur.execute("""SELECT MIN(executed_at) AS t FROM eng_executions
+            WHERE social_account_id=? AND comment_id=? AND action_type='SEND_DM' AND status='HELD'""",
+            (account_id, comment_id))
+        row = cur.fetchone()
+        return row["t"] if row else None
+
+
+def event_id_for(account_id: int, external_event_id: str) -> Optional[int]:
+    with connect() as c:
+        cur = c.cursor()
+        cur.execute("SELECT id FROM eng_events WHERE social_account_id=? AND external_event_id=?",
+                    (account_id, external_event_id))
+        row = cur.fetchone()
+        return int(row["id"]) if row else None
+
+
 def log_execution(rule_id, account_id: int, action_type: str, status: str, *,
                   post_id=None, event_id=None, comment_id=None, conversation_id=None,
                   request_reference=None, error_code=None, error_message=None) -> int:

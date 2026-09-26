@@ -671,7 +671,7 @@ def _sync_one_post(account_id: int, media_id: str, token: str, run_rules: bool,
                                     cm, post_id=media_id, comment_id=cid)
             out = process_event(account_id, ev, rec["event_id"])
             store.mark_event(rec["event_id"], "SUCCESS")
-            fired += sum(1 for e in out.get("executions", []) if e.get("status") not in ("DUPLICATE",))
+            fired += sum(1 for e in out.get("executions", []) if e.get("status") not in ("DUPLICATE", "HELD_QUIET"))
     insights: Dict[str, Any] = {}
     if with_insights:                                     # skipped by the poller (saves the most calls)
         try:
@@ -990,6 +990,23 @@ def _reply_with_retry(token: str, comment_id: str, text: str, attempts: int = 3)
     raise last  # pragma: no cover
 
 
+_FOLLOW_CACHE: Dict[Any, Any] = {}
+
+
+def _follow_status(token: str, account_id: int, user_id: Optional[str]) -> Optional[bool]:
+    """is_user_follow_business, cached 60s so a comment's reply + DM share ONE Graph call."""
+    import time as _t
+    k = (account_id, user_id)
+    hit = _FOLLOW_CACHE.get(k)
+    if hit and hit[0] > _t.time():
+        return hit[1]
+    v = service.check_user_follows_business(token, user_id)
+    if len(_FOLLOW_CACHE) > 2000:
+        _FOLLOW_CACHE.clear()
+    _FOLLOW_CACHE[k] = (_t.time() + 60, v)
+    return v
+
+
 def _dispatch(account_id: int, action: R.Action, event: R.InboundEvent, text: str, dry: bool):
     """Execute one action. Internal actions never touch Meta; reply/DM go to Graph
     only when live + eligible. Returns (status, request_ref, error_code, error_msg)."""
@@ -1002,27 +1019,43 @@ def _dispatch(account_id: int, action: R.Action, event: R.InboundEvent, text: st
     ig_id = (account or {}).get("ig_business_id")
     if not token:
         return "FAILED", None, "NO_TOKEN", "account has no access token"
+    from app.engagement import follow_gate as _fg
+    gated = bool(_fg.official_enabled() and event.user_id and event.comment_id)
     try:
         if action.type == "REPLY_TO_COMMENT" and event.comment_id:
+            # A commenter who isn't a VERIFIED follower gets no DM yet, so don't claim "sent to
+            # your DM" — reply warmly instead (no follow nag in comments; the post carries the CTA).
+            if (gated and event.post_id and store.affiliate_products_for_media(account_id, event.post_id)
+                    and _follow_status(token, account_id, event.user_id) is not True):
+                text = _fg.neutral_reply()
             r = _reply_with_retry(token, event.comment_id, text)
         elif action.type == "SEND_DM" and event.comment_id:
-            from app.engagement import follow_gate as _fg
-            _handle = (account or {}).get("ig_username") or (account or {}).get("username") or (account or {}).get("label")
-            # OFFICIAL FOLLOW GATE — verify follow via is_user_follow_business (compliant, no provider):
-            #   follows True  → send the links now (verified follower)
-            #   follows False → public nudge, withhold links, remember for a re-check on next action
-            #   follows None  → status unreadable → DO NOT block; send the links (fallback)
-            follows = service.check_user_follows_business(token, event.user_id) if (_fg.official_enabled() and event.user_id) else True
-            if follows is False:
-                r = _reply_with_retry(token, event.comment_id, _fg.public_reply(_handle))
+            # OFFICIAL FOLLOW GATE — VERIFIED FOLLOWERS ONLY (is_user_follow_business):
+            #   True  → send the links now.
+            #   False / unreadable → HOLD: no DM, no public nudge. Re-checked (throttled) on later
+            #   syncs while Instagram still allows a private reply (7 days); links go out the
+            #   moment they're verified. First hold is logged once; re-checks are silent.
+            first = store.first_held_at(account_id, event.comment_id) if gated else None
+            if first is not None:
+                from datetime import datetime, timezone
+                if (datetime.now(timezone.utc) - first).days >= _fg.RECHECK_DAYS:
+                    return "HELD_QUIET", None, None, None
+                if not _fg.recheck_due(account_id, event.user_id):
+                    return "HELD_QUIET", None, None, None
+            follows = _follow_status(token, account_id, event.user_id) if gated else True
+            if gated and follows is not True:
                 _fg.set_pending(account_id, event.user_id, {"post_id": event.post_id, "comment_id": event.comment_id})
-                _fg.incr("nudged")
+                if first is not None:
+                    return "HELD_QUIET", None, None, None
+                _fg.incr("held")
+                return "HELD", None, ("NOT_FOLLOWER" if follows is False else "UNVERIFIED"), \
+                    ("not a follower yet" if follows is False else "Instagram did not confirm follow status")
             elif _fg.enabled() and event.user_id and not _fg.official_enabled():
                 # legacy two-step (deprecated; only if the official gate is off and legacy on)
                 r = service.private_reply(token, ig_id, event.comment_id, _fg.first_message(_handle))
                 _fg.set_pending(account_id, event.user_id, {"post_id": event.post_id, "comment_id": event.comment_id})
             else:
-                # follower (True) or unreadable (None) → send PRODUCT CARDS (or text) now.
+                # verified follower (or gate off) → send PRODUCT CARDS (or text) now.
                 if event.user_id:
                     _fg.pop_pending(account_id, event.user_id)      # they're in — clear any prior pending
                     _fg.incr("verified" if follows is True else "fallback")
@@ -1070,6 +1103,16 @@ def _follow_gate_unlock(account_id: int, account: Dict[str, Any], user_id: str,
     if persist and status == "SUCCESS":
         try:
             store.record_dm(account_id, user_id, _fg.unlock_message(), ref, direction="out", source_post_id=post_id)
+        except Exception:
+            pass
+        # Mark the held comment's SEND_DM as delivered, so the comment re-check never sends twice.
+        cid = (pend or {}).get("comment_id")
+        try:
+            rid = store.affiliate_rule_for_post(account_id, post_id) if post_id else None
+            eid = store.event_id_for(account_id, f"comment:{cid}") if cid else None
+            if rid and eid:
+                store.log_execution(rid, account_id, "SEND_DM", "SUCCESS", post_id=post_id, event_id=eid,
+                                    comment_id=cid, request_reference=ref)
         except Exception:
             pass
     return {"matched_rules": 0, "follow_gate": "UNLOCK",
@@ -1140,6 +1183,9 @@ def _process_event(account_id: int, event: R.InboundEvent, event_id: Optional[in
                 continue
             text = provider.build(action, event, _context(event, account))
             status, ref, code, err = _dispatch(account_id, action, event, text, dry)
+            if status == "HELD_QUIET":                # silent follow re-check — nothing to log
+                results.append({"rule_id": rule.id, "action": action.type, "status": "HELD_QUIET"})
+                continue
             if persist:
                 store.log_execution(rule.id, account_id, action.type, status, post_id=event.post_id,
                                     event_id=event_id, comment_id=event.comment_id,

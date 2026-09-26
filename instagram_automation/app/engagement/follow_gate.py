@@ -71,16 +71,16 @@ def incr(metric: str) -> None:
 def stats() -> dict:
     """Panel insight: gate state, backend, pending queue size, and decision counts."""
     out = {"official": official_enabled(), "legacy": enabled(), "backend": backend(),
-           "pending": 0, "verified": 0, "nudged": 0, "sent": 0, "fallback": 0}
+           "pending": 0, "verified": 0, "nudged": 0, "sent": 0, "fallback": 0, "held": 0}
     r = _redis()
     if r is not None:
         try:
             pend = 0
             for k in r.scan_iter(match="followgate:*", count=500):
-                if not (k.startswith("followgate:cfg:") or k.startswith("followgate:stat:")):
+                if not k.startswith(("followgate:cfg:", "followgate:stat:", "followgate:chk:")):
                     pend += 1
             out["pending"] = pend
-            for k in ("verified", "nudged", "sent", "fallback"):
+            for k in ("verified", "nudged", "sent", "fallback", "held"):
                 out[k] = int(r.get(f"followgate:stat:{k}") or 0)
         except Exception:
             pass
@@ -171,6 +171,31 @@ def has_pending(account_id, user_id) -> bool:
     return bool(ent and ent[0] > time.time())
 
 
+# Held (unverified) commenters are re-checked at most once per _RECHECK seconds, and only while
+# Instagram still allows a private reply to their comment (7 days).
+_RECHECK = int(os.getenv("FOLLOW_RECHECK_SECS", "1800"))
+RECHECK_DAYS = int(os.getenv("FOLLOW_RECHECK_DAYS", "7"))
+
+
+def recheck_due(account_id, user_id) -> bool:
+    """True at most once per _RECHECK seconds per (account, user) — throttles follow re-checks."""
+    if not user_id:
+        return False
+    k = f"followgate:chk:{account_id}:{user_id}"
+    r = _redis()
+    if r is not None:
+        try:
+            return bool(r.set(k, "1", nx=True, ex=_RECHECK))
+        except Exception:
+            pass
+    now = time.time()
+    ent = _mem.get(k)
+    if ent and ent[0] > now:
+        return False
+    _mem[k] = (now + _RECHECK, "1")
+    return True
+
+
 def backend() -> str:
     return "redis" if _redis() is not None else "memory"
 
@@ -191,6 +216,13 @@ def unlock_message() -> str:
     """Step-2 DM caption (sent with the product cards). Override with FOLLOW_GATE_MSG2."""
     default = "You’re in! 💛 Here are your links — coupons are on the store page. Happy shopping! 🛍️"
     return os.getenv("FOLLOW_GATE_MSG2", "").strip() or default
+
+
+def neutral_reply() -> str:
+    """Public reply for a commenter who ISN'T a verified follower yet: warm, no follow nag and no
+    "sent to your DM" (nothing was sent). The post itself carries the follow CTA.
+    Override with FOLLOW_GATE_NEUTRAL_REPLY."""
+    return os.getenv("FOLLOW_GATE_NEUTRAL_REPLY", "").strip() or "Thanks for the love! 💛"
 
 
 def public_reply(handle: Optional[str]) -> str:
