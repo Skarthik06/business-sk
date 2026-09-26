@@ -1008,6 +1008,31 @@ def _follow_status(token: str, account_id: int, user_id: Optional[str]) -> Optio
 
 
 def _dispatch(account_id: int, action: R.Action, event: R.InboundEvent, text: str, dry: bool):
+    """ONE public reply and ONE DM per comment — ever. A Redis claim (survives restarts, shared by every
+    process) is taken BEFORE sending; a failed / held send releases it so a retry can still happen;
+    an existing claim means it was already done → DUPLICATE, nothing is sent."""
+    kind = {"REPLY_TO_COMMENT": "reply", "SEND_DM": "dm"}.get(action.type)
+    if dry or not _LIVE or not kind or not event.comment_id:
+        return _dispatch_inner(account_id, action, event, text, dry)
+    from app.engagement import follow_gate as _fg
+    r = _fg._redis()
+    key = f"sk:once:{kind}:{account_id}:{event.comment_id}"
+    if r is not None:
+        try:
+            if not r.set(key, "1", nx=True, ex=90 * 86400):
+                return "DUPLICATE", None, None, "already done for this comment"
+        except Exception:
+            r = None
+    res = _dispatch_inner(account_id, action, event, text, dry)
+    if r is not None and res[0] != "SUCCESS":
+        try:
+            r.delete(key)
+        except Exception:
+            pass
+    return res
+
+
+def _dispatch_inner(account_id: int, action: R.Action, event: R.InboundEvent, text: str, dry: bool):
     """Execute one action. Internal actions never touch Meta; reply/DM go to Graph
     only when live + eligible. Returns (status, request_ref, error_code, error_msg)."""
     if action.type in ("LOG_EVENT", "ADD_TAG", "MARK_LEAD"):
@@ -1183,8 +1208,8 @@ def _process_event(account_id: int, event: R.InboundEvent, event_id: Optional[in
                 continue
             text = provider.build(action, event, _context(event, account))
             status, ref, code, err = _dispatch(account_id, action, event, text, dry)
-            if status == "HELD_QUIET":                # silent follow re-check — nothing to log
-                results.append({"rule_id": rule.id, "action": action.type, "status": "HELD_QUIET"})
+            if status in ("HELD_QUIET", "DUPLICATE"):   # silent re-check / already done — nothing to log
+                results.append({"rule_id": rule.id, "action": action.type, "status": status})
                 continue
             if persist:
                 store.log_execution(rule.id, account_id, action.type, status, post_id=event.post_id,
