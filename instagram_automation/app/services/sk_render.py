@@ -1318,9 +1318,9 @@ def _scene_css(P: Dict[str, str], dark: bool) -> str:
 .schip{{align-self:center;font-family:{_MONO};font-weight:700;font-size:23px;letter-spacing:.12em;text-transform:uppercase;
    color:{P['text']};background:{P['card']};border-radius:100px;padding:12px 28px;box-shadow:0 10px 26px rgba(0,0,0,.14)}}
 .sstage{{flex:1 1 auto;min-height:0;position:relative;display:flex;justify-content:center}}
-.sstage img{{max-width:86%;max-height:100%;object-fit:contain}}
-.shero img{{filter:drop-shadow(16px 22px 26px rgba(18,12,6,.34))}}
-.sfloat img{{max-width:78%;max-height:92%;filter:drop-shadow(0 34px 26px rgba(18,12,6,.30)) drop-shadow(0 8px 10px rgba(18,12,6,.18))}}
+.sstage img{{width:86%;height:100%;object-fit:contain}}
+.shero img{{object-position:center bottom;filter:drop-shadow(16px 22px 26px rgba(18,12,6,.34))}}
+.sfloat img{{width:80%;height:90%;filter:drop-shadow(0 34px 26px rgba(18,12,6,.30)) drop-shadow(0 8px 10px rgba(18,12,6,.18))}}
 .spanel{{position:relative;z-index:3;background:{P['card']};border-radius:30px;padding:30px 40px 28px;
    box-shadow:0 22px 50px rgba(0,0,0,.20);display:flex;flex-direction:column;gap:10px}}
 .seye{{font-family:{_MONO};font-size:20px;letter-spacing:.2em;text-transform:uppercase;color:{P['muted']}}}
@@ -1362,7 +1362,7 @@ def _scene_rating(p: Dict[str, Any]) -> str:
 
 
 def _scene_eyebrow(p: Dict[str, Any], kick: str) -> str:
-    brand = _brand(p)
+    brand = str(p.get("brand") or "").strip()[:24]
     bits = [_store_label(p)] + ([brand] if brand and brand.lower() not in _store_label(p).lower() else []) + \
            ([kick] if kick and kick.lower() not in ("the edit", "picks") else [])
     return " · ".join(_esc(b) for b in bits[:3])
@@ -1407,7 +1407,7 @@ def _scene_split(p, cut, bg, P, handle, chip, kick, dark=False):
     inner = f"""<div class="scol">
       <div class="schip">{_esc(chip)}</div>
       <div style="flex:1 1 auto;min-height:0;display:flex;gap:26px;margin-top:22px">
-        <div class="sstage sfloat" style="flex:0 0 55%;align-items:center"><img src="{cut}" style="max-width:100%;max-height:96%"></div>
+        <div class="sstage sfloat" style="flex:0 0 55%;align-items:center"><img src="{cut}" style="width:100%;height:96%"></div>
         <div class="spanel" style="flex:1;justify-content:center;gap:18px;padding:34px 30px">
           <div class="seye">{_scene_eyebrow(p, kick)}</div>
           <div class="sname" style="font-size:44px;-webkit-line-clamp:4">{_esc(_clean_title(p, limit=80))}</div>
@@ -1434,7 +1434,7 @@ def _scene_flatlay(products, cuts, bg, P, handle, *, title, subtitle, chip, dark
         tag = (f'<div class="stag" style="left:{x + 1}%;top:calc({y + h}% - 64px)"><span>{_esc(_clean_title(p, limit=20))}</span>'
                f'{f"<b>{price}</b>" if price else ""}</div>')
         items.append(f'<div style="position:absolute;left:{x}%;top:{y}%;width:{w}%;height:{h}%;display:flex;'
-                     f'align-items:center;justify-content:center"><img src="{c}" style="max-width:100%;max-height:100%;'
+                     f'align-items:center;justify-content:center"><img src="{c}" style="width:100%;height:100%;'
                      f'object-fit:contain;filter:drop-shadow(0 24px 22px rgba(18,12,6,.30))"></div>{tag}')
     inner = f"""<div class="scol">
       <div class="schip">{_esc(chip)}</div>
@@ -1850,6 +1850,14 @@ def _scene_ctx(products: List[Dict[str, Any]], art: Dict[str, Any]) -> Optional[
     return {"key": key, "bg": scene_store.data_uri(bgp, jpeg=True), "cuts": cuts}
 
 
+def _cut_meta(p: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    try:
+        from app.services import scene_store
+        return scene_store.cutout_meta(_src(p))
+    except Exception:
+        return None
+
+
 def _apply_art(specs: List[Dict[str, Any]], products: List[Dict[str, Any]], art: Dict[str, Any],
                scene: Optional[Dict[str, Any]], templates: Optional[List[str]]) -> None:
     """Swap the planned templates for the art director's layouts. A manual template choice always
@@ -1865,6 +1873,11 @@ def _apply_art(specs: List[Dict[str, Any]], products: List[Dict[str, Any]], art:
             if templates and 0 <= i < len(templates) and templates[i] in _PROD_TEMPLATES:
                 continue                                   # manual override wins
             lay = lays[i] if 0 <= i < len(lays) else ""
+            meta = _cut_meta(p)
+            if lay == "scene_hero" and meta and meta.get("subject") == "object":
+                lay = "scene_float"                        # whole object → float, never cropped by the panel
+            elif lay == "scene_float" and meta and meta.get("subject") == "person":
+                lay = "scene_hero"                         # cropped model → stand on the panel edge
             if lay in _SCENE_LAYOUTS:
                 sp["tmpl"] = lay if (scene and _src(p) in cuts) else fallback[lay]
             elif lay in _PROD_TEMPLATES:

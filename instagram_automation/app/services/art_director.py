@@ -227,6 +227,8 @@ def direct(products: List[Dict[str, Any]], category: str = "") -> Dict[str, Any]
     products = [p for p in (products or []) if isinstance(p, dict)][:8]
     for p in products:                                    # the laptop cuts every photo out
         scene_store.enqueue_cutout(_img_url(p))
+    # let the measured photo facts (person vs object, colours) reach the LLM when the GPU is up
+    scene_store.wait_for([_img_url(p) for p in products], [], float(_knob("ART_META_WAIT_SECS", "15")))
     lib = scene_store.library()
     metas = {u: scene_store.cutout_meta(u) for u in (_img_url(p) for p in products) if u}
     plan = _fallback_plan(products, category, lib, metas)
