@@ -536,6 +536,7 @@ def _ensure_art(art: dict | None, products: list[dict], category: str) -> dict |
 class ArtDirectReq(BaseModel):
     products: list[dict] = []
     category: str = ""
+    look: str = ""                     # premium (default) | ai | <scene key>
 
 
 @app.post("/api/sk/art-direct")
@@ -546,7 +547,7 @@ def sk_art_direct(body: ArtDirectReq):
     from app.services import art_director
     if not body.products:
         raise HTTPException(400, "No products")
-    return {"success": True, "art": art_director.direct(body.products, body.category)}
+    return {"success": True, "art": art_director.direct(body.products, body.category, body.look)}
 
 
 @app.get("/api/sk/scenes")

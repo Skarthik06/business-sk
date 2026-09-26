@@ -277,7 +277,14 @@ def submit(job_id: str, b64: str, meta: Optional[Dict[str, Any]] = None) -> Dict
 def wait_for(urls: List[str], keys: List[str], timeout: float) -> None:
     """Block (bounded) until these cutouts/backdrops exist or the worker looks offline."""
     end = time.time() + max(0.0, timeout)
-    while time.time() < end and worker_online():
+    # "online" includes BUSY: while the laptop paints a scene (~70 s) it doesn't poll, so a job it
+    # leased recently also counts — otherwise the wait gave up mid-paint and used the fallback.
+    def _alive() -> bool:
+        if worker_online():
+            return True
+        now = time.time()
+        return any(j.get("lease") and now - j["lease"] < _LEASE_SECS for j in _jobs())
+    while time.time() < end and _alive():
         if all(cutout_path(u) for u in urls if u) and all(backdrop_path(k) for k in keys if k):
             return
         time.sleep(0.5)

@@ -534,6 +534,9 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   const [artPlans, setArtPlans] = useState({});   // { groupId: art plan }
   const [artBusy, setArtBusy] = useState(null);
   const [scenes, setScenes] = useState(null);     // { status, library }
+  // House look: 'premium' (dark noir + gold, AI writes a dark luxe scene) | 'ai' | a library scene key
+  const [look, setLook] = useState(() => load('sk_look', 'premium'));
+  useEffect(() => { save('sk_look', look); setArtPlans({}); }, [look]);
   useEffect(() => {
     const tick = () => api.skScenes().then(setScenes).catch(() => {});
     tick();
@@ -544,7 +547,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     if (!fresh && artPlans[g.id]) return artPlans[g.id];
     setArtBusy(g.id);
     try {
-      const res = await api.skArtDirect((g.products || []).slice(0, 10), g.category || '');
+      const res = await api.skArtDirect((g.products || []).slice(0, 10), g.category || '', look);
       setArtPlans((m) => ({ ...m, [g.id]: res.art }));
       return res.art;
     } catch (e) {
@@ -687,6 +690,18 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
               <div>
                 <label className="text-xs" style={{ color: 'var(--muted)' }}>Design</label>
                 <div className="text-sm" style={{ marginTop: 8, fontWeight: 700 }}>✨ AI Art Director</div>
+                <div className="ctrl-chips" style={{ marginTop: 6, flexWrap: 'wrap', maxWidth: 520 }}>
+                  {[{ key: 'premium', label: '🖤 Premium dark', tip: 'Brand look: dark panels + gold accents; the AI writes a dark, luxurious scene for each post' },
+                    { key: 'ai', label: '✨ AI free', tip: 'The AI picks any scene + palette per post' },
+                    ...((scenes?.library || []).filter((x) => x.ready).map((x) => ({ key: x.key, label: x.key.replace(/_/g, ' '), thumb: x.thumb, tip: x.mood || x.key })))]
+                    .map((o) => (
+                      <button key={o.key} type="button" className={cx('opt-card', look === o.key && 'on')} title={o.tip}
+                        onClick={() => setLook(o.key)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                        {o.thumb && <img src={o.thumb} alt="" style={{ width: 18, height: 22, objectFit: 'cover', borderRadius: 3 }} />}
+                        {o.label}
+                      </button>
+                    ))}
+                </div>
                 <div className="text-xs" style={{ marginTop: 3, color: scenes?.status?.worker_online ? '#3fb950' : 'var(--faint)' }}
                   title="The Art Director designs every post: an AI scene, each slide's layout and the headline. Products stay 100% real. The laptop GPU makes sharper cut-outs + new scenes; without it the server cuts products out itself.">
                   {scenes?.status
@@ -819,7 +834,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       {queue.length > 0 && (
         <div className="flex flex-col gap-4">
           {queue.map((g) => (
-            <IgPostCard key={g.id} g={g} st={statuses[g.id] || {}} posting={busyId === g.id}
+            <IgPostCard key={g.id + ':' + look} g={g} st={statuses[g.id] || {}} posting={busyId === g.id}
               busyAll={busyAll} accountLabel={acctHandle} getArt={getArt}
               onPost={() => postOneReal(g)} onDry={() => publishOne(g, true)} />
           ))}

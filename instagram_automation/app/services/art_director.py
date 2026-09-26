@@ -42,6 +42,21 @@ def _knob(name: str, default: str) -> str:
     return (os.getenv(name) or default).strip()
 
 
+# House LOOK (knob ART_LOOK, overridable per post from the Studio):
+#   premium — THE brand look: dark noir panels + gold accents on a dark, luxurious scene the agent
+#             writes for the post (fallback: the dark library scenes)
+#   ai      — the agent picks any style/palette
+#   <key>   — a fixed library scene (its palette)
+PREMIUM_RULE = ("HOUSE STYLE = PREMIUM DARK: the scene must be a deep, moody, luxurious setting — dark "
+                "stone or black marble, dark walnut, espresso/charcoal plaster, a soft warm spotlight or rim "
+                "light, a hint of brass/gold — editorial, expensive, never bright or plain. Keep contrast: dark "
+                "products get a warm glow/spotlight behind them so they still pop.")
+
+
+def look_of(look: str = "") -> str:
+    return (look or _knob("ART_LOOK", "premium")).strip().lower() or "premium"
+
+
 def enabled() -> bool:
     return _knob("ART_DIRECTOR_ENABLED", "1").lower() not in ("0", "false", "off", "no")
 
@@ -130,7 +145,7 @@ def _facts(products, metas) -> List[Dict[str, Any]]:
     return out
 
 
-def _user_prompt(products, category, lib, metas, allow_new: bool) -> str:
+def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: str = "") -> str:
     scenes = [{"key": s["key"], "mood": s.get("mood"), "palette": s.get("palette"), "niches": s.get("niches"),
                "tags": s.get("tags"), "uses": s.get("uses", 0)} for s in lib if s.get("ready")]
     new_rule = ("STEP 2 — WRITE THE SCENE PROMPT (required): from YOUR analysis in step 1, write ONE new "
@@ -154,6 +169,7 @@ def _user_prompt(products, category, lib, metas, allow_new: bool) -> str:
         "space in the centre and lower half, real materials, surfaces and light direction (e.g. 'warm taupe "
         "limewash wall, pale oak floor, soft window light from the left, a linen-covered bench at the far "
         "edge'). 30-70 words.\n"
+        + (f"{style_rule}\n" if style_rule else "") +
         "STEP 3 — LAYOUTS: a model wearing it with the photo cropped at the bottom → scene_hero; a whole "
         "object → scene_float; vary layouts so the post isn't monotonous.\n"
         "RULES:\n"
@@ -169,10 +185,10 @@ def _user_prompt(products, category, lib, metas, allow_new: bool) -> str:
     )
 
 
-def _call_llm(products, category, lib, metas, allow_new) -> Dict[str, Any]:
+def _call_llm(products, category, lib, metas, allow_new, style_rule: str = "") -> Dict[str, Any]:
     from app.services.llm import _get_client, _is_reasoning_model
     client = _get_client()
-    content: List[Dict[str, Any]] = [{"type": "text", "text": _user_prompt(products, category, lib, metas, allow_new)}]
+    content: List[Dict[str, Any]] = [{"type": "text", "text": _user_prompt(products, category, lib, metas, allow_new, style_rule)}]
     for p in products[: int(_knob("ART_MAX_IMAGES", "4"))]:
         u = _img_url(p)
         if u.startswith("http"):
@@ -236,7 +252,7 @@ def _validate(raw: Dict[str, Any], base: Dict[str, Any], products, lib, allow_ne
     return plan
 
 
-def direct(products: List[Dict[str, Any]], category: str = "") -> Dict[str, Any]:
+def direct(products: List[Dict[str, Any]], category: str = "", look: str = "") -> Dict[str, Any]:
     """Return the art-direction plan for these products and QUEUE the GPU work it needs
     (cut-outs for every photo, plus any new scene). Never raises."""
     products = [p for p in (products or []) if isinstance(p, dict)][:8]
@@ -244,16 +260,32 @@ def direct(products: List[Dict[str, Any]], category: str = "") -> Dict[str, Any]
         scene_store.enqueue_cutout(_img_url(p))
     # let the measured photo facts (person vs object, colours) reach the LLM when the GPU is up
     scene_store.wait_for([_img_url(p) for p in products], [], float(_knob("ART_META_WAIT_SECS", "15")))
+    lk = look_of(look)
     lib = scene_store.library()
+    fixed = scene_store.scene(lk) if lk not in ("premium", "ai") else None
+    style_rule = ""
+    if fixed and fixed.get("ready"):
+        lib = [fixed]                                     # a chosen scene: always that backdrop
+    elif lk == "premium":
+        dark = [s for s in lib if s.get("palette") == "noir"]
+        lib = dark or lib                                 # premium fallbacks = the dark scenes
+        style_rule = PREMIUM_RULE
     metas = {u: scene_store.cutout_meta(u) for u in (_img_url(p) for p in products) if u}
     plan = _fallback_plan(products, category, lib, metas)
-    allow_new = _knob("ART_ALLOW_NEW_SCENES", "1").lower() not in ("0", "false", "off")
+    allow_new = (_knob("ART_ALLOW_NEW_SCENES", "1").lower() not in ("0", "false", "off")) and not fixed
     err = ""
     if enabled() and settings.OPENAI_API_KEY and products:
         try:
-            plan = _validate(_call_llm(products, category, lib, metas, allow_new), plan, products, lib, allow_new)
+            plan = _validate(_call_llm(products, category, lib, metas, allow_new, style_rule), plan, products, lib, allow_new)
         except Exception as e:                            # noqa: BLE001 — rules plan stands
             err = str(e)[:160]
+    if lk == "premium":                                   # the brand look: noir panels + gold accents
+        plan["palette"] = "noir"
+        if plan["scene"].get("new"):
+            plan["scene"]["new"]["palette"] = "noir"
+    elif fixed:
+        plan["palette"] = fixed.get("palette") or plan["palette"]
+    plan["look"] = lk
     new = plan["scene"].get("new")
     if new:
         scene_store.upsert_scene(new["key"], prompt=new["prompt"], palette=new["palette"], mood=new["mood"],
