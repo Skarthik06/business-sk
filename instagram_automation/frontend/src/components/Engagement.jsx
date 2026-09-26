@@ -337,7 +337,7 @@ export default function Engagement({ notify }) {
               <div className="eyebrow" style={{ color: fgate.official ? 'var(--accent)' : 'var(--muted)' }}>🔒 Official follow gate</div>
               <div className="text-sm mt-1" style={{ color: 'var(--muted)' }}>
                 {fgate.official
-                  ? 'Comment the keyword → we verify follow via Instagram’s official API → links go only to followers (non-followers get a nudge).'
+                  ? 'Comment the keyword → we verify follow via Instagram’s official API → links go to VERIFIED followers only. Others are held (no public nudge) and re-checked every 30 min for 7 days — links go out the moment they follow.'
                   : 'OFF — anyone who comments the keyword gets the links immediately.'}
                 <span style={{ color: 'var(--faint)' }}> · store: {fgate.backend}</span>
               </div>
@@ -347,7 +347,7 @@ export default function Engagement({ notify }) {
             </button>
           </div>
           <div className="flex flex-wrap gap-2 mt-3">
-            {[['verified', 'followers verified'], ['nudged', 'non-followers nudged'], ['sent', 'released after follow'], ['pending', 'awaiting follow'], ['fallback', 'sent (status n/a)']].map(([k, label]) => (
+            {[['verified', 'links sent to followers'], ['held', 'held · not verified'], ['pending', 'awaiting follow now'], ['sent', 'released via DM']].map(([k, label]) => (
               <div key={k} className="panel p-2.5" style={{ minWidth: 108 }}>
                 <div style={{ fontSize: 20, fontWeight: 800 }}>{fgate[k] ?? 0}</div>
                 <div className="eyebrow" style={{ fontSize: '0.5rem' }}>{label}</div>
