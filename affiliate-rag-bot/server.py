@@ -1763,11 +1763,11 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
         src_chips = ('<button class="schip on" data-s="all">All stores</button>'
                      + "".join(f'<button class="schip" data-s="{escape(s)}">{escape(_src_label.get(s, s.title()))}<b>{n}</b></button>'
                                for s, n in by_src.items()))
-    empty = '' if products else '<p class="empty">No products yet — publish some from Business-SK.</p>'
+    empty = '' if products else '<p class="empty">Fresh finds are on the way ✨ — check back soon.</p>'
 
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lost in Frames · SK Store — Amazon Picks</title>
+<title>Aura Picks — Curated Finds &amp; Deals</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
@@ -1862,9 +1862,9 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
 </style></head><body>
 <div class="aurora"><span class="a1"></span><span class="a2"></span><span class="a3"></span></div>
 <div class="hero">
-  <div class="brand shiny">SK LostInFrames</div>
+  <div class="brand shiny">Aura Picks</div>
   <h1 class="gradtext">Today's Best Finds</h1>
-  <p>Handpicked deals on Amazon — updated live. Tap any product to shop.</p>
+  <p>Handpicked finds from Amazon, Flipkart &amp; top brands — updated live. Tap any product to shop.</p>
   <div class="search"><input id="q" type="search" placeholder="Search {len(products)} products…" autocomplete="off"></div>
 </div>
 <div class="bar"><div class="chips">{chips}</div></div>
@@ -1884,7 +1884,7 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
   {empty}
 </main>
 <footer>
-  <div>© 2026 Lost in Frames · SK Store. All rights reserved.</div>
+  <div>© 2026 Aura Picks. All rights reserved.</div>
   <div style="opacity:.6;font-size:10px;margin-top:5px">As an Amazon Associate and affiliate partner (via Cuelinks), we earn from qualifying purchases.</div>
 </footer>
 <script>
