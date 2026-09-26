@@ -55,7 +55,7 @@ PREMIUM_RULE = ("HOUSE STYLE = PREMIUM DARK: the scene must be a deep, moody, lu
 
 
 def look_of(look: str = "") -> str:
-    lk = (look or _knob("ART_LOOK", "premium")).strip().lower() or "premium"
+    lk = (look or _knob("ART_LOOK", "ai")).strip().lower() or "ai"
     return "noir" if lk == "premium" else lk             # premium = the Noir Gold palette row
 
 
@@ -93,6 +93,24 @@ def _palette_rows() -> Dict[str, Dict[str, str]]:
 def _row_rule(key: str, row: Dict[str, str]) -> str:
     return (f"LOOK = {row['look']} (palette '{key}'): scene colours {row['colors']}; materials {row['materials']}; "
             f"light {row['light']}; mood {row['mood']}. Write the scene INSIDE this look.")
+
+
+_LOOK_LOG = scene_store.ROOT / "recent_looks.json"
+
+
+def _recent_looks(n: int = 6) -> List[Dict[str, str]]:
+    try:
+        return json.loads(_LOOK_LOG.read_text("utf-8"))[-n:]
+    except Exception:
+        return []
+
+
+def _remember_look(palette: str, concept: str, scene: str) -> None:
+    try:
+        hist = _recent_looks(30) + [{"palette": palette, "concept": concept[:60], "scene": scene[:60]}]
+        _LOOK_LOG.write_text(json.dumps(hist[-30:]), "utf-8")
+    except Exception:
+        pass
 
 
 _SCENE_FIELDS = ("setting", "wall", "floor", "light", "props", "camera", "mood")
@@ -271,7 +289,10 @@ def _validate(raw: Dict[str, Any], base: Dict[str, Any], products, lib, allow_ne
         new["prompt"] = _assemble_prompt(new)            # structured fields → the fixed-order prompt
     if allow_new and isinstance(new, dict) and len(str(new.get("prompt") or "")) >= 40:
         import hashlib as _h
-        base_key = scene_store.scene_key(str(new.get("key") or new["prompt"][:40]))[:40]
+        _k = str(new.get("key") or "").strip()
+        if not _k or _k.lower() in ("snake_case", "key", "scene", "new"):
+            _k = " ".join(str(new.get(f) or "") for f in ("mood", "setting"))[:40] or new["prompt"][:40]
+        base_key = scene_store.scene_key(_k)[:40]
         plan["scene"]["new"] = {"key": f"{base_key}_{_h.sha1(str(new['prompt']).encode()).hexdigest()[:6]}",
                                 "prompt": str(new["prompt"])[:900],
                                 "palette": new.get("palette") if new.get("palette") in PALETTES else plan["palette"],
@@ -329,9 +350,15 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "") -
         lib = same or lib                                 # fallbacks in the same palette
         style_rule = _row_rule(lk, rows[lk]) + (" " + PREMIUM_RULE if lk == "noir" else "")
     else:                                                 # 'ai': the agent picks the look
-        style_rule = ("LOOK = AI CHOICE: pick the palette row that best flatters these products, set "
+        recent = _recent_looks()
+        variety = ("RECENT POSTS used these looks (newest last): " + json.dumps(recent, ensure_ascii=False) +
+                   ". Do your best, most creative work and keep the feed VARIED: choose a different "
+                   "palette/scene idea than the last posts unless these products clearly demand the same "
+                   "style.\n") if recent else ""
+        style_rule = (variety + "LOOK = AI CHOICE: pick the palette row that best flatters these products, set "
                       "`palette` to its key and write the scene inside it:\n" +
-                      "\n".join(f"- {k}: {_row_rule(k, r)}" for k, r in rows.items()))
+                      "\n".join(f"- {k}: {_row_rule(k, r)}" + (" " + PREMIUM_RULE if k == "noir" else "")
+                                for k, r in rows.items()))
     metas = {u: scene_store.cutout_meta(u) for u in (_img_url(p) for p in products) if u}
     plan = _fallback_plan(products, category, lib, metas)
     allow_new = (_knob("ART_ALLOW_NEW_SCENES", "1").lower() not in ("0", "false", "off")) and not fixed
@@ -359,4 +386,5 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "") -
             plan["palette"] = new["palette"]
     plan["error"] = err
     plan["worker_online"] = scene_store.worker_online()
+    _remember_look(plan.get("palette", ""), plan.get("concept", ""), str(plan["scene"].get("use") or ""))
     return plan

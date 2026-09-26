@@ -294,7 +294,10 @@ def status() -> Dict[str, Any]:
     q = _jobs()
     lib = library()
     lp = _last_poll()
-    return {"worker_online": worker_online(), "last_poll_secs": round(time.time() - float(lp.get("t") or 0), 1)
+    now = time.time()
+    busy = any(j.get("lease") and now - j["lease"] < _LEASE_SECS for j in q)
+    return {"worker_online": worker_online() or busy, "worker_busy": busy and not worker_online(),
+            "last_poll_secs": round(time.time() - float(lp.get("t") or 0), 1)
             if lp.get("t") else None, "worker": lp.get("info") or {},
             "queued": len(q), "queued_cutouts": sum(1 for j in q if j["type"] == "cutout"),
             "queued_scenes": sum(1 for j in q if j["type"] == "scene"),
