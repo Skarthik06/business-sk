@@ -536,7 +536,8 @@ def _ensure_art(art: dict | None, products: list[dict], category: str) -> dict |
 class ArtDirectReq(BaseModel):
     products: list[dict] = []
     category: str = ""
-    look: str = ""                     # premium (default) | ai | <scene key>
+    look: str = ""                     # ai (default) | premium | a palette | <scene key>
+    styles: str = ""                   # slash-command presets, e.g. "/premium /cinematic"
 
 
 @app.post("/api/sk/art-direct")
@@ -547,14 +548,16 @@ def sk_art_direct(body: ArtDirectReq):
     from app.services import art_director
     if not body.products:
         raise HTTPException(400, "No products")
-    return {"success": True, "art": art_director.direct(body.products, body.category, body.look)}
+    return {"success": True, "art": art_director.direct(body.products, body.category, body.look, body.styles)}
 
 
 @app.get("/api/sk/scenes")
 def sk_scenes():
     """Backdrop library (with small thumbnails) + GPU worker/queue status for the Studio panel."""
     from app.services import scene_store
+    from app.services import art_director as _ad
     return {"success": True, "status": scene_store.status(),
+            "presets": [{"id": k, **v} for k, v in _ad.presets().items()],
             "library": [dict(s, thumb=scene_store.thumb(s["key"])) for s in scene_store.library()]}
 
 

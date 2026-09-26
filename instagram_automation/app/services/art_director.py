@@ -90,6 +90,30 @@ def _palette_rows() -> Dict[str, Dict[str, str]]:
     return rows
 
 
+def presets() -> Dict[str, Dict[str, str]]:
+    """The STYLE PRESETS table of agents/scene-prompt.agents.md → {"/vintage": {"adds", "best_for"}}."""
+    m = re.search(r"<!-- PRESETS:BEGIN -->(.*?)<!-- PRESETS:END -->", _agent_md(), re.S)
+    out: Dict[str, Dict[str, str]] = {}
+    for line in (m.group(1).splitlines() if m else []):
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) >= 3 and re.fullmatch(r"/[a-z0-9][a-z0-9-]{1,24}", cells[0]):
+            out[cells[0]] = {"adds": cells[1], "best_for": cells[2]}
+    return out
+
+
+def parse_styles(styles: Any) -> List[str]:
+    """'/premium /cinematic' or ['premium', '/vintage'] → the valid presets, in order, max 3."""
+    raw = styles if isinstance(styles, list) else re.split(r"[\s,]+", str(styles or ""))
+    known = presets()
+    out: List[str] = []
+    for t in raw:
+        t = str(t).strip().lower()
+        t = t if t.startswith("/") else "/" + t
+        if t in known and t not in out:
+            out.append(t)
+    return out[:3]
+
+
 def _row_rule(key: str, row: Dict[str, str]) -> str:
     return (f"LOOK = {row['look']} (palette '{key}'): scene colours {row['colors']}; materials {row['materials']}; "
             f"light {row['light']}; mood {row['mood']}. Write the scene INSIDE this look.")
@@ -139,7 +163,7 @@ def usage_of(resp) -> Dict[str, Any]:
 _SCENE_FIELDS = ("setting", "wall", "floor", "light", "props", "camera", "mood")
 
 
-def _assemble_prompt(f: Dict[str, Any]) -> str:
+def _assemble_prompt(f: Dict[str, Any], style_presets: Optional[List[str]] = None) -> str:
     """Fixed field order Z-Image responds to best: setting → surfaces → light → props → palette → camera → mood."""
     parts = [str(f.get("setting") or "").strip(), str(f.get("wall") or "").strip(),
              str(f.get("floor") or "").strip(), str(f.get("light") or "").strip()]
@@ -152,6 +176,7 @@ def _assemble_prompt(f: Dict[str, Any]) -> str:
         parts.append("colour palette of " + ", ".join(cols))
     parts += [str(f.get("camera") or "eye-level, straight-on, 35mm, deep focus").strip(),
               (str(f.get("mood") or "").strip() + " mood") if f.get("mood") else "",
+              *[presets().get(p, {}).get("adds", "") for p in (style_presets or [])],
               "editorial fashion photography, minimal luxury studio, open empty space in the centre and lower half"]
     return ", ".join(p for p in parts if p)[:900]
 
@@ -244,7 +269,7 @@ def _facts(products, metas) -> List[Dict[str, Any]]:
     return out
 
 
-def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: str = "") -> str:
+def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: str = "", forced: str = "") -> str:
     scenes = [{"key": s["key"], "mood": s.get("mood"), "palette": s.get("palette")} for s in lib if s.get("ready")]
     J = lambda o: json.dumps(o, ensure_ascii=False, separators=(",", ":"))  # noqa: E731 — compact
     new_rule = ("STEP 2 — DESIGN THE SCENE for THIS post (required): from YOUR analysis in step 1, fill "
@@ -254,6 +279,10 @@ def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: st
                 "STEP 2 — pick the best library scene in scene.use; set scene.new to null.")
     return (
         "You design ONE Instagram carousel for the products given at the END under === THIS POST ===.\n\n"
+        "STYLE PRESETS (slash commands; each adds proven scene phrases): "
+        f"{J({k: v['best_for'] for k, v in presets().items()})}\n"
+        "Pick the 1-2 presets that best fit YOUR product analysis in `presets` (unless the post gives "
+        "USER STYLE COMMANDS — then use exactly those), and design the scene fields to match them.\n\n"
         f"SLIDE LAYOUTS (choose one per product — these are the ONLY layouts):\n{J(_LAYOUT_GUIDE)}\n\n"
         "STEP 1 — ANALYSE EVERY PRODUCT first, from its photo AND its facts: product type, its real colours "
         "(read them from the photo), material/texture, style, and the vibe/occasion it suits. Be precise — "
@@ -269,13 +298,14 @@ def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: st
         "'Comment “LINK” for this find'.\n"
         "- concept: ≤ 6 words naming the post's mood.\n\n"
         'Return JSON: {"analysis": [{"i": int, "type": str, "colors": [str], "material": str, "style": str, '
-        '"vibe": str}], "concept": str, "scene": {"use": "<library key>", "new": null | {"key": "snake_case", '
+        '"vibe": str}], "presets": [str], "concept": str, "scene": {"use": "<library key>", "new": null | {"key": "snake_case", '
         '"palette": str, "setting": str, "wall": str, "floor": str, "light": str, "props": str, "colors": [str], '
         '"camera": str, "mood": str, "niches": [str], "tags": [str]}}, "palette": str, '
         '"cover": {"layout": str}, "chip": str, "slides": [{"i": int, "layout": str, "why": "≤ 10 words"}]}\n\n'
         # ── per-post data LAST (everything above is identical across posts → prompt-cached) ──
         f"=== THIS POST ===\nCategory: {category or 'mixed'} · {len(products)} products.\n"
-        + (f"{style_rule}\n" if style_rule else "") +
+        + (f"{style_rule}\n" if style_rule else "")
+        + (f"USER STYLE COMMANDS: {forced} — use exactly these presets.\n" if forced else "") +
         f"PRODUCTS (scraped + measured photo facts; photos attached in this order):\n{J(_facts(products, metas))}\n"
         f"BACKDROP LIBRARY (fallback scenes):\n{J(scenes)}\n"
     )
@@ -309,10 +339,10 @@ def _thumb_uri(url: str) -> str:
         return url if url.startswith("http") else ""
 
 
-def _call_llm(products, category, lib, metas, allow_new, style_rule: str = "") -> Dict[str, Any]:
+def _call_llm(products, category, lib, metas, allow_new, style_rule: str = "", forced: str = "") -> Dict[str, Any]:
     from app.services.llm import _get_client, _is_reasoning_model
     client = _get_client()
-    content: List[Dict[str, Any]] = [{"type": "text", "text": _user_prompt(products, category, lib, metas, allow_new, style_rule)}]
+    content: List[Dict[str, Any]] = [{"type": "text", "text": _user_prompt(products, category, lib, metas, allow_new, style_rule, forced)}]
     for p in products[: int(_knob("ART_MAX_IMAGES", "4"))]:
         u = _thumb_uri(_img_url(p))
         if u:
@@ -351,7 +381,9 @@ def _validate(raw: Dict[str, Any], base: Dict[str, Any], products, lib, allow_ne
                                 "mood": str(new.get("mood") or "")[:120],
                                 "niches": [str(x) for x in (new.get("niches") or [])][:6],
                                 "tags": [str(x) for x in (new.get("tags") or [])][:8],
-                                "fields": {k: str(new.get(k) or "")[:160] for k in _SCENE_FIELDS}}
+                                "fields": {**{k: str(new.get(k) or "")[:160] for k in _SCENE_FIELDS},
+                                           "colors": [str(c)[:24] for c in (new.get("colors") or [])][:3]}}
+    plan["presets"] = parse_styles(raw.get("presets") or [])
     if raw.get("palette") in PALETTES:
         plan["palette"] = raw["palette"]
     elif plan["scene"]["use"]:
@@ -382,7 +414,7 @@ def _validate(raw: Dict[str, Any], base: Dict[str, Any], products, lib, allow_ne
     return plan
 
 
-def direct(products: List[Dict[str, Any]], category: str = "", look: str = "") -> Dict[str, Any]:
+def direct(products: List[Dict[str, Any]], category: str = "", look: str = "", styles: Any = None) -> Dict[str, Any]:
     """Return the art-direction plan for these products and QUEUE the GPU work it needs
     (cut-outs for every photo, plus any new scene). Never raises."""
     products = [p for p in (products or []) if isinstance(p, dict)][:8]
@@ -422,7 +454,8 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "") -
     err = ""
     if enabled() and settings.OPENAI_API_KEY and products:
         try:
-            _raw, _usage = _call_llm(products, category, lib, metas, allow_new, style_rule)
+            _raw, _usage = _call_llm(products, category, lib, metas, allow_new, style_rule,
+                                     " ".join(parse_styles(styles)))
             plan = _validate(_raw, plan, products, lib, allow_new)
             plan["usage"] = _usage
         except Exception as e:                            # noqa: BLE001 — rules plan stands
@@ -437,6 +470,11 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "") -
         plan["palette"] = next(iter(rows))               # a banned/unknown pick → first allowed row
         if plan["scene"].get("new"):
             plan["scene"]["new"]["palette"] = plan["palette"]
+    forced = parse_styles(styles)
+    plan["presets"] = forced or plan.get("presets") or []
+    _new = plan["scene"].get("new")
+    if _new and _new.get("fields") and any(_new["fields"].get(k) for k in ("setting", "wall", "floor", "light")):
+        _new["prompt"] = _assemble_prompt(_new["fields"], plan["presets"])
     plan["look"] = lk
     new = plan["scene"].get("new")
     if new:

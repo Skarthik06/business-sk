@@ -537,6 +537,15 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   // House look: 'premium' (dark noir + gold, AI writes a dark luxe scene) | 'ai' | a library scene key
   const [look, setLook] = useState(() => load('sk_look_v2', 'ai'));
   useEffect(() => { save('sk_look_v2', look); setArtPlans({}); }, [look]);
+  // Slash-command style presets (/premium /vintage …) — empty = the AI picks per post
+  const [styles, setStyles] = useState(() => load('sk_styles', ''));
+  const [stylesDraft, setStylesDraft] = useState(styles);
+  useEffect(() => { save('sk_styles', styles); setArtPlans({}); }, [styles]);
+  const toggleStyle = (id) => {
+    const cur = styles.split(/\s+/).filter(Boolean);
+    const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id].slice(-3);
+    setStyles(next.join(' ')); setStylesDraft(next.join(' '));
+  };
   useEffect(() => {
     const tick = () => api.skScenes().then(setScenes).catch(() => {});
     tick();
@@ -547,7 +556,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     if (!fresh && artPlans[g.id]) return artPlans[g.id];
     setArtBusy(g.id);
     try {
-      const res = await api.skArtDirect((g.products || []).slice(0, 10), g.category || '', look);
+      const res = await api.skArtDirect((g.products || []).slice(0, 10), g.category || '', look, styles);
       setArtPlans((m) => ({ ...m, [g.id]: res.art }));
       return res.art;
     } catch (e) {
@@ -685,6 +694,21 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                     <option key={o.id} value={o.id}>Override · {o.label}</option>
                   ))}
                 </select>
+              </div>
+              <div className="flex items-center gap-2 flex-wrap" style={{ marginTop: 8 }}>
+                <span className="text-xs" style={{ color: 'var(--muted)' }}>Style commands</span>
+                <input className="sk-input" style={{ padding: '4px 10px', fontSize: 12, width: 240 }}
+                  placeholder="empty = AI picks · e.g. /premium /cinematic" value={stylesDraft}
+                  onChange={(e) => setStylesDraft(e.target.value)}
+                  onBlur={() => setStyles(stylesDraft.trim())}
+                  onKeyDown={(e) => { if (e.key === 'Enter') setStyles(stylesDraft.trim()); }} />
+                {(scenes?.presets || []).map((p) => {
+                  const on = styles.split(/\s+/).includes(p.id);
+                  return (
+                    <button key={p.id} type="button" className={cx('mini', on && 'on')} title={`${p.adds}\nBest for: ${p.best_for}`}
+                      onClick={() => toggleStyle(p.id)}>{p.id}</button>
+                  );
+                })}
               </div>
               <div className="text-xs" style={{ marginTop: 3, color: scenes?.status?.worker_online ? '#3fb950' : 'var(--faint)' }}
                 title="The Art Director designs every post: an AI scene, each slide's layout and the headline. Products stay 100% real. The laptop GPU makes sharper cut-outs + new scenes; without it the server cuts products out itself.">
@@ -828,7 +852,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       {queue.length > 0 && (
         <div className="flex flex-col gap-4">
           {queue.map((g) => (
-            <IgPostCard key={g.id + ':' + look} g={g} st={statuses[g.id] || {}} posting={busyId === g.id}
+            <IgPostCard key={g.id + ':' + look + ':' + styles} g={g} st={statuses[g.id] || {}} posting={busyId === g.id}
               busyAll={busyAll} accountLabel={acctHandle} getArt={getArt}
               onPost={() => postOneReal(g)} onDry={() => publishOne(g, true)} />
           ))}
@@ -938,6 +962,7 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
           {(artInfo.analysis || []).map((a, i) => (
             <div key={i}>{String((a.i ?? i) + 1).padStart(2, '0')} · {a.type}{a.colors?.length ? ` · ${a.colors.join('/')}` : ''}{a.material ? ` · ${a.material}` : ''}{a.style ? ` · ${a.style}` : ''}{a.vibe ? ` — ${a.vibe}` : ''}</div>
           ))}
+          {artInfo.presets?.length > 0 && <div style={{ marginTop: 4 }}>⚡ Style presets: <b>{artInfo.presets.join(' ')}</b></div>}
           {artInfo.scene_prompt && <div style={{ marginTop: 4 }}>🎨 Scene prompt: <i>{artInfo.scene_prompt}</i></div>}
           {cost && cost.lines?.length > 0 && (
             <div style={{ marginTop: 6 }}>
