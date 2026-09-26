@@ -113,6 +113,29 @@ def _remember_look(palette: str, concept: str, scene: str) -> None:
         pass
 
 
+def price_usd(inp: int, cached: int, out: int) -> float:
+    """OpenAI list price for OPENAI_MODEL (knobs, USD per 1M tokens; gpt-5-nano defaults):
+    uncached input · cached input (prompt cache) · output (includes billed reasoning tokens)."""
+    p_in = float(_knob("LLM_PRICE_IN_PER_M", "0.05"))
+    p_cached = float(_knob("LLM_PRICE_CACHED_PER_M", "0.005"))
+    p_out = float(_knob("LLM_PRICE_OUT_PER_M", "0.40"))
+    return ((max(0, inp - cached) * p_in) + (cached * p_cached) + (out * p_out)) / 1_000_000
+
+
+def usage_of(resp) -> Dict[str, Any]:
+    u = getattr(resp, "usage", None)
+    if not u:
+        return {}
+    inp = int(getattr(u, "prompt_tokens", 0) or 0)
+    out = int(getattr(u, "completion_tokens", 0) or 0)
+    cached = int(getattr(getattr(u, "prompt_tokens_details", None), "cached_tokens", 0) or 0)
+    reasoning = int(getattr(getattr(u, "completion_tokens_details", None), "reasoning_tokens", 0) or 0)
+    usd = price_usd(inp, cached, out)
+    return {"model": settings.OPENAI_MODEL, "input": inp, "cached": cached, "output": out,
+            "reasoning": reasoning, "total": inp + out, "usd": round(usd, 6),
+            "inr": round(usd * float(_knob("USD_INR", "88")), 4)}
+
+
 _SCENE_FIELDS = ("setting", "wall", "floor", "light", "props", "camera", "mood")
 
 
@@ -222,25 +245,21 @@ def _facts(products, metas) -> List[Dict[str, Any]]:
 
 
 def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: str = "") -> str:
-    scenes = [{"key": s["key"], "mood": s.get("mood"), "palette": s.get("palette"), "niches": s.get("niches"),
-               "tags": s.get("tags"), "uses": s.get("uses", 0)} for s in lib if s.get("ready")]
+    scenes = [{"key": s["key"], "mood": s.get("mood"), "palette": s.get("palette")} for s in lib if s.get("ready")]
+    J = lambda o: json.dumps(o, ensure_ascii=False, separators=(",", ":"))  # noqa: E731 — compact
     new_rule = ("STEP 2 — DESIGN THE SCENE for THIS post (required): from YOUR analysis in step 1, fill "
                 "scene.new as STRUCTURED fields (setting, wall, floor, light, props, colors, camera, mood). It is "
                 "painted by the local image model and used for this post. Also give the closest library scene "
                 "in scene.use as a fallback." if allow_new else
                 "STEP 2 — pick the best library scene in scene.use; set scene.new to null.")
     return (
-        f"Design ONE Instagram carousel for category '{category or 'mixed'}' with {len(products)} products.\n\n"
-        f"PRODUCTS (scraped facts + measured photo facts; the photos are attached in the same order):\n"
-        f"{json.dumps(_facts(products, metas), ensure_ascii=False)}\n\n"
-        f"BACKDROP LIBRARY (fallback scenes):\n{json.dumps(scenes, ensure_ascii=False)}\n\n"
-        f"SLIDE LAYOUTS (choose one per product — these are the ONLY layouts):\n{json.dumps(_LAYOUT_GUIDE)}\n\n"
+        "You design ONE Instagram carousel for the products given at the END under === THIS POST ===.\n\n"
+        f"SLIDE LAYOUTS (choose one per product — these are the ONLY layouts):\n{J(_LAYOUT_GUIDE)}\n\n"
         "STEP 1 — ANALYSE EVERY PRODUCT first, from its photo AND its facts: product type, its real colours "
         "(read them from the photo), material/texture, style, and the vibe/occasion it suits. Be precise — "
         "this analysis drives everything else.\n"
         f"{new_rule}\n"
         f"{_prompt_rules()}\n"
-        + (f"{style_rule}\n" if style_rule else "") +
         "STEP 3 — LAYOUTS: a model wearing it with the photo cropped at the bottom → scene_hero; a whole "
         "object → scene_float; vary layouts so the post isn't monotonous.\n"
         "RULES:\n"
@@ -253,7 +272,12 @@ def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: st
         '"vibe": str}], "concept": str, "scene": {"use": "<library key>", "new": null | {"key": "snake_case", '
         '"palette": str, "setting": str, "wall": str, "floor": str, "light": str, "props": str, "colors": [str], '
         '"camera": str, "mood": str, "niches": [str], "tags": [str]}}, "palette": str, '
-        '"cover": {"layout": str}, "chip": str, "slides": [{"i": int, "layout": str, "why": "≤ 10 words"}]}'
+        '"cover": {"layout": str}, "chip": str, "slides": [{"i": int, "layout": str, "why": "≤ 10 words"}]}\n\n'
+        # ── per-post data LAST (everything above is identical across posts → prompt-cached) ──
+        f"=== THIS POST ===\nCategory: {category or 'mixed'} · {len(products)} products.\n"
+        + (f"{style_rule}\n" if style_rule else "") +
+        f"PRODUCTS (scraped + measured photo facts; photos attached in this order):\n{J(_facts(products, metas))}\n"
+        f"BACKDROP LIBRARY (fallback scenes):\n{J(scenes)}\n"
     )
 
 
@@ -274,7 +298,7 @@ def _call_llm(products, category, lib, metas, allow_new, style_rule: str = "") -
         kw["max_tokens"] = 1200
         kw["temperature"] = 0.4
     resp = client.chat.completions.create(**kw)
-    return json.loads(resp.choices[0].message.content or "{}")
+    return json.loads(resp.choices[0].message.content or "{}"), usage_of(resp)
 
 
 def _validate(raw: Dict[str, Any], base: Dict[str, Any], products, lib, allow_new) -> Dict[str, Any]:
@@ -365,7 +389,9 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "") -
     err = ""
     if enabled() and settings.OPENAI_API_KEY and products:
         try:
-            plan = _validate(_call_llm(products, category, lib, metas, allow_new, style_rule), plan, products, lib, allow_new)
+            _raw, _usage = _call_llm(products, category, lib, metas, allow_new, style_rule)
+            plan = _validate(_raw, plan, products, lib, allow_new)
+            plan["usage"] = _usage
         except Exception as e:                            # noqa: BLE001 — rules plan stands
             err = str(e)[:160]
     if lk in rows:                                        # the chosen Look fixes the slide palette
