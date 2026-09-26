@@ -346,7 +346,10 @@ async def _scrape_page(page: Page, category: str, marketplace: str,
                 if prods:
                     log.success(f"Amazon: {len(prods)} via residential worker ('{term}' p{page_num})")
                     return prods
-                log.warning(f"worker returned no Amazon products for '{term}' — trying Playwright")
+                _h = res.get("html") or ""
+                log.warning(f"worker returned no Amazon products for '{term}' ({len(_h)} bytes, "
+                            f"captcha={'captcha' in _h.lower()}, asins={_h.count('data-asin=')}, "
+                            f"parse={sc.get('error', '')}) — trying Playwright")
     except Exception as _e:
         log.warning(f"Amazon worker path error ({str(_e)[:60]}); using Playwright")
 
