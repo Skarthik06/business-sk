@@ -1424,10 +1424,10 @@ def _scene_flatlay(products, cuts, bg, P, handle, *, title, subtitle, chip, dark
     """COVER: 2-4 real product cut-outs laid out together on the scene, each with a small
     name + price tag (the outfit-grid look). Layout slots adapt to the count."""
     n = min(len(products), 4)
-    slots = {1: [(22, 30, 56, 58)],
-             2: [(6, 26, 50, 62), (46, 32, 50, 62)],
-             3: [(4, 22, 46, 46), (50, 20, 46, 46), (27, 55, 46, 42)],
-             4: [(4, 20, 45, 38), (51, 20, 45, 38), (4, 58, 45, 36), (51, 58, 45, 36)]}[max(1, n)]
+    slots = {1: [(14, 4, 72, 92)],
+             2: [(1, 6, 49, 90), (50, 6, 49, 90)],
+             3: [(1, 2, 49, 50), (50, 2, 49, 50), (25, 51, 50, 48)],
+             4: [(1, 1, 49, 49), (50, 1, 49, 49), (1, 51, 49, 48), (50, 51, 49, 48)]}[max(1, n)]
     items = []
     for (x, y, w, h), p, c in zip(slots, products[:n], cuts[:n]):
         price = _money(p.get("price"))
