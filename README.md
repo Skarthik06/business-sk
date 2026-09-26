@@ -1,6 +1,6 @@
 # BUSINESS_SK — Agentic Instagram Affiliate Autopilot
 
-**Current stable version:** v2.4.1
+**Current stable version:** v2.4.2
 
 An end-to-end, agent-driven marketing system that **finds products** (Amazon, Flipkart, Shopsy,
 16 Shopify brands, Cuelinks stores), **designs Instagram carousels with an AI Art Director**
@@ -21,7 +21,7 @@ Private project — all rights reserved. Instagram: `@lostinframes0605.exe` (pro
 
 | | |
 |---|---|
-| **Version** | v2.4.1 (stable; production runs this tag) — history in [§ Versions](#versions) |
+| **Version** | v2.4.2 (stable; production runs this tag) — history in [§ Versions](#versions) |
 | **Built on** | Python · FastAPI · LangGraph/LangChain · OpenAI `gpt-5-nano` · PostgreSQL 18 + pgvector · Redis · React 19 + Vite 7 + Tailwind 4 · Playwright · PyTorch (CUDA 12.8) · Z-Image-Turbo · BiRefNet · YuNet · Docker Compose · Caddy |
 | **Businesses** | **Business-SK** — affiliate autopilot (active) · **Business-JK** — real-estate Instagram platform (shares the stack) |
 | **Cost per post (LLM)** | ≈ ₹0.05 (captions + art direction, fully itemised in the Studio) |
