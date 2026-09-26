@@ -1076,10 +1076,32 @@ def _follow_gate_unlock(account_id: int, account: Dict[str, Any], user_id: str,
             "executions": [{"action": "FOLLOW_GATE_UNLOCK", "status": status, "error": err}]}
 
 
+import threading as _threading
+
+_EVENT_LOCKS: Dict[int, Any] = {}
+_EVENT_LOCKS_GUARD = _threading.Lock()
+
+
 def process_event(account_id: int, event: R.InboundEvent, event_id: Optional[int],
                   dry: bool = False, persist: bool = True) -> Dict[str, Any]:
     """Evaluate rules for one event and dispatch actions. Idempotent + logged.
-    persist=False (used by /simulate) previews without writing execution rows."""
+    persist=False (used by /simulate) previews without writing execution rows.
+    The poller, webhook and manual Sync can hit the SAME event within milliseconds; the
+    per-action "already succeeded?" check alone raced (two public replies on one comment),
+    so one event is processed by one thread at a time — the second then sees DUPLICATE."""
+    if event_id is None or dry:
+        return _process_event(account_id, event, event_id, dry, persist)
+    with _EVENT_LOCKS_GUARD:
+        lock = _EVENT_LOCKS.setdefault(event_id, _threading.Lock())
+        if len(_EVENT_LOCKS) > 5000:                  # bounded: drop idle locks
+            for k in [k for k, v in _EVENT_LOCKS.items() if k != event_id and not v.locked()]:
+                _EVENT_LOCKS.pop(k, None)
+    with lock:
+        return _process_event(account_id, event, event_id, dry, persist)
+
+
+def _process_event(account_id: int, event: R.InboundEvent, event_id: Optional[int],
+                   dry: bool = False, persist: bool = True) -> Dict[str, Any]:
     account = rags.get_account(account_id) or {}
     # FOLLOW-GATE re-check: a message from a user who was nudged (pending) → re-verify follow via
     # is_user_follow_business; if they now follow, release the links (atomic pop → never double-sends).
