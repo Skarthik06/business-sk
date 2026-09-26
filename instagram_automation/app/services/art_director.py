@@ -129,7 +129,7 @@ def _fill_presets(chosen: List[str], palette: str, analysis: List[Dict[str, Any]
         hits = sum(1 for w in re.findall(r"[a-z]{4,}", best) if w in words)
         return hits * 3 - used.count(key)
 
-    out = [p for p in chosen if p in ps][:want]
+    out = [p for p in chosen if p in ps and p != "/studio"][:want]      # /studio = last-resort filler
     pool = sorted((k for k, v in ps.items() if palette in v["palettes"] and k not in out), key=score, reverse=True)
     for k in pool:
         if len(out) >= want:
@@ -306,7 +306,7 @@ def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: st
     return (
         "You design ONE Instagram carousel for the products given at the END under === THIS POST ===.\n\n"
         "STYLE PRESETS (slash commands; each adds proven scene phrases): "
-        f"{J({k: v['best_for'] + ' | palettes: ' + ','.join(v['palettes']) for k, v in presets().items()})}\n"
+        f"{J({k: {'scene': v['adds'], 'for': v['best_for'], 'palettes': ','.join(v['palettes'])} for k, v in presets().items()})}\n"
         "A preset may ONLY be combined with one of its listed palettes — the palette, the presets and the "
         "scene fields must describe ONE coherent scene.\n"
         "Pick the 2-3 presets that best fit YOUR product analysis in `presets` (unless the post gives "
@@ -335,7 +335,9 @@ def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: st
         # ── per-post data LAST (everything above is identical across posts → prompt-cached) ──
         f"=== THIS POST ===\nCategory: {category or 'mixed'} · {len(products)} products.\n"
         + (f"{style_rule}\n" if style_rule else "")
-        + (f"USER STYLE COMMANDS: {forced} — use exactly these presets.\n" if forced else "") +
+        + (f"USER STYLE COMMANDS: {forced} — use exactly these presets; the scene fields MUST be built from "
+           f"their materials and light: " + " | ".join(f"{p} = {presets().get(p, {}).get('adds', '')}" for p in forced.split())
+           + "\n" if forced else "") +
         f"PRODUCTS (scraped + measured photo facts; photos attached in this order):\n{J(_facts(products, metas))}\n"
         f"BACKDROP LIBRARY (fallback scenes):\n{J(scenes)}\n"
     )
