@@ -322,7 +322,10 @@ HTML/CSS slides rendered to 1080×1350 PNG by headless Chromium.
 2. **Product slides:** `scene_hero` (model stands on the panel edge), `scene_float` (whole object,
    soft shadow), `scene_split` (editorial card). The panel shows only real facts: number + store +
    brand, name, price, struck MRP (if > price), % OFF (if > 0), ★ rating + count (if > 0), CTA.
-3. **Closer:** "Want these?" — follow → comment LINK → link in bio, on the same scene.
+3. **Closer (last slide):** "Want these?" — the full process **1 · Follow → 2 · Comment "LINK" → 3 · Check
+   your DM** (or tap the link in bio), on the same scene. The last slide never says "swipe": its footer
+   reads **FOLLOW · COMMENT · DM** (also for a single-product post).
+4. **Watermark:** a small circled **SK** monogram bottom-centre on every slide, in the palette colours.
 The product photo is never altered — only scaled and shadowed (0.000 % pixels changed in tests).
 Coupon/deal posts keep their deal cards; classic templates remain only as the no-library fallback.
 
