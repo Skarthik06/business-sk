@@ -281,19 +281,47 @@ def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: st
     )
 
 
+def _thumb_uri(url: str) -> str:
+    """A small JPEG data-URI of the product for the vision LLM (ART_IMG_PX, default 320 px).
+    Uses the laptop cut-out (just the product, on white) when ready, else the original photo.
+    Image tokens scale with pixel area, so this is the biggest token saving (~70% of input)."""
+    import base64 as _b64
+    import io as _io
+    try:
+        from PIL import Image
+        px = int(_knob("ART_IMG_PX", "320"))
+        cp = scene_store.cutout_path(url)
+        if cp:
+            im = Image.open(cp).convert("RGBA")
+            bg = Image.new("RGB", im.size, (255, 255, 255))
+            bg.paste(im, mask=im.split()[-1])
+            im = bg
+        else:
+            import requests as _rq
+            r = _rq.get(url, timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+            r.raise_for_status()
+            im = Image.open(_io.BytesIO(r.content)).convert("RGB")
+        im.thumbnail((px, px))
+        buf = _io.BytesIO()
+        im.save(buf, format="JPEG", quality=80)
+        return "data:image/jpeg;base64," + _b64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        return url if url.startswith("http") else ""
+
+
 def _call_llm(products, category, lib, metas, allow_new, style_rule: str = "") -> Dict[str, Any]:
     from app.services.llm import _get_client, _is_reasoning_model
     client = _get_client()
     content: List[Dict[str, Any]] = [{"type": "text", "text": _user_prompt(products, category, lib, metas, allow_new, style_rule)}]
     for p in products[: int(_knob("ART_MAX_IMAGES", "4"))]:
-        u = _img_url(p)
-        if u.startswith("http"):
+        u = _thumb_uri(_img_url(p))
+        if u:
             content.append({"type": "image_url", "image_url": {"url": u, "detail": "low"}})
     kw: Dict[str, Any] = {"model": settings.OPENAI_MODEL, "response_format": {"type": "json_object"},
                           "messages": [{"role": "system", "content": _SYSTEM}, {"role": "user", "content": content}]}
     if _is_reasoning_model(settings.OPENAI_MODEL):
         kw["max_completion_tokens"] = int(_knob("ART_MAX_TOKENS", "3000"))
-        kw["reasoning_effort"] = _knob("ART_REASONING_EFFORT", "low")
+        kw["reasoning_effort"] = _knob("ART_REASONING_EFFORT", "minimal")
     else:
         kw["max_tokens"] = 1200
         kw["temperature"] = 0.4
@@ -379,6 +407,11 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "") -
                    ". Do your best, most creative work and keep the feed VARIED: choose a different "
                    "palette/scene idea than the last posts unless these products clearly demand the same "
                    "style.\n") if recent else ""
+        last2 = [r.get("palette") for r in recent[-2:]]
+        banned = last2[0] if (len(last2) == 2 and last2[0] and last2[0] == last2[1]) else ""
+        if banned:
+            rows = {k: r for k, r in rows.items() if k != banned}
+            variety += f"The last 2 posts both used '{banned}', so it is NOT available this time.\n"
         style_rule = (variety + "LOOK = AI CHOICE: pick the palette row that best flatters these products, set "
                       "`palette` to its key and write the scene inside it:\n" +
                       "\n".join(f"- {k}: {_row_rule(k, r)}" + (" " + PREMIUM_RULE if k == "noir" else "")
@@ -400,6 +433,10 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "") -
             plan["scene"]["new"]["palette"] = lk
     elif fixed:
         plan["palette"] = fixed.get("palette") or plan["palette"]
+    if lk == "ai" and rows and plan.get("palette") not in rows:
+        plan["palette"] = next(iter(rows))               # a banned/unknown pick → first allowed row
+        if plan["scene"].get("new"):
+            plan["scene"]["new"]["palette"] = plan["palette"]
     plan["look"] = lk
     new = plan["scene"].get("new")
     if new:
