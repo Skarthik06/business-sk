@@ -35,8 +35,6 @@ for _d in (CUT, BG):
     _d.mkdir(parents=True, exist_ok=True)
 
 _LOCK = threading.Lock()
-_JOBS: Dict[str, Dict[str, Any]] = {}          # id → job (queued / leased)
-_LAST_POLL = {"t": 0.0, "info": {}}
 _LEASE_SECS = 240
 _MAX_UPLOAD = 12 * 1024 * 1024                 # 12 MB per asset
 
@@ -54,10 +52,6 @@ def scene_key(s: str) -> str:
 def worker_token_ok(tok: Optional[str]) -> bool:
     want = (os.getenv("GPU_WORKER_TOKEN") or "").strip()
     return bool(want) and bool(tok) and hmac.compare_digest(want, str(tok).strip())
-
-
-def worker_online(max_age: float = 90.0) -> bool:
-    return time.time() - _LAST_POLL["t"] < max_age
 
 
 # ── library ──────────────────────────────────────────────────────────────────
@@ -151,14 +145,44 @@ def data_uri(path: Optional[Path], *, jpeg: bool = False) -> str:
     return f"data:{mime};base64," + base64.b64encode(path.read_bytes()).decode("ascii")
 
 
-# ── queue ────────────────────────────────────────────────────────────────────
+# ── queue (file-backed: survives backend restarts and is shared by every process) ─────────
+QDIR = ROOT / "queue"
+QDIR.mkdir(parents=True, exist_ok=True)
+_POLL_FILE = ROOT / "worker.json"
+_JID = re.compile(r"^(cut|scene)_[a-z0-9_]{1,60}$")
+
+
+def _jpath(jid: str) -> Optional[Path]:
+    return QDIR / f"{jid}.json" if _JID.match(jid or "") else None
+
+
+def _read_job(path: Path) -> Optional[Dict[str, Any]]:
+    try:
+        return json.loads(path.read_text("utf-8"))
+    except Exception:
+        return None
+
+
+def _write_job(job: Dict[str, Any]) -> None:
+    path = _jpath(job["id"])
+    if path:
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(job), "utf-8")
+        tmp.replace(path)
+
+
+def _jobs() -> List[Dict[str, Any]]:
+    return [j for j in (_read_job(f) for f in QDIR.glob("*.json")) if j]
+
+
 def enqueue_cutout(url: str) -> Optional[str]:
     url = (url or "").strip()
     if not url.startswith(("http://", "https://")) or cutout_path(url):
         return None
     jid = "cut_" + img_id(url)
     with _LOCK:
-        _JOBS.setdefault(jid, {"id": jid, "type": "cutout", "url": url, "queued": time.time(), "lease": 0})
+        if not _jpath(jid).exists():
+            _write_job({"id": jid, "type": "cutout", "url": url, "queued": time.time(), "lease": 0, "tries": 0})
     return jid
 
 
@@ -168,30 +192,45 @@ def enqueue_scene(key: str, prompt: str, seed: int = 0) -> Optional[str]:
         return None
     jid = "scene_" + key
     with _LOCK:
-        _JOBS.setdefault(jid, {"id": jid, "type": "scene", "key": key, "prompt": prompt[:900],
-                               "seed": int(seed) % 100000, "w": 1024, "h": 1280,
-                               "queued": time.time(), "lease": 0})
+        if _jpath(jid) and not _jpath(jid).exists():
+            _write_job({"id": jid, "type": "scene", "key": key, "prompt": prompt[:900],
+                        "seed": int(seed) % 100000, "w": 1024, "h": 1280,
+                        "queued": time.time(), "lease": 0, "tries": 0})
     return jid
+
+
+def _last_poll() -> Dict[str, Any]:
+    try:
+        return json.loads(_POLL_FILE.read_text("utf-8"))
+    except Exception:
+        return {"t": 0, "info": {}}
+
+
+def worker_online(max_age: float = 90.0) -> bool:  # file-backed → works across processes
+    return time.time() - float(_last_poll().get("t") or 0) < max_age
 
 
 def take_jobs(n: int = 4, info: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Worker poll: lease up to n jobs (cutouts first — they're fast and block renders)."""
     now = time.time()
-    _LAST_POLL["t"] = now
-    _LAST_POLL["info"] = {k: str(v)[:60] for k, v in (info or {}).items()}
+    try:
+        _POLL_FILE.write_text(json.dumps({"t": now, "info": {k: str(v)[:60] for k, v in (info or {}).items()}}), "utf-8")
+    except Exception:
+        pass
     out: List[Dict[str, Any]] = []
     with _LOCK:
-        for j in sorted(_JOBS.values(), key=lambda j: (j["type"] != "cutout", j["queued"])):
+        for j in sorted(_jobs(), key=lambda j: (j.get("type") != "cutout", j.get("queued", 0))):
             if len(out) >= max(1, min(n, 8)):
                 break
-            if j["lease"] and now - j["lease"] < _LEASE_SECS:
+            if j.get("lease") and now - j["lease"] < _LEASE_SECS:
                 continue
             j["tries"] = int(j.get("tries") or 0) + 1
             if j["tries"] > 3:                       # permanently failing (dead image link…) → drop
-                _JOBS.pop(j["id"], None)
+                (_jpath(j["id"]) or Path("/nonexistent")).unlink(missing_ok=True)
                 continue
             j["lease"] = now
-            out.append({k: v for k, v in j.items() if k not in ("queued", "lease")})
+            _write_job(j)
+            out.append({k: v for k, v in j.items() if k not in ("queued", "lease", "tries")})
     return out
 
 
@@ -208,8 +247,8 @@ def _verify_image(raw: bytes, *, want_alpha: bool):
 
 
 def submit(job_id: str, b64: str, meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    with _LOCK:
-        job = _JOBS.get(str(job_id))
+    path = _jpath(str(job_id))
+    job = _read_job(path) if path and path.exists() else None
     if not job:
         return {"ok": False, "error": "unknown job"}
     try:
@@ -231,8 +270,7 @@ def submit(job_id: str, b64: str, meta: Optional[Dict[str, Any]] = None) -> Dict
             im.save(BG / f"{job['key']}.jpg", quality=90, optimize=True)
     except Exception as e:
         return {"ok": False, "error": f"invalid image: {str(e)[:80]}"}
-    with _LOCK:
-        _JOBS.pop(job["id"], None)
+    path.unlink(missing_ok=True)
     return {"ok": True}
 
 
@@ -246,11 +284,11 @@ def wait_for(urls: List[str], keys: List[str], timeout: float) -> None:
 
 
 def status() -> Dict[str, Any]:
-    with _LOCK:
-        q = list(_JOBS.values())
+    q = _jobs()
     lib = library()
-    return {"worker_online": worker_online(), "last_poll_secs": round(time.time() - _LAST_POLL["t"], 1)
-            if _LAST_POLL["t"] else None, "worker": _LAST_POLL["info"],
+    lp = _last_poll()
+    return {"worker_online": worker_online(), "last_poll_secs": round(time.time() - float(lp.get("t") or 0), 1)
+            if lp.get("t") else None, "worker": lp.get("info") or {},
             "queued": len(q), "queued_cutouts": sum(1 for j in q if j["type"] == "cutout"),
             "queued_scenes": sum(1 for j in q if j["type"] == "scene"),
             "library": len(lib), "library_ready": sum(1 for s in lib if s.get("ready")),
