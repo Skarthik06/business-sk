@@ -24,8 +24,11 @@ able to see the product clearly at a thumbnail glance.**
 
 ## ST2 — Product true to source; only the environment is designed ✓ enforced (G3)
 The renderer NEVER recolours, reshapes, relabels, or "beautifies" the product — it only builds the
-ENVIRONMENT around it (tinted stage, one soft shadow, type, frame). No generative background fill
-(it bleeds onto products and breaks trust).
+ENVIRONMENT around it (tinted stage, one soft shadow, type, frame). No generative fill that TOUCHES
+the product (it bleeds onto products and breaks trust). **Update 2026-09-26:** AI backdrops are allowed
+only as a separately generated EMPTY scene with the real cut-out composited on top — see
+[[post-art-director]] (AD1). Product slides now use that AI-scene format; the classic templates below
+remain only for coupon/deal posts and as the no-library fallback.
 
 **Background removal = rembg (AI segmentation), PRIMARY.** rembg (u2net, MIT) is installed and is the
 default isolation path (`_prep_image(isolate=True)`, which `render_carousel`/`sk_carousel` use). It

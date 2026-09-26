@@ -1447,8 +1447,28 @@ def _scene_flatlay(products, cuts, bg, P, handle, *, title, subtitle, chip, dark
     return _scene_page(P, bg, inner, handle, dark)
 
 
+def _scene_closer(P, bg, handle, dark=False):
+    """CLOSER on the post's scene: how to get the links (follow → comment LINK → bio)."""
+    steps = [("➕", f"Follow {_esc(handle)}", "DMs go to followers only"),
+             ("💬", "Comment “LINK”", "we’ll DM you every product link"),
+             ("🔗", "Tap the link in bio", "shop all picks in the store")]
+    rows = "".join(
+        f'<div style="display:flex;align-items:center;gap:22px;padding:20px 26px;background:{P["chip"]};'
+        f'border-radius:20px"><span style="font-size:40px">{ic}</span><div><div style="font-family:{_SANS};'
+        f'font-weight:800;font-size:34px;color:{P["text"]}">{t}</div><div style="font-family:{_MONO};font-size:20px;'
+        f'color:{P["muted"]};margin-top:4px">{s}</div></div></div>' for ic, t, s in steps)
+    inner = f"""<div class="scol" style="justify-content:center">
+      <div class="spanel" style="gap:18px;padding:46px 44px">
+        <div class="seye">Get the links</div>
+        <div class="sname" style="font-size:78px;-webkit-line-clamp:2">Want these?</div>
+        {rows}
+      </div>
+    </div>"""
+    return _scene_page(P, bg, inner, handle, dark)
+
+
 # The Instagram-worthy per-product templates the renderer agent chooses between.
-_PROD_TEMPLATES =("spotlight", "savings", "proof", "feature", "editorial", "lookbook", "bold", "stat", "minimal")
+_PROD_TEMPLATES = ("spotlight", "savings", "proof", "feature", "editorial", "lookbook", "bold", "stat", "minimal")
 
 
 # Human-facing details for the template picker. `best_for` explains WHEN the agent favours it,
@@ -1466,10 +1486,17 @@ _TMPL_INFO = {
 }
 
 
+_SCENE_INFO = {
+    "scene_hero": {"label": "AI Scene · Hero", "best_for": "Model shots — the person stands in the scene"},
+    "scene_float": {"label": "AI Scene · Float", "best_for": "Whole objects — shoes, bags, watches, flat garments"},
+    "scene_split": {"label": "AI Scene · Split", "best_for": "Premium items — product left, editorial details right"},
+}
+
+
 def template_options() -> List[Dict[str, str]]:
-    """The per-product templates a user may pick manually (cover/closer are structural)."""
-    return [{"id": k, "label": _TMPL_INFO[k]["label"], "best_for": _TMPL_INFO[k]["best_for"]}
-            for k in _PROD_TEMPLATES]
+    """The per-product layouts a user may pick manually — the AI-scene layouts (the classic
+    templates are retired for product posts; cover/closer are structural)."""
+    return [{"id": k, "label": v["label"], "best_for": v["best_for"]} for k, v in _SCENE_INFO.items()]
 
 
 def _template_scores(p: Dict[str, Any]) -> Dict[str, float]:
@@ -1707,7 +1734,8 @@ _TMPL_LABEL = {"cover": "Teaser cover", "spotlight": "Price-Drop Spotlight",
                "bold": "Statement", "stat": "By-the-Numbers", "minimal": "Minimal Hero",
                "deal_cover": "Deals cover", "deal": "Deal card",
                "scene_hero": "AI Scene · Hero", "scene_float": "AI Scene · Float",
-               "scene_split": "AI Scene · Split", "scene_flatlay": "AI Scene · Outfit flat-lay"}
+               "scene_split": "AI Scene · Split", "scene_flatlay": "AI Scene · Outfit flat-lay",
+               "scene_closer": "AI Scene · Get the links"}
 
 
 def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_dir: Path,
@@ -1737,25 +1765,37 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
         if track_cover:
             _remember_cover(out_dir, uniq)
 
-    # AI Art Director (agent post-art-director): scene backdrop + real cut-outs from the laptop GPU.
-    scene = _scene_ctx(products, art) if art else None
-    if art:
-        if art.get("palette") in _PALETTES:
-            P = _palette(art["palette"], category)
-        _apply_art(specs, products, art, scene, templates)
-    chip = str((art or {}).get("chip") or "Comment “LINK” for this look")
-    dark = bool(art and art.get("palette") == "noir")
-
     # prep every unique product image once (data URIs), reused across slides
     img_cache: Dict[str, str] = {}
+    scene: Optional[Dict[str, Any]] = None
 
     def prep(p: Dict[str, Any]) -> str:
+        # the laptop's BiRefNet cut-out (cleaner edges, no server rembg pass) when it exists
+        if scene and _src(p) in scene["cuts"]:
+            return scene["cuts"][_src(p)]
         src = (p.get("image_url") or p.get("image") or "").strip()
         if not src:
             return ""
         if src not in img_cache:
             img_cache[src] = _prep_image(src, isolate=isolate) or ""
         return img_cache[src]
+
+    # AI Art Director (agent post-art-director) — THE format for product posts: an AI scene
+    # backdrop from the library + the real product cut-out. The laptop GPU's BiRefNet cut-outs are
+    # used when ready; otherwise the server cuts the product out itself (never old templates).
+    if art:
+        scene = _scene_ctx(products, art)
+        if scene:
+            for p in products:
+                if _src(p) and _src(p) not in scene["cuts"]:
+                    cut = prep(p)
+                    if cut:
+                        scene["cuts"][_src(p)] = cut
+        if art.get("palette") in _PALETTES:
+            P = _palette(art["palette"], category)
+        _apply_art(specs, products, art, scene, templates)
+    chip = str((art or {}).get("chip") or "Comment “LINK” for this look")
+    dark = bool(art and art.get("palette") == "noir")
 
     htmls: List[str] = []
     for sp in specs:
@@ -1795,6 +1835,8 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
             htmls.append(_deal_cover2(sp.get("products", []), P, title=sp.get("title", ""), subtitle=sp.get("subtitle", ""), handle=handle))
         elif t == "deal":
             htmls.append(_deal_card2(ps[0], P, handle))
+        elif t == "scene_closer":
+            htmls.append(_scene_closer(P, scene["bg"], sp.get("handle", handle), dark))
         elif t == "closer":
             htmls.append(_closer2(P, sp.get("handle", handle)))
         else:                                          # "editorial" + any fallback
@@ -1808,9 +1850,12 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
     _ai_by_id = {}
     for s, a in zip(_prod_slides, _ai):
         _ai_by_id[id(s)] = a
+    for s in specs:                                    # AI-scene slides: the art director's own pick
+        if s.get("ai_layout"):
+            _ai_by_id[id(s)] = s["ai_layout"]
     result["plan"] = [{"tmpl": s["tmpl"], "label": _TMPL_LABEL.get(s["tmpl"], s["tmpl"]),
                        "n": len(s["products"]),
-                       "editable": s["tmpl"] in _PROD_TEMPLATES,
+                       "editable": s["tmpl"] in _PROD_TEMPLATES or s["tmpl"] in _SCENE_LAYOUTS,
                        "ai_tmpl": _ai_by_id.get(id(s)),
                        "ai_label": _TMPL_LABEL.get(_ai_by_id.get(id(s)), None),
                        "product": (s["products"][0].get("product_title") if s["products"] else None)}
@@ -1844,8 +1889,13 @@ def _scene_ctx(products: List[Dict[str, Any]], art: Dict[str, Any]) -> Optional[
         wait = 20.0
     scene_store.wait_for(urls, [key] if key else [], wait)
     bgp = scene_store.backdrop_path(key) if key else None
-    if not bgp:
-        return None
+    if not bgp:                                  # chosen scene not painted yet → least-used ready one
+        ready = sorted((s for s in scene_store.library() if s.get("ready")), key=lambda s: int(s.get("uses") or 0))
+        if not ready:
+            return None
+        key = ready[0]["key"]
+        bgp = scene_store.backdrop_path(key)
+    scene_store.note_scene_use(key)
     cuts = {u: scene_store.data_uri(scene_store.cutout_path(u)) for u in urls if scene_store.cutout_path(u)}
     return {"key": key, "bg": scene_store.data_uri(bgp, jpeg=True), "cuts": cuts}
 
@@ -1862,28 +1912,35 @@ def _apply_art(specs: List[Dict[str, Any]], products: List[Dict[str, Any]], art:
                scene: Optional[Dict[str, Any]], templates: Optional[List[str]]) -> None:
     """Swap the planned templates for the art director's layouts. A manual template choice always
     wins; a scene layout whose assets aren't ready falls back to its classic twin (never blocks)."""
-    fallback = {"scene_hero": "lookbook", "scene_float": "spotlight", "scene_split": "feature"}
+    if not scene:                                      # no backdrop library at all → leave as planned
+        return
     lays = [str((s or {}).get("layout") or "") for s in (art.get("slides") or [])]
-    cuts = (scene or {}).get("cuts") or {}
+    cuts = scene.get("cuts") or {}
     for sp in specs:
         t = sp["tmpl"]
         if t in _PROD_TEMPLATES and sp["products"]:
             p = sp["products"][0]
             i = next((k for k, q in enumerate(products) if q is p), -1)
-            if templates and 0 <= i < len(templates) and templates[i] in _PROD_TEMPLATES:
-                continue                                   # manual override wins
+            if _src(p) not in cuts:
+                continue                                   # no image at all → nothing to place
             lay = lays[i] if 0 <= i < len(lays) else ""
+            if lay not in _SCENE_LAYOUTS:
+                meta = _cut_meta(p)
+                lay = "scene_hero" if (meta and meta.get("subject") == "person") else "scene_float"
+            sp["ai_layout"] = lay
+            if templates and 0 <= i < len(templates) and templates[i] in _SCENE_LAYOUTS:
+                sp["tmpl"] = templates[i]                  # manual scene-layout pick wins
+                continue
             meta = _cut_meta(p)
             if lay == "scene_hero" and meta and meta.get("subject") == "object":
                 lay = "scene_float"                        # whole object → float, never cropped by the panel
             elif lay == "scene_float" and meta and meta.get("subject") == "person":
                 lay = "scene_hero"                         # cropped model → stand on the panel edge
-            if lay in _SCENE_LAYOUTS:
-                sp["tmpl"] = lay if (scene and _src(p) in cuts) else fallback[lay]
-            elif lay in _PROD_TEMPLATES:
-                sp["tmpl"] = lay
-        elif t == "cover" and scene and (art.get("cover") or {}).get("layout") == "scene_flatlay":
+            sp["tmpl"] = lay
+        elif t == "cover":
             ready = [p for p in sp.get("all", sp["products"]) if _src(p) in cuts][:4]
             if len(ready) >= 2:
                 sp["tmpl"] = "scene_flatlay"
                 sp["products"] = ready
+        elif t == "closer":
+            sp["tmpl"] = "scene_closer"

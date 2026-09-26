@@ -64,6 +64,7 @@ its file, so the spec never overstates reality.
 | Content Strategist | [content-strategist.agents.md](agents/content-strategist.agents.md) | Hooks, descriptions, CTAs, formats, claim safety | `chains/compose.py` |
 | Carousel Publisher | [carousel-publisher.agents.md](agents/carousel-publisher.agents.md) | IG carousel selection/order, secure posting, comment→DM, storefront refresh | `instagram_automation/app/*` |
 | Still Set Templates | [still-set-templates.agents.md](agents/still-set-templates.agents.md) | Designed-slide look: product-is-hero (big/clean), index frame, tint system, type, layout-by-count, no-fabrication | `instagram_automation/app/services/sk_render.py` |
+| Post Art Director | [post-art-director.agents.md](agents/post-art-director.agents.md) | THE post design since 2026-09-26: vision LLM picks concept, AI scene (library / new Z-Image prompt), per-slide layout (hero / float / split / flat-lay cover / closer), palette + headline; real product cut-outs, never altered | `instagram_automation/app/services/art_director.py`, `scene_store.py`, `sk_render.py`, `scripts/gpu_worker.py` |
 
 ### Autopilot layer (v5 — Phases 1–2 of the [Autopilot blueprint](docs/AUTOPILOT_BLUEPRINT.md))
 

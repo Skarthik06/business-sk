@@ -529,16 +529,39 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   const [tmplPick, setTmplPick] = useState({});   // { groupId: [tmplId|'' per product slide] }
   useEffect(() => { api.skRenderOptions().then(setRenderOpts).catch(() => {}); }, []);
   useEffect(() => { save('sk_palette', palette); }, [palette]);
+  // ✨ AI Art Director — THE design for every post: it looks at the product photos and picks the
+  // scene, each slide's layout and the headline. One plan per post, reused for preview + publish.
+  const [artPlans, setArtPlans] = useState({});   // { groupId: art plan }
+  const [artBusy, setArtBusy] = useState(null);
+  const [scenes, setScenes] = useState(null);     // { status, library }
+  useEffect(() => {
+    const tick = () => api.skScenes().then(setScenes).catch(() => {});
+    tick();
+    const t = setInterval(tick, 20000);
+    return () => clearInterval(t);
+  }, []);
+  const getArt = async (g, fresh = false) => {
+    if (!fresh && artPlans[g.id]) return artPlans[g.id];
+    setArtBusy(g.id);
+    try {
+      const res = await api.skArtDirect((g.products || []).slice(0, 10), g.category || '');
+      setArtPlans((m) => ({ ...m, [g.id]: res.art }));
+      return res.art;
+    } catch (e) {
+      return null;                                  // the server art-directs on its own as a fallback
+    } finally { setArtBusy(null); }
+  };
 
   // Render the designed slides for a staged post WITHOUT publishing — shows the exact
   // slides + the recommended template per product (from the backend planner).
-  const previewSlides = async (g) => {
+  const previewSlides = async (g, fresh = false) => {
     const pins = (g.products || []).slice(0, 10);
     if (!pins.length) { say('No products to preview', 'error'); return; }
     setPreviewing(g.id); setPreview(null);
     try {
-      const res = await api.skRenderPreview(pins, { category: g.category, palette, cover_tags: g.cover_tags || [], account_id: account || null, templates: tmplPick[g.id] || [] });
-      setPreview({ id: g.id, images: res.images || [], plan: res.plan || [], palette: res.palette });
+      const art = await getArt(g, fresh);
+      const res = await api.skRenderPreview(pins, { category: g.category, palette, cover_tags: g.cover_tags || [], account_id: account || null, templates: tmplPick[g.id] || [], art });
+      setPreview({ id: g.id, images: res.images || [], plan: res.plan || [], palette: res.palette, art: res.art || null });
     } catch (e) {
       say(e?.response?.data?.detail || e?.message || 'Preview failed', 'error');
     } finally { setPreviewing(null); }
@@ -571,7 +594,8 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       const images = pins.map((p) => hiRes(p.image_url)).filter(Boolean);        // full-resolution images
       let media_id = null, permalink = null, status = 'dry';
       if (!dryRun) {
-        const res = await api.skCarousel(account, images, caption, { category: g.category, products: pins, palette, cover_tags: g.cover_tags || [], templates: tmplPick[g.id] || [] });
+        const art = await getArt(g);
+        const res = await api.skCarousel(account, images, caption, { category: g.category, products: pins, palette, cover_tags: g.cover_tags || [], templates: tmplPick[g.id] || [], art });
         media_id = res.ig_media_id; permalink = res.permalink; status = 'posted';
       }
       const rec = await skApi.recordPost({ category: g.category, products: pins, media_id, permalink, caption, status, content_style: g.content_style || '' });
@@ -660,6 +684,18 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                   ))}
                 </div>
               </div>
+              <div>
+                <label className="text-xs" style={{ color: 'var(--muted)' }}>Design</label>
+                <div className="text-sm" style={{ marginTop: 8, fontWeight: 700 }}>✨ AI Art Director</div>
+                <div className="text-xs" style={{ marginTop: 3, color: scenes?.status?.worker_online ? '#3fb950' : 'var(--faint)' }}
+                  title="The Art Director designs every post: an AI scene, each slide's layout and the headline. Products stay 100% real. The laptop GPU makes sharper cut-outs + new scenes; without it the server cuts products out itself.">
+                  {scenes?.status
+                    ? (scenes.status.worker_online
+                        ? `● Laptop GPU online · ${scenes.status.library_ready} scenes${scenes.status.queued ? ` · ${scenes.status.queued} queued` : ''}`
+                        : `○ Laptop GPU offline · ${scenes.status.library_ready} scenes · server cut-outs`)
+                    : 'checking…'}
+                </div>
+              </div>
               <button className="btn btn-lg btn-post" onClick={() => publishAll(false)} disabled={busyAll || !!busyId || accounts.length === 0} style={{ minWidth: 210, justifyContent: 'center' }}>
                 {busyAll ? <><Spinner size={16} /> Posting…</> : <><Icon name="pin" size={17} /> Post all {queue.length} to Instagram</>}
               </button>
@@ -667,7 +703,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                 <Icon name="settings" size={13} /> Dry run (test)
               </button>
               <button className="btn btn-ghost" onClick={() => previewSlides(queue[0])} disabled={!!previewing || !queue.length} title="See the designed slides + recommended template per product (no posting)">
-                {previewing ? <><Spinner size={14} /> Rendering…</> : <><Icon name="quote" size={13} /> Preview & layout</>}
+                {artBusy ? <><Spinner size={14} /> Art directing…</> : previewing ? <><Spinner size={14} /> Rendering…</> : <><Icon name="quote" size={13} /> Preview & layout</>}
               </button>
             </div>
             {preview && (
@@ -676,6 +712,22 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                   <div className="eyebrow">Recommended layout · {preview.palette} palette · {preview.plan.length} slides</div>
                   <button className="btn btn-sm btn-ghost" onClick={() => setPreview(null)}><Icon name="x" size={12} /> Close</button>
                 </div>
+                {preview.art && (
+                  <div className="flex items-center gap-3 mb-3 flex-wrap text-xs">
+                    {(() => { const sc = (scenes?.library || []).find((x) => x.key === preview.art.scene); return sc?.thumb ? <img src={sc.thumb} alt="" style={{ height: 54, borderRadius: 6, border: '1px solid var(--border)' }} /> : null; })()}
+                    <div>
+                      <div><b style={{ color: 'var(--accent)' }}>✨ {preview.art.concept || 'AI art direction'}</b> <span className="style-tag">{preview.art.source === 'llm' ? 'AI' : 'rules'}</span></div>
+                      <div style={{ color: 'var(--muted)', marginTop: 2 }}>
+                        Scene: <b>{preview.art.scene || '—'}</b> · {preview.art.cutouts_ready} cut-outs · “{preview.art.chip}”
+                      </div>
+                    </div>
+                    <button className="btn btn-sm btn-ghost" disabled={!!previewing}
+                      onClick={() => previewSlides(queue.find((x) => x.id === preview.id) || { id: preview.id, products: [], category: '' }, true)}
+                      title="Ask the Art Director for a fresh design">
+                      <Icon name="spark" size={12} /> Re-direct
+                    </button>
+                  </div>
+                )}
                 <div className="flex flex-col gap-1 mb-3">
                   {(() => { let pi = -1; return preview.plan.map((s, i) => {
                     if (s.editable) pi += 1;

@@ -409,7 +409,7 @@ def sk_carousel(body: SkCarouselReq):
                                          palette=(getattr(body, "palette", None) or "warm"),
                                          cover_tags=getattr(body, "cover_tags", None) or [],
                                          templates=getattr(body, "templates", None) or [],
-                                         art=getattr(body, "art", None))
+                                         art=_ensure_art(getattr(body, "art", None), products, body.category))
             if designed.get("images"):
                 images = designed["images"]        # GitHub-raw URLs of the rendered PNGs
                 design_meta = {"rendered": True, "count": designed["count"], "plan": designed.get("plan")}
@@ -522,6 +522,17 @@ def _preview_handle(body) -> str:
 
 
 # ---- AI Art Director + laptop GPU worker (agent: post-art-director) ----------------------
+def _ensure_art(art: dict | None, products: list[dict], category: str) -> dict | None:
+    """AI-scene design is THE format for product posts: when the client sent no plan, the server
+    runs the Art Director itself. Coupon/deal posts (no product photos) keep their deal cards."""
+    if art or not products or all(p.get("deal") for p in products):
+        return art
+    try:
+        from app.services import art_director
+        return art_director.direct(products, category)
+    except Exception:
+        return None
+
 class ArtDirectReq(BaseModel):
     products: list[dict] = []
     category: str = ""
@@ -591,7 +602,7 @@ def sk_render_preview(body: SkRenderReq):
                                     cover_tags=getattr(body, "cover_tags", None) or [],
                                     templates=getattr(body, "templates", None) or [],
                                     track_cover=False,   # preview: don't consume the cover-uniqueness history
-                                    art=getattr(body, "art", None))
+                                    art=_ensure_art(getattr(body, "art", None), body.products, body.category))
     if not res.get("rendered"):
         raise HTTPException(500, f"Render failed: {res.get('error')}")
     return {"success": True, "images": res["images"], "count": res["count"],

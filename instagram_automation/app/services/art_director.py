@@ -47,7 +47,7 @@ def enabled() -> bool:
 
 
 def _img_url(p: Dict[str, Any]) -> str:
-    return (p.get("image_url") or p.get("image") or "").strip()
+    return (p.get("_art_src") or p.get("image_url") or p.get("image") or "").strip()
 
 
 def _num(v: Any) -> Optional[float]:
@@ -142,9 +142,7 @@ def _user_prompt(products, category, lib, metas, allow_new: bool) -> str:
         f"PRODUCTS (scraped facts + measured photo facts; the photos are attached in the same order):\n"
         f"{json.dumps(_facts(products, metas), ensure_ascii=False)}\n\n"
         f"BACKDROP LIBRARY (empty scenes you can use):\n{json.dumps(scenes, ensure_ascii=False)}\n\n"
-        f"SLIDE LAYOUTS (choose one per product):\n{json.dumps(_LAYOUT_GUIDE)}\n"
-        f"Classic templates are also allowed per slide: {list(CLASSIC_LAYOUTS)} — use one only when a scene "
-        f"would not suit that product (e.g. a busy lifestyle photo with its own background).\n\n"
+        f"SLIDE LAYOUTS (choose one per product — these are the ONLY layouts):\n{json.dumps(_LAYOUT_GUIDE)}\n\n"
         "RULES:\n"
         "- Look at each photo: if a model wears it and the photo is cropped → scene_hero; a whole object → "
         "scene_float. Vary layouts so the post isn't monotonous.\n"
@@ -155,7 +153,7 @@ def _user_prompt(products, category, lib, metas, allow_new: bool) -> str:
         "open space in the centre and lower half, real materials and light (e.g. 'warm taupe plaster wall, "
         "pale oak floor, soft window light from the left'). 25-60 words.\n"
         f"- palette: one of {list(PALETTES)} matching the scene (text/panel colours).\n"
-        "- cover.layout: scene_flatlay when 2-4 products work as an outfit/set, else classic.\n"
+        "- The cover is always an outfit flat-lay of 2-4 of the products on the same scene.\n"
         "- chip: a short top headline, ≤ 34 chars, e.g. 'Comment “LINK” for this look' (fashion) or "
         "'Comment “LINK” for this find'.\n"
         "- concept: ≤ 6 words naming the post's mood.\n\n"
@@ -209,6 +207,8 @@ def _validate(raw: Dict[str, Any], base: Dict[str, Any], products, lib, allow_ne
     chip = str(raw.get("chip") or "").strip()
     if 6 <= len(chip) <= 40:
         plan["chip"] = chip
+    if _is_fashion("", products) and "look" not in plan["chip"].lower():
+        plan["chip"] = re.sub(r"(?i)\bfind\b", "look", plan["chip"])   # fashion posts sell a LOOK
     plan["concept"] = str(raw.get("concept") or "")[:60]
     for s in raw.get("slides") or []:
         try:
@@ -216,7 +216,7 @@ def _validate(raw: Dict[str, Any], base: Dict[str, Any], products, lib, allow_ne
         except Exception:
             continue
         lay = s.get("layout")
-        if 0 <= i < len(plan["slides"]) and lay in SCENE_LAYOUTS + CLASSIC_LAYOUTS:
+        if 0 <= i < len(plan["slides"]) and lay in SCENE_LAYOUTS:
             plan["slides"][i] = {"layout": lay, "why": str(s.get("why") or "")[:80]}
     return plan
 
