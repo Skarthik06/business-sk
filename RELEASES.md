@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.4.3** (2026-09-26) — Last slide = Follow → Comment → DM process (no swipe); SK watermark on every slide
 - **v2.4.2** (2026-09-26) — Docs: complete README + Master document; release process keeps docs current
 - **v2.4.1** (2026-09-26) — One public reply + one DM per comment, ever (Redis claim)
 - **v2.4.0** (2026-09-26) — 15 slash-command style presets (always applied, rotating); GPU heartbeat + one scene per poll, faster paints

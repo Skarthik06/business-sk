@@ -6,7 +6,7 @@
 
 | | |
 |---|---|
-| **Current stable version** | **v2.4.2** (production runs this tag; recorded in `~/business-sk/.deployed_version`) |
+| **Current stable version** | **v2.4.3** (production runs this tag; recorded in `~/business-sk/.deployed_version`) |
 | **Built on** | Python 3.12 (server) / 3.14 (Windows workers) · FastAPI · LangGraph/LangChain · OpenAI `gpt-5-nano` · PostgreSQL 18 + pgvector · Redis 7 · React 19 + Vite 7 + Tailwind 4 · Playwright/Chromium · PyTorch 2.11 (CUDA 12.8) · Z-Image-Turbo · BiRefNet · YuNet · Docker Compose · Caddy |
 | **Runs on** | Oracle Cloud ARM server (24/7) + the owner's Windows laptop (RTX 5050 GPU worker + residential scrape worker) |
 | **Instagram account** | `@lostinframes0605.exe` (profile name "Aura Picks") |
