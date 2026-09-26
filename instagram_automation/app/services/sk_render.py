@@ -1361,16 +1361,16 @@ def _scene_rating(p: Dict[str, Any]) -> str:
     return f'<span class="srate"><b>★</b> {r:g}{f" · {revs} ratings" if revs else ""}</span>'
 
 
-def _scene_eyebrow(p: Dict[str, Any], kick: str) -> str:
+def _scene_eyebrow(p: Dict[str, Any], kick: str, num: int = 0) -> str:
     brand = str(p.get("brand") or "").strip()[:24]
-    bits = [_store_label(p)] + ([brand] if brand and brand.lower() not in _store_label(p).lower() else []) + \
+    bits = ([f"{num:02d}"] if num else []) + [_store_label(p)] + ([brand] if brand and brand.lower() not in _store_label(p).lower() else []) + \
            ([kick] if kick and kick.lower() not in ("the edit", "picks") else [])
-    return " · ".join(_esc(b) for b in bits[:3])
+    return " · ".join(_esc(b) for b in bits[:4 if num else 3])
 
 
-def _scene_panel(p: Dict[str, Any], P: Dict[str, str], kick: str) -> str:
+def _scene_panel(p: Dict[str, Any], P: Dict[str, str], kick: str, num: int = 0) -> str:
     return f"""<div class="spanel">
-      <div class="seye">{_scene_eyebrow(p, kick)}</div>
+      <div class="seye">{_scene_eyebrow(p, kick, num)}</div>
       <div class="sname">{_esc(_clean_title(p, limit=80))}</div>
       {_scene_price_row(p)}
       <div class="sfoot">{_scene_rating(p)}<span class="scta">Follow + comment LINK → DM</span></div>
@@ -1382,34 +1382,34 @@ def _scene_page(P, bg: str, inner: str, handle: str, dark: bool) -> str:
     return _page2(P, body, foot_right="SWIPE →", handle=handle)
 
 
-def _scene_hero(p, cut, bg, P, handle, chip, kick, dark=False):
+def _scene_hero(p, cut, bg, P, handle, chip, kick, dark=False, num=0):
     """A MODEL wearing the item stands in the scene; the panel overlaps the photo's cropped edge."""
     inner = f"""<div class="scol">
       <div class="schip">{_esc(chip)}</div>
       <div class="sstage shero" style="align-items:flex-end;margin-bottom:-120px;margin-top:10px"><img src="{cut}"></div>
-      {_scene_panel(p, P, kick)}
+      {_scene_panel(p, P, kick, num)}
     </div>"""
     return _scene_page(P, bg, inner, handle, dark)
 
 
-def _scene_float(p, cut, bg, P, handle, chip, kick, dark=False):
+def _scene_float(p, cut, bg, P, handle, chip, kick, dark=False, num=0):
     """A WHOLE object floats, fully visible, centred in the scene with a soft shadow beneath."""
     inner = f"""<div class="scol">
       <div class="schip">{_esc(chip)}</div>
       <div class="sstage sfloat" style="align-items:center;margin:18px 0 26px"><img src="{cut}"></div>
-      {_scene_panel(p, P, kick)}
+      {_scene_panel(p, P, kick, num)}
     </div>"""
     return _scene_page(P, bg, inner, handle, dark)
 
 
-def _scene_split(p, cut, bg, P, handle, chip, kick, dark=False):
+def _scene_split(p, cut, bg, P, handle, chip, kick, dark=False, num=0):
     """Editorial split: the product in the scene on the left, the details in a tall card on the right."""
     inner = f"""<div class="scol">
       <div class="schip">{_esc(chip)}</div>
       <div style="flex:1 1 auto;min-height:0;display:flex;gap:26px;margin-top:22px">
         <div class="sstage sfloat" style="flex:0 0 55%;align-items:center"><img src="{cut}" style="width:100%;height:96%"></div>
         <div class="spanel" style="flex:1;justify-content:center;gap:18px;padding:34px 30px">
-          <div class="seye">{_scene_eyebrow(p, kick)}</div>
+          <div class="seye">{_scene_eyebrow(p, kick, num)}</div>
           <div class="sname" style="font-size:44px;-webkit-line-clamp:4">{_esc(_clean_title(p, limit=80))}</div>
           <div style="display:flex;flex-direction:column;gap:10px">{_scene_price_row(p).replace('class="sprow"', 'class="sprow" style="flex-direction:column;align-items:flex-start;gap:10px"')}</div>
           {_scene_rating(p)}
@@ -1420,29 +1420,67 @@ def _scene_split(p, cut, bg, P, handle, chip, kick, dark=False):
     return _scene_page(P, bg, inner, handle, dark)
 
 
-def _scene_flatlay(products, cuts, bg, P, handle, *, title, subtitle, chip, dark=False):
-    """COVER: 2-4 real product cut-outs laid out together on the scene, each with a small
-    name + price tag (the outfit-grid look). Layout slots adapt to the count."""
-    n = min(len(products), 4)
-    slots = {1: [(14, 4, 72, 92)],
-             2: [(1, 6, 49, 90), (50, 6, 49, 90)],
-             3: [(1, 2, 49, 50), (50, 2, 49, 50), (25, 51, 50, 48)],
-             4: [(1, 1, 49, 49), (50, 1, 49, 49), (1, 51, 49, 48), (50, 51, 49, 48)]}[max(1, n)]
+# Collage tiles (x, y, w, h in % of the collage area) — deliberately MIXED aspect ratios
+# (tall / wide / square), asymmetric like a magazine mood board. Area ≈ 968 × 760 px.
+_COLLAGE = {
+    1: [(8, 0, 84, 100)],
+    2: [(0, 0, 57, 100), (59, 14, 41, 72)],
+    3: [(0, 0, 56, 100), (58, 0, 42, 55), (58, 57, 42, 43)],
+    4: [(0, 0, 54, 63), (0, 65, 54, 35), (56, 0, 44, 41), (56, 43, 44, 57)],
+    5: [(0, 0, 47, 60), (0, 62, 47, 38), (49, 0, 51, 35), (49, 37, 25, 63), (76, 37, 24, 63)],
+    6: [(0, 0, 39, 52), (0, 54, 39, 46), (41, 0, 59, 36), (41, 38, 28, 62), (71, 38, 29, 30), (71, 70, 29, 30)],
+}
+
+
+def _scene_flatlay(products, cuts, bg, P, handle, *, title, subtitle, chip, dark=False, nums=None):
+    """COVER — a COLLAGE of the real product cut-outs in frosted tiles of MIXED aspect ratios.
+    No names and no prices (the hook is the look; details live on the product slides). Tall tiles
+    get model shots / tall items, wide tiles get wide items (measured cut-out aspect). Each tile is
+    numbered like its product slide, and a bold swipe bar closes the cover — built to make people swipe."""
+    n = max(1, min(len(products), 6))
+    tiles = _COLLAGE[n]
+    aw, ah = 968.0, 760.0
+
+    def p_aspect(p):
+        m = _cut_meta(p) or {}
+        try:
+            return float(m.get("aspect") or 0.8)
+        except (TypeError, ValueError):
+            return 0.8
+
+    order_t = sorted(range(n), key=lambda k: (tiles[k][2] * aw) / (tiles[k][3] * ah))
+    order_p = sorted(range(n), key=lambda k: p_aspect(products[k]))
+    pair = dict(zip(order_t, order_p))                      # narrowest tile ← narrowest product
+    glass = "rgba(20,22,26,.30)" if dark else "rgba(255,255,255,.30)"
+    edge = "rgba(255,255,255,.18)" if dark else "rgba(255,255,255,.55)"
     items = []
-    for (x, y, w, h), p, c in zip(slots, products[:n], cuts[:n]):
-        price = _money(p.get("price"))
-        tag = (f'<div class="stag" style="left:{x + 1}%;top:calc({y + h}% - 64px)"><span>{_esc(_clean_title(p, limit=20))}</span>'
-               f'{f"<b>{price}</b>" if price else ""}</div>')
-        items.append(f'<div style="position:absolute;left:{x}%;top:{y}%;width:{w}%;height:{h}%;display:flex;'
-                     f'align-items:center;justify-content:center"><img src="{c}" style="width:100%;height:100%;'
-                     f'object-fit:contain;filter:drop-shadow(0 24px 22px rgba(18,12,6,.30))"></div>{tag}')
+    for k, (x, y, w, h) in enumerate(tiles):
+        j = pair[k]
+        p, c = products[j], cuts[j]
+        person = (_cut_meta(p) or {}).get("subject") == "person"
+        num = (nums[j] if nums and j < len(nums) else j + 1)
+        img_css = ("position:absolute;left:5%;right:5%;top:7%;bottom:0;width:90%;height:93%;object-fit:contain;"
+                   "object-position:center bottom" if person else
+                   "position:absolute;left:7%;top:7%;width:86%;height:86%;object-fit:contain")
+        items.append(
+            f'<div style="position:absolute;left:calc({x}% + 0px);top:{y}%;width:{w}%;height:{h}%;border-radius:24px;'
+            f'overflow:hidden;background:{glass};border:1.5px solid {edge};backdrop-filter:blur(12px) saturate(1.15);'
+            f'-webkit-backdrop-filter:blur(12px);box-shadow:0 20px 44px rgba(0,0,0,.22)">'
+            f'<img src="{c}" style="{img_css};filter:drop-shadow(0 18px 18px rgba(18,12,6,.30))">'
+            f'<span style="position:absolute;left:14px;top:12px;font-family:{_MONO};font-weight:700;font-size:21px;'
+            f'color:#fff;background:{P["tint"]};padding:4px 11px;border-radius:9px;letter-spacing:.04em">{num:02d}</span>'
+            f'</div>')
+    ink = "#FFFFFFE6" if dark else P["tint"]
     inner = f"""<div class="scol">
       <div class="schip">{_esc(chip)}</div>
-      <div style="text-align:center;margin-top:22px">
-        <div class="stitle">{_multiline(title)}</div>
-        {f'<div class="serif" style="font-size:36px;font-style:italic;margin-top:8px;color:{"#FFFFFFE6" if dark else P["tint"]}">{_esc(subtitle)}</div>' if subtitle else ''}
+      <div style="text-align:center;margin-top:18px">
+        <div class="stitle" style="font-size:80px">{_multiline(title)}</div>
+        {f'<div class="serif" style="font-size:38px;font-style:italic;margin-top:6px;color:{ink}">{_esc(subtitle)}</div>' if subtitle else ''}
       </div>
-      <div style="position:relative;flex:1 1 auto;min-height:0;margin-top:10px">{''.join(items)}</div>
+      <div style="position:relative;flex:1 1 auto;min-height:0;margin-top:22px">{''.join(items)}</div>
+      <div style="align-self:center;margin-top:22px;display:inline-flex;align-items:center;gap:14px;font-family:{_MONO};
+        font-weight:700;font-size:26px;letter-spacing:.14em;text-transform:uppercase;color:#fff;background:{P['tint']};
+        padding:16px 34px;border-radius:100px;box-shadow:0 14px 30px rgba(0,0,0,.22)">Swipe → {n} picks inside</div>
     </div>"""
     return _scene_page(P, bg, inner, handle, dark)
 
@@ -1734,7 +1772,7 @@ _TMPL_LABEL = {"cover": "Teaser cover", "spotlight": "Price-Drop Spotlight",
                "bold": "Statement", "stat": "By-the-Numbers", "minimal": "Minimal Hero",
                "deal_cover": "Deals cover", "deal": "Deal card",
                "scene_hero": "AI Scene · Hero", "scene_float": "AI Scene · Float",
-               "scene_split": "AI Scene · Split", "scene_flatlay": "AI Scene · Outfit flat-lay",
+               "scene_split": "AI Scene · Split", "scene_flatlay": "AI Scene · Collage cover",
                "scene_closer": "AI Scene · Get the links"}
 
 
@@ -1797,6 +1835,12 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
     chip = str((art or {}).get("chip") or "Comment “LINK” for this look")
     dark = bool(art and art.get("palette") == "noir")
 
+    # product number = its slide order ("01", "02"…) — shown on the cover tile AND its slide
+    _slide_no: Dict[int, int] = {}
+    for sp in specs:
+        if sp["tmpl"] in _SCENE_LAYOUTS or sp["tmpl"] in _PROD_TEMPLATES:
+            _slide_no.setdefault(id(sp["products"][0]), len(_slide_no) + 1)
+
     htmls: List[str] = []
     for sp in specs:
         ps = sp["products"]
@@ -1804,11 +1848,13 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
         imgs = [] if t.startswith("scene_") else [prep(p) for p in ps]
         if t in _SCENE_LAYOUTS:
             fn = {"scene_hero": _scene_hero, "scene_float": _scene_float, "scene_split": _scene_split}[t]
-            htmls.append(fn(ps[0], scene["cuts"][_src(ps[0])], scene["bg"], P, handle, chip, sp["kick"], dark))
+            htmls.append(fn(ps[0], scene["cuts"][_src(ps[0])], scene["bg"], P, handle, chip, sp["kick"], dark,
+                            num=_slide_no.get(id(ps[0]), 0)))
         elif t == "scene_flatlay":
             htmls.append(_scene_flatlay(ps, [scene["cuts"][_src(p)] for p in ps], scene["bg"], P, handle,
-                                        title=sp.get("title", ""), subtitle=sp.get("subtitle", ""),
-                                        chip=chip, dark=dark))
+                                        title=_cover_hook(sp.get("title", ""), category, len(products)),
+                                        subtitle=str((art or {}).get("concept") or "").strip(),
+                                        chip=chip, dark=dark, nums=[_slide_no.get(id(p), 0) for p in ps]))
         elif t == "cover":
             cov_products = sp.get("all", ps)                 # ALL products for the collage
             cov_imgs = [prep(p) for p in cov_products]
@@ -1900,6 +1946,16 @@ def _scene_ctx(products: List[Dict[str, Any]], art: Dict[str, Any]) -> Optional[
     return {"key": key, "bg": scene_store.data_uri(bgp, jpeg=True), "cuts": cuts}
 
 
+def _cover_hook(title: str, category: str, n: int) -> str:
+    """The collage cover's headline must never carry a price or % (the cover is price-free)."""
+    t = (title or "").strip()
+    if t and not re.search(r"[₹%]|\bRs\.?\b|\boff\b", t, re.I):
+        return t
+    cat = (category or "Picks").strip().title()
+    pool = [f"The {cat}\nEdit", f"{cat} on\nRepeat", f"{cat} We're\nLoving", f"The {cat}\nShortlist"]
+    return pool[n % len(pool)]
+
+
 def _cut_meta(p: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     try:
         from app.services import scene_store
@@ -1938,7 +1994,7 @@ def _apply_art(specs: List[Dict[str, Any]], products: List[Dict[str, Any]], art:
                 lay = "scene_hero"                         # cropped model → stand on the panel edge
             sp["tmpl"] = lay
         elif t == "cover":
-            ready = [p for p in sp.get("all", sp["products"]) if _src(p) in cuts][:4]
+            ready = [p for p in sp.get("all", sp["products"]) if _src(p) in cuts][:6]
             if len(ready) >= 2:
                 sp["tmpl"] = "scene_flatlay"
                 sp["products"] = ready
