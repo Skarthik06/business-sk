@@ -41,10 +41,16 @@ Studio sends no plan, the server art-directs itself (`_ensure_art`).
 - **scene_float** — a whole object (shoes, bag, watch, bottle, a flat garment): centred, fully visible,
   soft shadow.
 - **scene_split** — product left, editorial details card right (max 1–2 per post, for variety).
-- **cover = scene_flatlay** — 2–4 cut-outs laid out on the scene with small name + price tags.
+- **cover = collage (display only)** — up to 6 real cut-outs in frosted tiles of MIXED aspect ratios
+  (tall / wide / square, asymmetric mood-board). **No names and no prices on the cover** (user rule,
+  2026-09-26): the hook is the look; details live on the product slides. Tall tiles ← model shots /
+  tall items, wide tiles ← wide items (measured aspect). Each tile carries its product's number (01…N),
+  the same number opens that product's slide eyebrow, and a bold "Swipe → N picks inside" bar closes
+  the cover. Headline = AI cover title with a price/% guard; subtitle = the post concept.
 - **closer = scene_closer** — follow → comment LINK → link in bio, on the same scene.
-The **measured** photo type overrides the LLM when they disagree (a flat garment is never a cropped
-hero; a cropped model never floats). A manual per-slide pick in the Studio always wins.
+Measured facts refine the LLM: **model shot = a face is detected** (YuNet, OpenCV model zoo, on the
+laptop; silhouette rule as fallback). A Hero needs a photo cropped at the bottom; a cropped model is
+always a Hero (never floats cut off mid-air). A manual per-slide pick in the Studio always wins.
 
 ## AD5 — One scene per post; the library grows ✓ enforced
 One backdrop for the whole carousel (cohesive feed). The agent picks from the library; when nothing
