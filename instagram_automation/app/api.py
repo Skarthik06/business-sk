@@ -84,7 +84,8 @@ async def admin_gate(request, call_next):
     path = request.url.path
     # Meta webhooks carry no admin auth — they're verified by challenge + signature.
     if (request.method == "OPTIONS" or not path.startswith("/api/")
-            or path in _OPEN_PATHS or path.startswith("/api/webhooks/")):
+            or path in _OPEN_PATHS or path.startswith("/api/webhooks/")
+            or path.startswith("/api/gpu/worker/")):
         return await call_next(request)
     if not _auth.verify(_auth.token_from_header(request.headers.get("authorization"))):
         return JSONResponse(status_code=401,
@@ -240,6 +241,7 @@ class SkCarouselReq(BaseModel):
     palette: str = "warm"              # slide palette id (see sk_render.palette_options())
     cover_tags: list[str] = []         # selection tags for the cover (audience/style/deals/price/rating)
     templates: list[str] = []          # per-product-slide template overrides ("" = keep the AI pick)
+    art: dict | None = None            # AI Art Director plan (/api/sk/art-direct) → AI-scene slides
 
 
 class SkRenderReq(BaseModel):
@@ -252,6 +254,7 @@ class SkRenderReq(BaseModel):
     templates: list[str] = []          # per-product-slide template overrides ("" = keep the AI pick)
     palette: str = "warm"              # slide palette: warm | sky
     cover_tags: list[str] = []         # selection tags for the cover
+    art: dict | None = None            # AI Art Director plan (/api/sk/art-direct) → AI-scene slides
 
 
 def _hi_res(url: str) -> str:
@@ -383,6 +386,7 @@ def sk_carousel(body: SkCarouselReq):
     leftover: list[tuple[dict, str]] = []
     for p in (body.products or []):
         q = dict(p)
+        q["_art_src"] = (q.get("image_url") or q.get("image") or "").strip()
         hi = _hi_res(q.get("image_url") or q.get("image") or "")
         if hi and hi in url_map:
             q["image_url"] = url_map[hi]
@@ -404,7 +408,8 @@ def sk_carousel(body: SkCarouselReq):
                                          theme=body.theme, handle=_at(account.get("handle")),
                                          palette=(getattr(body, "palette", None) or "warm"),
                                          cover_tags=getattr(body, "cover_tags", None) or [],
-                                         templates=getattr(body, "templates", None) or [])
+                                         templates=getattr(body, "templates", None) or [],
+                                         art=getattr(body, "art", None))
             if designed.get("images"):
                 images = designed["images"]        # GitHub-raw URLs of the rendered PNGs
                 design_meta = {"rendered": True, "count": designed["count"], "plan": designed.get("plan")}
@@ -439,7 +444,8 @@ def sk_carousel(body: SkCarouselReq):
 
 def _render_sk_slides(products: list[dict], *, category: str, arc: str, theme: str,
                       handle: str, palette: str = "warm", cover_tags: list[str] | None = None,
-                      templates: list[str] | None = None, track_cover: bool = True) -> dict:
+                      templates: list[str] | None = None, track_cover: bool = True,
+                      art: dict | None = None) -> dict:
     """Render Still Set slides for these products, publish the PNGs to GitHub raw (IG-fetchable),
     and return the raw URLs + plan. Used by /api/sk/carousel (design=True) and the preview."""
     import hashlib
@@ -451,7 +457,7 @@ def _render_sk_slides(products: list[dict], *, category: str, arc: str, theme: s
                                     cdn_prefix="/cdn/sk_slides", slug=slug, arc=arc,
                                     theme=theme, handle=handle, palette=palette,
                                     cover_tags=cover_tags or [], templates=templates or [],
-                                    track_cover=track_cover)
+                                    track_cover=track_cover, art=art)
     if not res.get("rendered") or not res.get("local"):
         return {"images": [], "count": 0, "plan": res.get("plan"), "error": res.get("error")}
     # push the rendered PNGs to GitHub raw so Instagram can fetch them, then wait for the CDN
@@ -515,6 +521,59 @@ def _preview_handle(body) -> str:
     return "@lostinframes0605.exe"
 
 
+# ---- AI Art Director + laptop GPU worker (agent: post-art-director) ----------------------
+class ArtDirectReq(BaseModel):
+    products: list[dict] = []
+    category: str = ""
+
+
+@app.post("/api/sk/art-direct")
+def sk_art_direct(body: ArtDirectReq):
+    """The Art Director looks at the products (photos + details) and plans the post's scene +
+    per-slide layouts. Queues the GPU work (cut-outs, any new scene) on the laptop worker.
+    Pass the returned plan as `art` to /api/sk/render-preview and /api/sk/carousel."""
+    from app.services import art_director
+    if not body.products:
+        raise HTTPException(400, "No products")
+    return {"success": True, "art": art_director.direct(body.products, body.category)}
+
+
+@app.get("/api/sk/scenes")
+def sk_scenes():
+    """Backdrop library (with small thumbnails) + GPU worker/queue status for the Studio panel."""
+    from app.services import scene_store
+    return {"success": True, "status": scene_store.status(),
+            "library": [dict(s, thumb=scene_store.thumb(s["key"])) for s in scene_store.library()]}
+
+
+class GpuResultReq(BaseModel):
+    model_config = {"extra": "forbid"}
+    token: str
+    job_id: str
+    b64: str
+    meta: dict | None = None
+
+
+@app.get("/api/gpu/worker/jobs")
+def gpu_worker_jobs(token: str = "", n: int = 4, gpu: str = "", ver: str = ""):
+    """Laptop GPU worker poll (token-authenticated; bypasses the admin gate)."""
+    from app.services import scene_store
+    if not scene_store.worker_token_ok(token):
+        raise HTTPException(401, "bad worker token")
+    return {"jobs": scene_store.take_jobs(n, {"gpu": gpu, "ver": ver})}
+
+
+@app.post("/api/gpu/worker/result")
+def gpu_worker_result(body: GpuResultReq):
+    from app.services import scene_store
+    if not scene_store.worker_token_ok(body.token):
+        raise HTTPException(401, "bad worker token")
+    res = scene_store.submit(body.job_id, body.b64, body.meta)
+    if not res.get("ok"):
+        raise HTTPException(400, res.get("error", "rejected"))
+    return res
+
+
 @app.post("/api/sk/render-preview")
 def sk_render_preview(body: SkRenderReq):
     """Render the Still Set slides for a set of products and return preview URLs WITHOUT
@@ -531,11 +590,12 @@ def sk_render_preview(body: SkRenderReq):
                                     palette=(getattr(body, "palette", None) or "warm"),
                                     cover_tags=getattr(body, "cover_tags", None) or [],
                                     templates=getattr(body, "templates", None) or [],
-                                    track_cover=False)   # preview: don't consume the cover-uniqueness history
+                                    track_cover=False,   # preview: don't consume the cover-uniqueness history
+                                    art=getattr(body, "art", None))
     if not res.get("rendered"):
         raise HTTPException(500, f"Render failed: {res.get('error')}")
     return {"success": True, "images": res["images"], "count": res["count"],
-            "plan": res.get("plan"), "isolated": res.get("isolated")}
+            "plan": res.get("plan"), "isolated": res.get("isolated"), "art": res.get("art")}
 
 
 class SkStoryReq(BaseModel):

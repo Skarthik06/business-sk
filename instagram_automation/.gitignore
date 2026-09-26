@@ -44,3 +44,6 @@ data-business/
 
 # generated carousel renders (real ones are hosted via API at publish)
 images/sk_slides/
+
+# AI-scene assets (backdrops + product cut-outs from the laptop GPU worker)
+images/sk_scenes/

@@ -1294,8 +1294,161 @@ def _closer2(P, handle):
     return _page2(P, inner, foot_right="FOLLOW + COMMENT → DM", handle=handle)
 
 
+# ── AI-SCENE layouts (agent: post-art-director) ─────────────────────────────────────────────
+# The backdrop is an EMPTY scene painted by Z-Image-Turbo on the laptop GPU; the product is the
+# REAL photo cut out by BiRefNet (original pixels, alpha only) and placed on top. CSS only scales
+# it and adds a shadow — the product itself is never altered (ST2).
+_SCENE_LAYOUTS = ("scene_hero", "scene_float", "scene_split")
+_STORE_LABELS = {"amazon": "Amazon", "flipkart": "Flipkart", "shopsy": "Shopsy", "myntra": "Myntra",
+                 "ajio": "AJIO", "boat": "boAt", "noise": "Noise", "snitch": "Snitch", "cuelinks": "Online"}
+
+
+def _store_label(p: Dict[str, Any]) -> str:
+    s = str(p.get("store") or p.get("source") or "amazon").strip().lower()
+    return _STORE_LABELS.get(s, s.replace("_", " ").title()[:18] or "Amazon")
+
+
+def _scene_css(P: Dict[str, str], dark: bool) -> str:
+    t = P["tint"]
+    ink = "#FFFFFF" if dark else P["text"]
+    return f"""<style>
+.frame,.corner{{z-index:6}} .foot{{z-index:6;color:{'#FFFFFFD9' if dark else P['muted']}}}
+.scn{{position:absolute;inset:0;z-index:0;background-size:cover;background-position:center}}
+.scol{{position:absolute;inset:66px 56px 104px 56px;z-index:2;display:flex;flex-direction:column}}
+.schip{{align-self:center;font-family:{_MONO};font-weight:700;font-size:23px;letter-spacing:.12em;text-transform:uppercase;
+   color:{P['text']};background:{P['card']};border-radius:100px;padding:12px 28px;box-shadow:0 10px 26px rgba(0,0,0,.14)}}
+.sstage{{flex:1 1 auto;min-height:0;position:relative;display:flex;justify-content:center}}
+.sstage img{{max-width:86%;max-height:100%;object-fit:contain}}
+.shero img{{filter:drop-shadow(16px 22px 26px rgba(18,12,6,.34))}}
+.sfloat img{{max-width:78%;max-height:92%;filter:drop-shadow(0 34px 26px rgba(18,12,6,.30)) drop-shadow(0 8px 10px rgba(18,12,6,.18))}}
+.spanel{{position:relative;z-index:3;background:{P['card']};border-radius:30px;padding:30px 40px 28px;
+   box-shadow:0 22px 50px rgba(0,0,0,.20);display:flex;flex-direction:column;gap:10px}}
+.seye{{font-family:{_MONO};font-size:20px;letter-spacing:.2em;text-transform:uppercase;color:{P['muted']}}}
+.sname{{font-family:{_SERIF};font-size:46px;line-height:1.04;color:{P['text']};display:-webkit-box;-webkit-line-clamp:2;
+   -webkit-box-orient:vertical;overflow:hidden}}
+.sprow{{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-top:4px}}
+.sprice{{font-family:{_SANS};font-weight:800;font-size:72px;letter-spacing:-.02em;line-height:.95;color:{P['text']}}}
+.smrp{{font-family:{_SANS};font-size:34px;font-weight:600;color:{P['muted']};text-decoration:line-through}}
+.soff{{font-family:{_MONO};font-weight:700;font-size:26px;color:#fff;background:{t};padding:8px 16px;border-radius:12px}}
+.sfoot{{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap}}
+.srate{{font-family:{_SANS};font-size:26px;color:{P['muted']}}} .srate b{{color:{t}}}
+.scta{{font-family:{_SANS};font-weight:800;font-size:25px;color:{t}}}
+.stag{{position:absolute;display:flex;flex-direction:column;align-items:flex-start;background:{P['card']};border-radius:14px;
+   padding:9px 16px;box-shadow:0 10px 24px rgba(0,0,0,.16);z-index:4}}
+.stag span{{font-family:{_MONO};font-size:17px;letter-spacing:.08em;text-transform:uppercase;color:{P['muted']};white-space:nowrap}}
+.stag b{{font-family:{_SANS};font-weight:800;font-size:30px;color:{P['text']}}}
+.stitle{{font-family:{_SERIF};font-size:74px;line-height:.95;letter-spacing:-.02em;color:{ink};
+   text-shadow:{'0 2px 18px rgba(0,0,0,.35)' if dark else 'none'}}}
+</style>"""
+
+
+def _scene_price_row(p: Dict[str, Any]) -> str:
+    price = _money(p.get("price")); mrp = _money(p.get("orig_price") or p.get("mrp")); off = _discount_pct(p) or 0
+    row = f'<span class="sprice">{price}</span>' if price else ""
+    if mrp and mrp != price:
+        row += f'<span class="smrp">{mrp}</span>'
+    if off > 0:
+        row += f'<span class="soff">{off}% OFF</span>'
+    return f'<div class="sprow">{row}</div>' if row else ""
+
+
+def _scene_rating(p: Dict[str, Any]) -> str:
+    r = _num(p.get("rating"))
+    if not r or r <= 0:
+        return ""
+    revs = _fmt_count(p.get("reviews"))
+    revs = revs if revs and revs not in ("0",) else ""
+    return f'<span class="srate"><b>★</b> {r:g}{f" · {revs} ratings" if revs else ""}</span>'
+
+
+def _scene_eyebrow(p: Dict[str, Any], kick: str) -> str:
+    brand = _brand(p)
+    bits = [_store_label(p)] + ([brand] if brand and brand.lower() not in _store_label(p).lower() else []) + \
+           ([kick] if kick and kick.lower() not in ("the edit", "picks") else [])
+    return " · ".join(_esc(b) for b in bits[:3])
+
+
+def _scene_panel(p: Dict[str, Any], P: Dict[str, str], kick: str) -> str:
+    return f"""<div class="spanel">
+      <div class="seye">{_scene_eyebrow(p, kick)}</div>
+      <div class="sname">{_esc(_clean_title(p, limit=80))}</div>
+      {_scene_price_row(p)}
+      <div class="sfoot">{_scene_rating(p)}<span class="scta">Follow + comment LINK → DM</span></div>
+    </div>"""
+
+
+def _scene_page(P, bg: str, inner: str, handle: str, dark: bool) -> str:
+    body = f'<div class="scn" style="background-image:url({bg})"></div>{_scene_css(P, dark)}{inner}'
+    return _page2(P, body, foot_right="SWIPE →", handle=handle)
+
+
+def _scene_hero(p, cut, bg, P, handle, chip, kick, dark=False):
+    """A MODEL wearing the item stands in the scene; the panel overlaps the photo's cropped edge."""
+    inner = f"""<div class="scol">
+      <div class="schip">{_esc(chip)}</div>
+      <div class="sstage shero" style="align-items:flex-end;margin-bottom:-120px;margin-top:10px"><img src="{cut}"></div>
+      {_scene_panel(p, P, kick)}
+    </div>"""
+    return _scene_page(P, bg, inner, handle, dark)
+
+
+def _scene_float(p, cut, bg, P, handle, chip, kick, dark=False):
+    """A WHOLE object floats, fully visible, centred in the scene with a soft shadow beneath."""
+    inner = f"""<div class="scol">
+      <div class="schip">{_esc(chip)}</div>
+      <div class="sstage sfloat" style="align-items:center;margin:18px 0 26px"><img src="{cut}"></div>
+      {_scene_panel(p, P, kick)}
+    </div>"""
+    return _scene_page(P, bg, inner, handle, dark)
+
+
+def _scene_split(p, cut, bg, P, handle, chip, kick, dark=False):
+    """Editorial split: the product in the scene on the left, the details in a tall card on the right."""
+    inner = f"""<div class="scol">
+      <div class="schip">{_esc(chip)}</div>
+      <div style="flex:1 1 auto;min-height:0;display:flex;gap:26px;margin-top:22px">
+        <div class="sstage sfloat" style="flex:0 0 55%;align-items:center"><img src="{cut}" style="max-width:100%;max-height:96%"></div>
+        <div class="spanel" style="flex:1;justify-content:center;gap:18px;padding:34px 30px">
+          <div class="seye">{_scene_eyebrow(p, kick)}</div>
+          <div class="sname" style="font-size:44px;-webkit-line-clamp:4">{_esc(_clean_title(p, limit=80))}</div>
+          <div style="display:flex;flex-direction:column;gap:10px">{_scene_price_row(p).replace('class="sprow"', 'class="sprow" style="flex-direction:column;align-items:flex-start;gap:10px"')}</div>
+          {_scene_rating(p)}
+          <span class="scta" style="font-size:23px">Follow + comment LINK → DM</span>
+        </div>
+      </div>
+    </div>"""
+    return _scene_page(P, bg, inner, handle, dark)
+
+
+def _scene_flatlay(products, cuts, bg, P, handle, *, title, subtitle, chip, dark=False):
+    """COVER: 2-4 real product cut-outs laid out together on the scene, each with a small
+    name + price tag (the outfit-grid look). Layout slots adapt to the count."""
+    n = min(len(products), 4)
+    slots = {1: [(22, 30, 56, 58)],
+             2: [(6, 26, 50, 62), (46, 32, 50, 62)],
+             3: [(4, 22, 46, 46), (50, 20, 46, 46), (27, 55, 46, 42)],
+             4: [(4, 20, 45, 38), (51, 20, 45, 38), (4, 58, 45, 36), (51, 58, 45, 36)]}[max(1, n)]
+    items = []
+    for (x, y, w, h), p, c in zip(slots, products[:n], cuts[:n]):
+        price = _money(p.get("price"))
+        tag = (f'<div class="stag" style="left:{x + 1}%;top:calc({y + h}% - 64px)"><span>{_esc(_clean_title(p, limit=20))}</span>'
+               f'{f"<b>{price}</b>" if price else ""}</div>')
+        items.append(f'<div style="position:absolute;left:{x}%;top:{y}%;width:{w}%;height:{h}%;display:flex;'
+                     f'align-items:center;justify-content:center"><img src="{c}" style="max-width:100%;max-height:100%;'
+                     f'object-fit:contain;filter:drop-shadow(0 24px 22px rgba(18,12,6,.30))"></div>{tag}')
+    inner = f"""<div class="scol">
+      <div class="schip">{_esc(chip)}</div>
+      <div style="text-align:center;margin-top:22px">
+        <div class="stitle">{_multiline(title)}</div>
+        {f'<div class="serif" style="font-size:36px;font-style:italic;margin-top:8px;color:{"#FFFFFFE6" if dark else P["tint"]}">{_esc(subtitle)}</div>' if subtitle else ''}
+      </div>
+      <div style="position:relative;flex:1 1 auto;min-height:0;margin-top:10px">{''.join(items)}</div>
+    </div>"""
+    return _scene_page(P, bg, inner, handle, dark)
+
+
 # The Instagram-worthy per-product templates the renderer agent chooses between.
-_PROD_TEMPLATES = ("spotlight", "savings", "proof", "feature", "editorial", "lookbook", "bold", "stat", "minimal")
+_PROD_TEMPLATES =("spotlight", "savings", "proof", "feature", "editorial", "lookbook", "bold", "stat", "minimal")
 
 
 # Human-facing details for the template picker. `best_for` explains WHEN the agent favours it,
@@ -1552,14 +1705,17 @@ _TMPL_LABEL = {"cover": "Teaser cover", "spotlight": "Price-Drop Spotlight",
                "savings": "Savings Hero", "editorial": "Editorial Hero", "proof": "Social-Proof",
                "feature": "Why-We-Love-It", "lookbook": "Lookbook", "closer": "Shop-the-set CTA",
                "bold": "Statement", "stat": "By-the-Numbers", "minimal": "Minimal Hero",
-               "deal_cover": "Deals cover", "deal": "Deal card"}
+               "deal_cover": "Deals cover", "deal": "Deal card",
+               "scene_hero": "AI Scene · Hero", "scene_float": "AI Scene · Float",
+               "scene_split": "AI Scene · Split", "scene_flatlay": "AI Scene · Outfit flat-lay"}
 
 
 def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_dir: Path,
                     cdn_prefix: str, slug: str, arc: str = "auto", handle: str = "@lostinframes0605.exe",
                     theme: str = "", isolate: bool = True, palette: str = "warm",
                     track_cover: bool = True, cover_tags: Optional[List[str]] = None,
-                    templates: Optional[List[str]] = None) -> Dict[str, Any]:
+                    templates: Optional[List[str]] = None,
+                    art: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Full pipeline (Template System v2): plan a carousel-first sequence → prep each
     product image (staged, product-true) → render designed PNGs in the chosen palette
     (warm | sky). Returns cdn urls + local paths + the plan (with human labels).
@@ -1581,6 +1737,15 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
         if track_cover:
             _remember_cover(out_dir, uniq)
 
+    # AI Art Director (agent post-art-director): scene backdrop + real cut-outs from the laptop GPU.
+    scene = _scene_ctx(products, art) if art else None
+    if art:
+        if art.get("palette") in _PALETTES:
+            P = _palette(art["palette"], category)
+        _apply_art(specs, products, art, scene, templates)
+    chip = str((art or {}).get("chip") or "Comment “LINK” for this look")
+    dark = bool(art and art.get("palette") == "noir")
+
     # prep every unique product image once (data URIs), reused across slides
     img_cache: Dict[str, str] = {}
 
@@ -1595,9 +1760,16 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
     htmls: List[str] = []
     for sp in specs:
         ps = sp["products"]
-        imgs = [prep(p) for p in ps]
         t = sp["tmpl"]
-        if t == "cover":
+        imgs = [] if t.startswith("scene_") else [prep(p) for p in ps]
+        if t in _SCENE_LAYOUTS:
+            fn = {"scene_hero": _scene_hero, "scene_float": _scene_float, "scene_split": _scene_split}[t]
+            htmls.append(fn(ps[0], scene["cuts"][_src(ps[0])], scene["bg"], P, handle, chip, sp["kick"], dark))
+        elif t == "scene_flatlay":
+            htmls.append(_scene_flatlay(ps, [scene["cuts"][_src(p)] for p in ps], scene["bg"], P, handle,
+                                        title=sp.get("title", ""), subtitle=sp.get("subtitle", ""),
+                                        chip=chip, dark=dark))
+        elif t == "cover":
             cov_products = sp.get("all", ps)                 # ALL products for the collage
             cov_imgs = [prep(p) for p in cov_products]
             htmls.append(_cover2(cov_products, cov_imgs, P,
@@ -1645,4 +1817,60 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
                       for s in specs]
     result["palette"] = P["name"]
     result["isolated"] = isolate and _REMBG_SESSION is not None
+    if art:
+        result["art"] = {"concept": art.get("concept", ""), "scene": (scene or {}).get("key"),
+                         "scene_ready": bool(scene), "cutouts_ready": len((scene or {}).get("cuts") or {}),
+                         "source": art.get("source"), "chip": chip}
     return result
+
+
+def _src(p: Dict[str, Any]) -> str:
+    """The ORIGINAL photo URL (cut-outs are keyed by it; the carousel re-hosts image_url later)."""
+    return (p.get("_art_src") or p.get("image_url") or p.get("image") or "").strip()
+
+
+def _scene_ctx(products: List[Dict[str, Any]], art: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Load the art director's scene backdrop + the real product cut-outs (waiting a bounded
+    ART_WAIT_SECS for the laptop GPU when it's online). None → classic fallbacks everywhere."""
+    try:
+        from app.services import scene_store
+    except Exception:
+        return None
+    key = str(((art or {}).get("scene") or {}).get("use") or "")
+    urls = [_src(p) for p in products if _src(p)]
+    try:
+        wait = float(os.getenv("ART_WAIT_SECS", "20"))
+    except ValueError:
+        wait = 20.0
+    scene_store.wait_for(urls, [key] if key else [], wait)
+    bgp = scene_store.backdrop_path(key) if key else None
+    if not bgp:
+        return None
+    cuts = {u: scene_store.data_uri(scene_store.cutout_path(u)) for u in urls if scene_store.cutout_path(u)}
+    return {"key": key, "bg": scene_store.data_uri(bgp, jpeg=True), "cuts": cuts}
+
+
+def _apply_art(specs: List[Dict[str, Any]], products: List[Dict[str, Any]], art: Dict[str, Any],
+               scene: Optional[Dict[str, Any]], templates: Optional[List[str]]) -> None:
+    """Swap the planned templates for the art director's layouts. A manual template choice always
+    wins; a scene layout whose assets aren't ready falls back to its classic twin (never blocks)."""
+    fallback = {"scene_hero": "lookbook", "scene_float": "spotlight", "scene_split": "feature"}
+    lays = [str((s or {}).get("layout") or "") for s in (art.get("slides") or [])]
+    cuts = (scene or {}).get("cuts") or {}
+    for sp in specs:
+        t = sp["tmpl"]
+        if t in _PROD_TEMPLATES and sp["products"]:
+            p = sp["products"][0]
+            i = next((k for k, q in enumerate(products) if q is p), -1)
+            if templates and 0 <= i < len(templates) and templates[i] in _PROD_TEMPLATES:
+                continue                                   # manual override wins
+            lay = lays[i] if 0 <= i < len(lays) else ""
+            if lay in _SCENE_LAYOUTS:
+                sp["tmpl"] = lay if (scene and _src(p) in cuts) else fallback[lay]
+            elif lay in _PROD_TEMPLATES:
+                sp["tmpl"] = lay
+        elif t == "cover" and scene and (art.get("cover") or {}).get("layout") == "scene_flatlay":
+            ready = [p for p in sp.get("all", sp["products"]) if _src(p) in cuts][:4]
+            if len(ready) >= 2:
+                sp["tmpl"] = "scene_flatlay"
+                sp["products"] = ready
