@@ -76,6 +76,33 @@ def delete_automation(account_id: int, rule_id: int):
     return {"id": rule_id, "deleted": True}
 
 
+class PruneReq(BaseModel):
+    model_config = {"extra": "forbid"}
+    account_id: int
+    dry_run: bool = True
+    confirm: str = ""                          # must be "PRUNE" when dry_run is False
+
+
+@router.post("/prune-to-live")
+def prune_to_live(body: PruneReq):
+    """Keep ONLY what belongs to posts still live on Instagram: removes automations, runs,
+    comments, events, DM threads and leads of deleted posts, so every count is real.
+    Dry-run by default. Refuses if Instagram can't be read — never prunes on an API error."""
+    if not body.dry_run and body.confirm != "PRUNE":
+        raise HTTPException(400, 'Set confirm="PRUNE" to delete (or dry_run=true to preview).')
+    account = rags.get_account(body.account_id, with_secret=True) or {}
+    token, ig_id = account.get("ig_access_token"), account.get("ig_business_id")
+    if not (token and ig_id):
+        raise HTTPException(400, "Account has no access token / IG id.")
+    try:
+        live = service.list_media_ids(token, ig_id)
+    except service.GraphError as e:
+        raise HTTPException(502, f"Could not read live posts from Instagram: {e.message}")
+    if not live:
+        raise HTTPException(409, "Instagram returned no live posts — refusing to prune everything.")
+    return store.prune_to_live_posts(body.account_id, live, dry_run=body.dry_run)
+
+
 @router.get("/automations/stats")
 def automations_stats(account_id: int):
     return {"account_id": account_id, "rules": store.rule_stats(account_id)}
@@ -655,6 +682,15 @@ def _sync_one_post(account_id: int, media_id: str, token: str, run_rules: bool,
             "new_comments": new_count, "rules_fired": fired, "insights": insights}
 
 
+def _graph_time(s: Optional[str]):
+    """Parse a Graph timestamp ('2026-09-16T13:45:48+0000'); unparseable → epoch (treated as old)."""
+    from datetime import datetime, timezone
+    try:
+        return datetime.strptime(str(s), "%Y-%m-%dT%H:%M:%S%z")
+    except Exception:
+        return datetime.fromtimestamp(0, timezone.utc)
+
+
 def _sync_dms(account_id: int, token: str, account: Dict[str, Any], warnings: List[str]) -> int:
     """Best-effort pull of DM threads into the inbox (no webhook). Returns new-message count.
     Conversations are read off /me (the Page the token belongs to). Direction is decided
@@ -673,11 +709,14 @@ def _sync_dms(account_id: int, token: str, account: Dict[str, Any], warnings: Li
             warnings.append(f"DMs unavailable: {e.message}")
         return 0
     new_msgs = 0
+    cutoff = store.inbox_cutoff(account_id)          # never re-import DMs removed by a prune
     for cv in convos:
         parts = (cv.get("participants") or {}).get("data") or []
         cust = next((p for p in parts if str(p.get("id")) not in self_ids), (parts[0] if parts else {}))
         user_ref = cust.get("username") or cust.get("id") or "unknown"
         for m in reversed(((cv.get("messages") or {}).get("data") or [])):
+            if cutoff is not None and _graph_time(m.get("created_time")) < cutoff:
+                continue
             mid = m.get("id")
             frm = str((m.get("from") or {}).get("id"))
             direction = "out" if frm in self_ids else "in"

@@ -556,6 +556,79 @@ def affiliate_rule_for_post(account_id: int, ig_media_id: str) -> Optional[int]:
         return int(row["id"]) if row else None
 
 
+def prune_to_live_posts(account_id: int, live_media_ids: List[str], *,
+                        dry_run: bool = True) -> Dict[str, Any]:
+    """Drop every engagement row tied to an affiliate post that no longer exists on Instagram:
+    its per-post automation, runs, comments, comment events, DM threads (+messages, leads) and
+    the post itself. DM events / account-wide threads older than the oldest LIVE post go too.
+    Real-estate posts (source<>'affiliate') and account-wide rules are never touched.
+    dry_run=True only counts. Leaves a PRUNE row in eng_audit — its time is the inbox cutoff."""
+    keep = [str(m) for m in live_media_ids if m]
+    with connect() as c:
+        cur = c.cursor()
+        cur.execute("""SELECT ig_media_id, published_at FROM eng_posts
+                       WHERE social_account_id=? AND source='affiliate'""", (account_id,))
+        rows = [dict(r) for r in cur.fetchall()]
+        gone = [r["ig_media_id"] for r in rows if str(r["ig_media_id"]) not in keep]
+        live_times = [r["published_at"] for r in rows if str(r["ig_media_id"]) in keep and r["published_at"]]
+        since = min(live_times) if live_times else None
+        convs: List[int] = []
+        for m in gone:
+            cur.execute("SELECT id FROM eng_conversations WHERE social_account_id=? AND source_post_id=?",
+                        (account_id, m))
+            convs += [int(r["id"]) for r in cur.fetchall()]
+        if since is not None:                      # account-wide threads that predate the live post
+            cur.execute("""SELECT id FROM eng_conversations WHERE social_account_id=?
+                           AND source_post_id IS NULL AND first_message_at < ?""", (account_id, since))
+            convs += [int(r["id"]) for r in cur.fetchall()]
+        # one statement per id — no empty-array / NULL params reach the driver
+        plan = []
+        for m in gone:
+            plan += [
+                ("automations", "DELETE FROM eng_rules WHERE social_account_id=? AND post_id=?", (account_id, m)),
+                ("runs", "DELETE FROM eng_executions WHERE social_account_id=? AND post_id=?", (account_id, m)),
+                ("comments", "DELETE FROM eng_comments WHERE social_account_id=? AND post_id=?", (account_id, m)),
+                ("comment_events", "DELETE FROM eng_events WHERE social_account_id=? AND post_id=?", (account_id, m)),
+                ("leads", "DELETE FROM eng_leads WHERE social_account_id=? AND source_post_id=?", (account_id, m)),
+            ]
+        if since is not None:
+            plan.append(("dm_events", """DELETE FROM eng_events WHERE social_account_id=? AND post_id IS NULL
+                                         AND received_at < ?""", (account_id, since)))
+        for cid in convs:
+            plan += [
+                ("leads", "DELETE FROM eng_leads WHERE social_account_id=? AND conversation_id=?", (account_id, cid)),
+                ("dm_threads", "DELETE FROM eng_conversations WHERE social_account_id=? AND id=?", (account_id, cid)),
+            ]
+        for m in gone:
+            plan.append(("posts", """DELETE FROM eng_posts WHERE social_account_id=? AND source='affiliate'
+                                     AND ig_media_id=?""", (account_id, m)))
+        counts: Dict[str, int] = {k: 0 for k in ("automations", "runs", "comments", "comment_events",
+                                                 "dm_events", "leads", "dm_threads", "posts")}
+        for name, sql, params in plan:
+            if dry_run:
+                cur.execute("SELECT COUNT(*) AS n FROM " + sql.split("FROM ", 1)[1], params)
+                counts[name] += int(cur.fetchone()["n"])
+            else:
+                cur.execute(sql, params)
+                counts[name] += max(cur.rowcount, 0)
+        if not dry_run:
+            cur.execute("""INSERT INTO eng_audit (workspace_id, social_account_id, action, entity, detail)
+                           VALUES (?,?,'PRUNE','eng_posts',?)""",
+                        (_DEFAULT_WS, account_id, Jsonb({"kept": keep, "removed_posts": gone, "counts": counts})))
+        return {"dry_run": dry_run, "kept_posts": keep, "removed_posts": gone,
+                "dm_threads": convs, "counts": counts}
+
+
+def inbox_cutoff(account_id: int):
+    """Time of the last PRUNE — the inbox pull never re-imports DMs older than this."""
+    with connect() as c:
+        cur = c.cursor()
+        cur.execute("""SELECT MAX(created_at) AS t FROM eng_audit
+                       WHERE social_account_id=? AND action='PRUNE'""", (account_id,))
+        row = cur.fetchone()
+        return row["t"] if row else None
+
+
 # ---- leads (Spec 31) ------------------------------------------------------
 def upsert_lead(account_id: int, conversation_id: Optional[int] = None,
                 source_post_id: Optional[str] = None, username: Optional[str] = None,

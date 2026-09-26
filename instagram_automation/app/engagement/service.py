@@ -247,6 +247,20 @@ def get_self(token: str) -> Dict[str, Any]:
         return {}
 
 
+def list_media_ids(token: str, ig_user_id: str, max_pages: int = 20) -> List[str]:
+    """Every media id currently live on the IG account (follows paging). Raises GraphError."""
+    ids: List[str] = []
+    url, params = f"{GRAPH}/{ig_user_id}/media", {"fields": "id", "limit": 100}
+    for _ in range(max_pages):
+        body = _get(url, token, params)
+        ids += [str(m["id"]) for m in body.get("data", []) if m.get("id")]
+        nxt = ((body.get("paging") or {}).get("cursors") or {}).get("after")
+        if not nxt or not (body.get("paging") or {}).get("next"):
+            break
+        params = {**params, "after": nxt}
+    return ids
+
+
 def get_conversations(token: str, limit: int = 25) -> List[Dict[str, Any]]:
     """Pull recent Instagram DM threads (pull model, no webhook). Needs
     instagram_manage_messages + pages_messaging. IMPORTANT: the conversations edge lives
