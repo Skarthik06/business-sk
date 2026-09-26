@@ -35,7 +35,7 @@ for _d in (CUT, BG):
     _d.mkdir(parents=True, exist_ok=True)
 
 _LOCK = threading.Lock()
-_LEASE_SECS = 240
+_LEASE_SECS = 420                              # > one scene paint (~2-3 min)
 _MAX_UPLOAD = 12 * 1024 * 1024                 # 12 MB per asset
 
 
@@ -210,14 +210,19 @@ def worker_online(max_age: float = 90.0) -> bool:  # file-backed → works acros
     return time.time() - float(_last_poll().get("t") or 0) < max_age
 
 
-def take_jobs(n: int = 4, info: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-    """Worker poll: lease up to n jobs (cutouts first — they're fast and block renders)."""
+def take_jobs(n: int = 4, info: Optional[Dict[str, Any]] = None, heartbeat: bool = False) -> List[Dict[str, Any]]:
+    """Worker poll: lease up to n jobs (cutouts first — they're fast and block renders) but AT MOST
+    ONE scene per poll (a scene takes ~2 min; batching scenes kept the worker silent for 10 min).
+    heartbeat=True only records that the (busy) worker is alive — no jobs are leased."""
     now = time.time()
     try:
         _POLL_FILE.write_text(json.dumps({"t": now, "info": {k: str(v)[:60] for k, v in (info or {}).items()}}), "utf-8")
     except Exception:
         pass
     out: List[Dict[str, Any]] = []
+    if heartbeat:
+        return out
+    scenes_taken = 0
     with _LOCK:
         # cut-outs first (fast, oldest first); scenes NEWEST first — the latest art direction is the
         # one a preview is waiting on (older re-directs shouldn't block it)
@@ -227,6 +232,10 @@ def take_jobs(n: int = 4, info: Optional[Dict[str, Any]] = None) -> List[Dict[st
                 break
             if j.get("lease") and now - j["lease"] < _LEASE_SECS:
                 continue
+            if j.get("type") == "scene":
+                if scenes_taken:
+                    continue
+                scenes_taken += 1
             j["tries"] = int(j.get("tries") or 0) + 1
             if j["tries"] > 3:                       # permanently failing (dead image link…) → drop
                 (_jpath(j["id"]) or Path("/nonexistent")).unlink(missing_ok=True)

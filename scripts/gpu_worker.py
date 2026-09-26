@@ -22,7 +22,7 @@ import traceback
 import urllib.request
 
 API = os.getenv("SK_API", "https://140-238-247-18.nip.io").rstrip("/")
-VER = "1.0"
+VER = "1.1"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0 Safari/537.36")
 IDLE_UNLOAD = int(os.getenv("GPU_IDLE_UNLOAD_SECS", "1800"))
@@ -212,6 +212,19 @@ def main() -> None:
     M = Models()
     M.birefnet()                                   # fast (~1 GB) — keep warm for cut-outs
     log(f"GPU worker {VER} online · {M.gpu} · {API}")
+    # heartbeat while busy: a scene paint takes ~2 min; tell the server we're alive every 20 s
+    import threading
+    busy = {"on": False}
+
+    def _beat():
+        while True:
+            time.sleep(20)
+            if busy["on"]:
+                try:
+                    _get_json(f"{API}/api/gpu/worker/jobs?token={tok}&hb=1&gpu={urllib.request.quote(M.gpu)}&ver={VER}", timeout=15)
+                except Exception:
+                    pass
+    threading.Thread(target=_beat, daemon=True).start()
     idle = 0
     while True:
         try:
@@ -227,6 +240,7 @@ def main() -> None:
             time.sleep(3 if idle < 20 else 8)
             continue
         idle = 0
+        busy["on"] = True
         for job in jobs:
             t = time.time()
             try:
@@ -238,6 +252,7 @@ def main() -> None:
                 log(f"{job['type']} {job['id']} FAILED: {str(e)[:200]}")
                 if "CUDA" in str(e):
                     log(traceback.format_exc()[-600:])
+        busy["on"] = False
 
 
 if __name__ == "__main__":

@@ -570,12 +570,12 @@ class GpuResultReq(BaseModel):
 
 
 @app.get("/api/gpu/worker/jobs")
-def gpu_worker_jobs(token: str = "", n: int = 4, gpu: str = "", ver: str = ""):
-    """Laptop GPU worker poll (token-authenticated; bypasses the admin gate)."""
+def gpu_worker_jobs(token: str = "", n: int = 4, gpu: str = "", ver: str = "", hb: int = 0):
+    """Laptop GPU worker poll (token-authenticated; bypasses the admin gate). hb=1 = heartbeat only."""
     from app.services import scene_store
     if not scene_store.worker_token_ok(token):
         raise HTTPException(401, "bad worker token")
-    return {"jobs": scene_store.take_jobs(n, {"gpu": gpu, "ver": ver})}
+    return {"jobs": scene_store.take_jobs(n, {"gpu": gpu, "ver": ver}, heartbeat=bool(hb))}
 
 
 @app.post("/api/gpu/worker/result")
