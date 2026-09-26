@@ -94,6 +94,18 @@ Knobs: `LLM_PRICE_IN_PER_M` 0.05 · `LLM_PRICE_CACHED_PER_M` 0.005 · `LLM_PRICE
 `USD_INR` 88 · `ART_REASONING_EFFORT` minimal · `ART_IMG_PX` 320. Default look is `ai` (the agent decides
 per post; a palette used by the last 2 posts is excluded for variety; `recent_looks.json`).
 
+## AD11 — Slash-command style presets (always applied) ✓ enforced
+15 presets live in the STYLE PRESETS table of [[scene-prompt]] (`/premium /vintage /minimal /streetwear
+/cinematic /golden-hour /studio /cozy /coastal /scandi /industrial /botanical /tech /y2k /editorial`), each
+with its scene phrases, best-for and compatible palettes. The agent picks 2–3 per post (`ART_PRESETS_PER_POST`)
+that fit its product analysis, rotating away from recently used ones; the Studio "Style commands" box
+forces presets (they restrict the palette to compatible rows and MUST shape the scene fields). No
+excuses: presets are auto-filled if the LLM returns too few, clashing ones are dropped, the preset
+phrases are always appended to the final prompt, and even with no LLM answer the code synthesises a
+preset-built scene from the palette row. GPU: one scene per poll + a 20 s heartbeat while painting;
+BiRefNet is parked on the CPU during a paint (~75 s paint, was ~150 s); scenes are painted newest-first;
+the stand-in scene while painting is from the same palette; renders wait ≤ `ART_SCENE_WAIT_SECS` (240).
+
 ---
 
 ## Tunable knobs (env, IG backend)
