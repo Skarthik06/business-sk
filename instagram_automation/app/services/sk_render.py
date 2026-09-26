@@ -1913,6 +1913,7 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
         result["art"] = {"concept": art.get("concept", ""), "scene": (scene or {}).get("key"),
                          "analysis": art.get("analysis") or [], "scene_prompt": _new.get("prompt", ""),
                          "own_scene": bool(_new) and (scene or {}).get("key") == _new.get("key"),
+                         "usage": art.get("usage") or {},
                          "scene_ready": bool(scene), "cutouts_ready": len((scene or {}).get("cuts") or {}),
                          "source": art.get("source"), "chip": chip}
     return result

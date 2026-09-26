@@ -607,7 +607,32 @@ def sk_render_preview(body: SkRenderReq):
     if not res.get("rendered"):
         raise HTTPException(500, f"Render failed: {res.get('error')}")
     return {"success": True, "images": res["images"], "count": res["count"],
-            "plan": res.get("plan"), "isolated": res.get("isolated"), "art": res.get("art")}
+            "plan": res.get("plan"), "isolated": res.get("isolated"), "art": res.get("art"),
+            "cost": _post_cost(body.products, res.get("art"))}
+
+
+def _post_cost(products: list[dict], art: dict | None) -> dict:
+    """Every LLM token this post cost, priced: the caption writer (the product generator's ONE
+    compose call, shared by all products) + the Art Director. USD + INR (knobs in art_director)."""
+    from app.services import art_director as _ad
+    lines = []
+    ct = next((p.get("content_tokens") for p in (products or []) if isinstance(p.get("content_tokens"), dict)), None)
+    if ct and (ct.get("input") or ct.get("output")):
+        usd = _ad.price_usd(int(ct.get("input") or 0), 0, int(ct.get("output") or 0))
+        lines.append({"step": "Caption writer", "input": int(ct.get("input") or 0), "cached": 0,
+                      "output": int(ct.get("output") or 0), "reasoning": None, "usd": round(usd, 6)})
+    u = (art or {}).get("usage") or {}
+    if u.get("total"):
+        lines.append({"step": "Art Director", "input": u.get("input"), "cached": u.get("cached"),
+                      "output": u.get("output"), "reasoning": u.get("reasoning"), "usd": u.get("usd")})
+    import os as _o
+    rate = float(_o.getenv("USD_INR", "88"))
+    total = round(sum(float(x["usd"] or 0) for x in lines), 6)
+    for x in lines:
+        x["inr"] = round(float(x["usd"] or 0) * rate, 4)
+    return {"model": (u.get("model") or ""), "lines": lines,
+            "tokens": sum(int(x["input"] or 0) + int(x["output"] or 0) for x in lines),
+            "usd": total, "inr": round(total * rate, 4)}
 
 
 class SkStoryReq(BaseModel):

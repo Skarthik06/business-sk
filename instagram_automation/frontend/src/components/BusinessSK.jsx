@@ -855,6 +855,7 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
   const [designing, setDesigning] = useState(false);
   const [designErr, setDesignErr] = useState('');
   const [artInfo, setArtInfo] = useState(null);      // what the Art Director analysed + the scene prompt it wrote
+  const [cost, setCost] = useState(null);            // every LLM token this post cost, priced
   const [showArt, setShowArt] = useState(false);
   const slides = design && design.length ? design : null;   // "design mode" once slides are rendered
   const total = slides ? slides.length : pins.length;
@@ -874,6 +875,7 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
       const res = await api.skRenderPreview(pins, { category: g.category, art });
       setDesign(res.images || []);
       setArtInfo(res.art || null);
+      setCost(res.cost || null);
       setIdx(0);
     } catch (e) {
       setDesignErr(e?.response?.data?.detail || e?.response?.data?.error?.message || e?.message || 'render failed');
@@ -924,6 +926,11 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
         {slides && <span className="text-xs" style={{ color: 'var(--faint)' }}>Preview = exactly what posts · {total} slides</span>}
         {designErr && <span className="text-xs" style={{ color: '#f85149' }}>{designErr}</span>}
         {artInfo && <button className="btn btn-sm btn-ghost" onClick={() => setShowArt((v) => !v)}>✨ AI direction</button>}
+        {cost && cost.lines?.length > 0 && (
+          <span className="text-xs" style={{ color: 'var(--faint)' }} title="LLM tokens this post used, priced at the model's list rates">
+            {cost.tokens.toLocaleString()} tokens · ${cost.usd.toFixed(4)} · ₹{cost.inr.toFixed(3)}
+          </span>
+        )}
       </div>
       {artInfo && showArt && (
         <div className="text-xs" style={{ padding: '8px 14px', color: 'var(--muted)', lineHeight: 1.5 }}>
@@ -932,6 +939,17 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
             <div key={i}>{String((a.i ?? i) + 1).padStart(2, '0')} · {a.type}{a.colors?.length ? ` · ${a.colors.join('/')}` : ''}{a.material ? ` · ${a.material}` : ''}{a.style ? ` · ${a.style}` : ''}{a.vibe ? ` — ${a.vibe}` : ''}</div>
           ))}
           {artInfo.scene_prompt && <div style={{ marginTop: 4 }}>🎨 Scene prompt: <i>{artInfo.scene_prompt}</i></div>}
+          {cost && cost.lines?.length > 0 && (
+            <div style={{ marginTop: 6 }}>
+              <b>Tokens &amp; cost</b>{cost.model ? ` · ${cost.model}` : ''}
+              {cost.lines.map((x) => (
+                <div key={x.step}>
+                  {x.step}: {Number(x.input).toLocaleString()} in{x.cached ? ` (${Number(x.cached).toLocaleString()} cached)` : ''} · {Number(x.output).toLocaleString()} out{x.reasoning ? ` (${x.reasoning} reasoning)` : ''} — ${Number(x.usd).toFixed(5)} · ₹{Number(x.inr).toFixed(3)}
+                </div>
+              ))}
+              <div><b>Total: {cost.tokens.toLocaleString()} tokens — ${cost.usd.toFixed(5)} · ₹{cost.inr.toFixed(3)}</b></div>
+            </div>
+          )}
         </div>
       )}
 
