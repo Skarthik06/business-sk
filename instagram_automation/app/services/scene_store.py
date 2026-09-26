@@ -219,7 +219,10 @@ def take_jobs(n: int = 4, info: Optional[Dict[str, Any]] = None) -> List[Dict[st
         pass
     out: List[Dict[str, Any]] = []
     with _LOCK:
-        for j in sorted(_jobs(), key=lambda j: (j.get("type") != "cutout", j.get("queued", 0))):
+        # cut-outs first (fast, oldest first); scenes NEWEST first — the latest art direction is the
+        # one a preview is waiting on (older re-directs shouldn't block it)
+        for j in sorted(_jobs(), key=lambda j: (j.get("type") != "cutout",
+                                                j.get("queued", 0) if j.get("type") == "cutout" else -j.get("queued", 0))):
             if len(out) >= max(1, min(n, 8)):
                 break
             if j.get("lease") and now - j["lease"] < _LEASE_SECS:

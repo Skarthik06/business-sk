@@ -547,7 +547,10 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "", s
         scene_store.upsert_scene(new["key"], prompt=new["prompt"], palette=new["palette"], mood=new["mood"],
                                  tags=new["tags"], niches=new["niches"])
         scene_store.enqueue_scene(new["key"], new["prompt"], seed=len(new["prompt"]))
-        plan["scene"]["fallback"] = plan["scene"]["use"]  # library scene while the new one is painted
+        # stand-in while the new scene is painted: a ready library scene in the SAME palette
+        _same = sorted((x for x in scene_store.library() if x.get("ready") and x.get("palette") == new["palette"]),
+                       key=lambda x: int(x.get("uses") or 0))
+        plan["scene"]["fallback"] = _same[0]["key"] if _same else plan["scene"]["use"]
         if scene_store.worker_online() or not plan["scene"]["use"]:
             plan["scene"]["use"] = new["key"]             # THIS post gets its own AI-built scene
             plan["palette"] = new["palette"]
