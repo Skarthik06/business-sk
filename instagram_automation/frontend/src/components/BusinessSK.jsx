@@ -820,7 +820,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
         <div className="flex flex-col gap-4">
           {queue.map((g) => (
             <IgPostCard key={g.id} g={g} st={statuses[g.id] || {}} posting={busyId === g.id}
-              busyAll={busyAll} accountLabel={acctHandle}
+              busyAll={busyAll} accountLabel={acctHandle} getArt={getArt}
               onPost={() => postOneReal(g)} onDry={() => publishOne(g, true)} />
           ))}
         </div>
@@ -837,7 +837,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
 }
 
 // ── Instagram-style post preview card — swipe the carousel, read the caption, publish ──
-function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry }) {
+function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getArt }) {
   const pins = (g.products || []).slice(0, 10);
   const [idx, setIdx] = useState(0);
   const [showCap, setShowCap] = useState(false);
@@ -845,6 +845,8 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry }) {
   const [design, setDesign] = useState(null);        // rendered Still Set slide URLs (once previewed)
   const [designing, setDesigning] = useState(false);
   const [designErr, setDesignErr] = useState('');
+  const [artInfo, setArtInfo] = useState(null);      // what the Art Director analysed + the scene prompt it wrote
+  const [showArt, setShowArt] = useState(false);
   const slides = design && design.length ? design : null;   // "design mode" once slides are rendered
   const total = slides ? slides.length : pins.length;
   const cur = pins[idx] || {};
@@ -858,8 +860,11 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry }) {
   const renderDesign = async () => {
     setDesigning(true); setDesignErr('');
     try {
-      const res = await api.skRenderPreview(pins, { category: g.category });
+      // SAME Art Director plan the real post uses (cached per post) → preview == post
+      const art = getArt ? await getArt(g) : null;
+      const res = await api.skRenderPreview(pins, { category: g.category, art });
       setDesign(res.images || []);
+      setArtInfo(res.art || null);
       setIdx(0);
     } catch (e) {
       setDesignErr(e?.response?.data?.detail || e?.response?.data?.error?.message || e?.message || 'render failed');
@@ -876,7 +881,7 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry }) {
       <div className="ig-top">
         <span className="ig-dot" />
         <div style={{ minWidth: 0 }}>
-          <div className="ig-user">{accountLabel ? '@' + accountLabel : 'your account'}</div>
+          <div className="ig-user">{accountLabel ? '@' + String(accountLabel).replace(/^@+/, '') : 'your account'}</div>
           <div className="ig-sub">{g.label} · carousel</div>
         </div>
         <span className="flex-1" />
@@ -909,7 +914,17 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry }) {
           : <button className="btn btn-sm btn-ghost" onClick={() => { setDesign(null); setIdx(0); }}>Show products</button>}
         {slides && <span className="text-xs" style={{ color: 'var(--faint)' }}>Preview = exactly what posts · {total} slides</span>}
         {designErr && <span className="text-xs" style={{ color: '#f85149' }}>{designErr}</span>}
+        {artInfo && <button className="btn btn-sm btn-ghost" onClick={() => setShowArt((v) => !v)}>✨ AI direction</button>}
       </div>
+      {artInfo && showArt && (
+        <div className="text-xs" style={{ padding: '8px 14px', color: 'var(--muted)', lineHeight: 1.5 }}>
+          <div><b style={{ color: 'var(--accent)' }}>{artInfo.concept || 'AI art direction'}</b> · scene <b>{artInfo.scene}</b>{artInfo.own_scene ? ' (painted for this post)' : ' (library)'} · {artInfo.cutouts_ready} cut-outs</div>
+          {(artInfo.analysis || []).map((a, i) => (
+            <div key={i}>{String((a.i ?? i) + 1).padStart(2, '0')} · {a.type}{a.colors?.length ? ` · ${a.colors.join('/')}` : ''}{a.material ? ` · ${a.material}` : ''}{a.style ? ` · ${a.style}` : ''}{a.vibe ? ` — ${a.vibe}` : ''}</div>
+          ))}
+          {artInfo.scene_prompt && <div style={{ marginTop: 4 }}>🎨 Scene prompt: <i>{artInfo.scene_prompt}</i></div>}
+        </div>
+      )}
 
       {/* current product line (raw view only — designed slides already show the details) */}
       {!slides && <div className="ig-info">
@@ -2474,7 +2489,7 @@ const CardStyles = () => <style>{`
   .ig-top{display:flex;align-items:center;gap:10px;padding:11px 14px;border-bottom:1px solid var(--border)}
   .ig-dot{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--amber-2,#ffd25a),var(--accent));flex-shrink:0}
   .ig-user{font-weight:600;font-size:13px} .ig-sub{font-size:11px;color:var(--muted);text-transform:capitalize}
-  .ig-media{position:relative;background:#fff;aspect-ratio:1/1;max-height:440px;display:grid;place-items:center;overflow:hidden}
+  .ig-media{position:relative;background:#fff;aspect-ratio:4/5;max-height:620px;display:grid;place-items:center;overflow:hidden}
   .ig-media img{width:100%;height:100%;object-fit:contain}
   .ig-ph{width:100%;height:100%;background:var(--panel-2)}
   .ig-nav{position:absolute;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:50%;border:none;background:rgba(0,0,0,.45);color:#fff;font-size:19px;cursor:pointer;display:grid;place-items:center}

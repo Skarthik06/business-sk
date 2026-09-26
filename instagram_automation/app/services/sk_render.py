@@ -1909,7 +1909,10 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
     result["palette"] = P["name"]
     result["isolated"] = isolate and _REMBG_SESSION is not None
     if art:
+        _new = ((art.get("scene") or {}).get("new") or {})
         result["art"] = {"concept": art.get("concept", ""), "scene": (scene or {}).get("key"),
+                         "analysis": art.get("analysis") or [], "scene_prompt": _new.get("prompt", ""),
+                         "own_scene": bool(_new) and (scene or {}).get("key") == _new.get("key"),
                          "scene_ready": bool(scene), "cutouts_ready": len((scene or {}).get("cuts") or {}),
                          "source": art.get("source"), "chip": chip}
     return result
@@ -1933,8 +1936,17 @@ def _scene_ctx(products: List[Dict[str, Any]], art: Dict[str, Any]) -> Optional[
         wait = float(os.getenv("ART_WAIT_SECS", "20"))
     except ValueError:
         wait = 20.0
-    scene_store.wait_for(urls, [key] if key else [], wait)
+    scene_store.wait_for(urls, [], wait)
+    if key and not scene_store.backdrop_path(key):     # the post's OWN scene is still being painted
+        try:
+            swait = float(os.getenv("ART_SCENE_WAIT_SECS", "150"))
+        except ValueError:
+            swait = 150.0
+        scene_store.wait_for([], [key], swait)
     bgp = scene_store.backdrop_path(key) if key else None
+    fb = str(((art or {}).get("scene") or {}).get("fallback") or "")
+    if not bgp and fb and scene_store.backdrop_path(fb):
+        key, bgp = fb, scene_store.backdrop_path(fb)
     if not bgp:                                  # chosen scene not painted yet → least-used ready one
         ready = sorted((s for s in scene_store.library() if s.get("ready")), key=lambda s: int(s.get("uses") or 0))
         if not ready:

@@ -7,7 +7,7 @@
 Polls the cloud (/api/gpu/worker/jobs) and posts results back (/api/gpu/worker/result).
 Runs from the dedicated AI venv:  %USERPROFILE%\\sk-ai\\venv\\Scripts\\pythonw.exe scripts\\gpu_worker.py
 Token: env GPU_WORKER_TOKEN or ~/.sk_worker_token (same file the scrape worker uses).
-Knobs (env): SK_API (server), GPU_IDLE_UNLOAD_SECS (free the Z-Image VRAM after idle, default 600).
+Knobs (env): SK_API (server), GPU_IDLE_UNLOAD_SECS (free the Z-Image VRAM after idle, default 1800).
 """
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ API = os.getenv("SK_API", "https://140-238-247-18.nip.io").rstrip("/")
 VER = "1.0"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0 Safari/537.36")
-IDLE_UNLOAD = int(os.getenv("GPU_IDLE_UNLOAD_SECS", "600"))
+IDLE_UNLOAD = int(os.getenv("GPU_IDLE_UNLOAD_SECS", "1800"))
 EMPTY = ("completely empty scene, no people, no person, no mannequin, no clothes, no products, no text, "
          "no logo, clear open space in the center and lower half, photorealistic, editorial photography, "
          "shot on medium format, soft natural shadows, high detail")
@@ -154,7 +154,13 @@ def do_cutout(M: Models, job: dict) -> tuple[str, dict]:
     mask = mask.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.GaussianBlur(0.7))
     rgba = img.copy()
     rgba.putalpha(mask)
-    bbox = mask.point(lambda v: 255 if v > 10 else 0).getbbox() or (0, 0, img.width, img.height)
+    # Crop TIGHT to the visible product: solid pixels only (alpha > 128), with tiny specks and
+    # faint halo noise removed first (open = erode then dilate). A loose box made the product
+    # render small and float above the panel.
+    solid = mask.point(lambda v: 255 if v > 128 else 0).filter(ImageFilter.MinFilter(5)).filter(ImageFilter.MaxFilter(5))
+    bbox = solid.getbbox() or mask.point(lambda v: 255 if v > 10 else 0).getbbox() or (0, 0, img.width, img.height)
+    pad = max(2, int(0.01 * max(img.size)))                    # keep the soft edge, not the noise
+    bbox = (max(0, bbox[0] - pad), max(0, bbox[1] - pad), min(img.width, bbox[2] + pad), min(img.height, bbox[3] + pad))
     cut = rgba.crop(bbox)
     if max(cut.size) > 1600:
         cut.thumbnail((1600, 1600), Image.LANCZOS)

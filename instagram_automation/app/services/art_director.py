@@ -133,31 +133,37 @@ def _facts(products, metas) -> List[Dict[str, Any]]:
 def _user_prompt(products, category, lib, metas, allow_new: bool) -> str:
     scenes = [{"key": s["key"], "mood": s.get("mood"), "palette": s.get("palette"), "niches": s.get("niches"),
                "tags": s.get("tags"), "uses": s.get("uses", 0)} for s in lib if s.get("ready")]
-    new_rule = ("You MAY instead propose ONE new scene if nothing in the library suits these products "
-                "(it is generated in the background for future posts; you must still pick the closest "
-                "existing scene in scene.use for this post)." if allow_new else
-                "Pick from the library only; set scene.new to null.")
+    new_rule = ("STEP 2 — WRITE THE SCENE PROMPT (required): from YOUR analysis in step 1, write ONE new "
+                "scene for THIS post in scene.new — it is painted by the image model and used for this post. "
+                "Also give the closest library scene in scene.use as a fallback." if allow_new else
+                "STEP 2 — pick the best library scene in scene.use; set scene.new to null.")
     return (
         f"Design ONE Instagram carousel for category '{category or 'mixed'}' with {len(products)} products.\n\n"
         f"PRODUCTS (scraped facts + measured photo facts; the photos are attached in the same order):\n"
         f"{json.dumps(_facts(products, metas), ensure_ascii=False)}\n\n"
-        f"BACKDROP LIBRARY (empty scenes you can use):\n{json.dumps(scenes, ensure_ascii=False)}\n\n"
+        f"BACKDROP LIBRARY (fallback scenes):\n{json.dumps(scenes, ensure_ascii=False)}\n\n"
         f"SLIDE LAYOUTS (choose one per product — these are the ONLY layouts):\n{json.dumps(_LAYOUT_GUIDE)}\n\n"
+        "STEP 1 — ANALYSE EVERY PRODUCT first, from its photo AND its facts: product type, its real colours "
+        "(read them from the photo), material/texture, style, and the vibe/occasion it suits. Be precise — "
+        "this analysis drives everything else.\n"
+        f"{new_rule}\n"
+        "  The scene must flatter THESE products: a setting where they'd naturally be styled for their vibe, "
+        "with a colour palette that CONTRASTS with the products' main colours so they pop (dark products → a "
+        "light/warm scene; light products → a deeper scene; never the same colour as the product). "
+        "Describe an EMPTY photographic scene only — no people, no products, no text, no logos — with open "
+        "space in the centre and lower half, real materials, surfaces and light direction (e.g. 'warm taupe "
+        "limewash wall, pale oak floor, soft window light from the left, a linen-covered bench at the far "
+        "edge'). 30-70 words.\n"
+        "STEP 3 — LAYOUTS: a model wearing it with the photo cropped at the bottom → scene_hero; a whole "
+        "object → scene_float; vary layouts so the post isn't monotonous.\n"
         "RULES:\n"
-        "- Look at each photo: if a model wears it and the photo is cropped → scene_hero; a whole object → "
-        "scene_float. Vary layouts so the post isn't monotonous.\n"
-        "- One scene for the whole post (cohesive feed). Choose it for the products' colours and niche: the "
-        "scene must CONTRAST with the products so they pop (dark products → light/warm scene, light → deeper).\n"
-        f"- {new_rule}\n"
-        "- A new scene prompt describes an EMPTY photographic scene only: no people, no products, no text, "
-        "open space in the centre and lower half, real materials and light (e.g. 'warm taupe plaster wall, "
-        "pale oak floor, soft window light from the left'). 25-60 words.\n"
         f"- palette: one of {list(PALETTES)} matching the scene (text/panel colours).\n"
-        "- The cover is always an outfit flat-lay of 2-4 of the products on the same scene.\n"
+        "- The cover is a collage of the products (no names/prices) on the same scene.\n"
         "- chip: a short top headline, ≤ 34 chars, e.g. 'Comment “LINK” for this look' (fashion) or "
         "'Comment “LINK” for this find'.\n"
         "- concept: ≤ 6 words naming the post's mood.\n\n"
-        'Return JSON: {"concept": str, "scene": {"use": "<library key>", "new": null | {"key": "snake_case", '
+        'Return JSON: {"analysis": [{"i": int, "type": str, "colors": [str], "material": str, "style": str, '
+        '"vibe": str}], "concept": str, "scene": {"use": "<library key>", "new": null | {"key": "snake_case", '
         '"prompt": str, "palette": str, "mood": str, "niches": [str], "tags": [str]}}, "palette": str, '
         '"cover": {"layout": str}, "chip": str, "slides": [{"i": int, "layout": str, "why": "≤ 10 words"}]}'
     )
@@ -192,7 +198,9 @@ def _validate(raw: Dict[str, Any], base: Dict[str, Any], products, lib, allow_ne
         plan["scene"]["use"] = sc["use"]
     new = sc.get("new")
     if allow_new and isinstance(new, dict) and len(str(new.get("prompt") or "")) >= 40:
-        plan["scene"]["new"] = {"key": scene_store.scene_key(str(new.get("key") or new["prompt"][:40])),
+        import hashlib as _h
+        base_key = scene_store.scene_key(str(new.get("key") or new["prompt"][:40]))[:40]
+        plan["scene"]["new"] = {"key": f"{base_key}_{_h.sha1(str(new['prompt']).encode()).hexdigest()[:6]}",
                                 "prompt": str(new["prompt"])[:900],
                                 "palette": new.get("palette") if new.get("palette") in PALETTES else plan["palette"],
                                 "mood": str(new.get("mood") or "")[:120],
@@ -210,6 +218,13 @@ def _validate(raw: Dict[str, Any], base: Dict[str, Any], products, lib, allow_ne
     if _is_fashion("", products) and "look" not in plan["chip"].lower():
         plan["chip"] = re.sub(r"(?i)\bfind\b", "look", plan["chip"])   # fashion posts sell a LOOK
     plan["concept"] = str(raw.get("concept") or "")[:60]
+    plan["analysis"] = []
+    for a in (raw.get("analysis") or [])[:8]:
+        if isinstance(a, dict):
+            plan["analysis"].append({"i": a.get("i"), "type": str(a.get("type") or "")[:40],
+                                     "colors": [str(c)[:20] for c in (a.get("colors") or [])][:4],
+                                     "material": str(a.get("material") or "")[:40],
+                                     "style": str(a.get("style") or "")[:40], "vibe": str(a.get("vibe") or "")[:60]})
     for s in raw.get("slides") or []:
         try:
             i = int(s.get("i"))
@@ -244,8 +259,10 @@ def direct(products: List[Dict[str, Any]], category: str = "") -> Dict[str, Any]
         scene_store.upsert_scene(new["key"], prompt=new["prompt"], palette=new["palette"], mood=new["mood"],
                                  tags=new["tags"], niches=new["niches"])
         scene_store.enqueue_scene(new["key"], new["prompt"], seed=len(new["prompt"]))
-        if not plan["scene"]["use"]:                      # empty library → use the new one once ready
-            plan["scene"]["use"] = new["key"]
+        plan["scene"]["fallback"] = plan["scene"]["use"]  # library scene while the new one is painted
+        if scene_store.worker_online() or not plan["scene"]["use"]:
+            plan["scene"]["use"] = new["key"]             # THIS post gets its own AI-built scene
+            plan["palette"] = new["palette"]
     plan["error"] = err
     plan["worker_online"] = scene_store.worker_online()
     return plan
