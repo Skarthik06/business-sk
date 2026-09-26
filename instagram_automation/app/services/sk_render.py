@@ -616,7 +616,7 @@ def _cover_html(title: str, subtitle: str, tint: str, kick: str, imgs: List[str]
     hero_stage = (f'<div class="stage big" style="position:absolute;left:60px;right:60px;bottom:150px;'
                   f'height:720px;z-index:1"><img src="{hero}"></div>') if hero else ""
     inner = f"""
-  <div class="placard"><span class="kick">{_esc(kick)}</span><span class="code">AURA · THE EDIT</span></div>
+  <div class="placard"><span class="kick">{_esc(kick)}</span><span class="code">SK · THE EDIT</span></div>
   <div style="position:relative;z-index:2;margin-top:100px">
     <div class="serif" style="font-size:120px;line-height:.9;letter-spacing:-.02em;max-width:920px">{_esc(title)}</div>
     <div class="serif" style="font-size:50px;font-style:italic;color:{tint};margin-top:18px">{_esc(subtitle)}</div>
@@ -699,7 +699,7 @@ def _rank_html(ps: List[Dict[str, Any]], imgs: List[str], tint: str, idx: int, t
         </div>
       </div>"""
     inner = f"""
-  <div class="placard"><span class="kick">Ranked / Top {min(5,len(ps))}</span><span class="code">AURA · VERDICT</span></div>
+  <div class="placard"><span class="kick">Ranked / Top {min(5,len(ps))}</span><span class="code">SK · VERDICT</span></div>
   <div style="position:absolute;left:60px;right:60px;top:170px;bottom:150px;z-index:2;display:flex;flex-direction:column;justify-content:center;gap:30px">{rows}</div>
 """
     return _page(tint, inner, idx=idx, total=total)
@@ -718,7 +718,7 @@ def _grid_html(ps: List[Dict[str, Any]], imgs: List[str], tint: str, cols: int, 
       </div>"""
     line = f'<div class="serif" style="position:absolute;left:60px;bottom:150px;z-index:2;font-size:44px">{_esc(theme_line)}</div>' if theme_line else ""
     inner = f"""
-  <div class="placard"><span class="kick">{_esc(kick)}</span><span class="code">AURA · THE EDIT</span></div>
+  <div class="placard"><span class="kick">{_esc(kick)}</span><span class="code">SK · THE EDIT</span></div>
   <div style="position:absolute;left:60px;right:60px;top:150px;bottom:{'230' if theme_line else '150'}px;z-index:2;
        display:grid;grid-template-columns:repeat({cols},1fr);gap:24px">{cells}</div>
   {line}
@@ -732,7 +732,7 @@ def _lead_rail_html(ps: List[Dict[str, Any]], imgs: List[str], tint: str, idx: i
     for p, u in zip(ps[1:5], imgs[1:5]):
         rail += f'<div class="stage"><img src="{u}"></div>'
     inner = f"""
-  <div class="placard"><span class="kick">Top pick + {min(4,len(ps)-1)}</span><span class="code">AURA · EDITOR</span></div>
+  <div class="placard"><span class="kick">Top pick + {min(4,len(ps)-1)}</span><span class="code">SK · EDITOR</span></div>
   <div style="position:absolute;left:60px;right:60px;top:150px;bottom:150px;z-index:2;display:flex;gap:26px">
     <div style="flex:1.35;display:flex;flex-direction:column;gap:18px">
       <div class="stage" style="flex:1"><img src="{lu}"></div>
@@ -746,7 +746,7 @@ def _lead_rail_html(ps: List[Dict[str, Any]], imgs: List[str], tint: str, idx: i
 
 def _closer_html(tint: str, handle: str, idx: int, total: int) -> str:
     inner = f"""
-  <div class="placard"><span class="kick">Shop the set</span><span class="code">AURA · LINK</span></div>
+  <div class="placard"><span class="kick">Shop the set</span><span class="code">SK · LINK</span></div>
   <div style="position:absolute;inset:150px 60px;z-index:2;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:44px;text-align:center">
     <div class="serif" style="font-size:100px;line-height:1.02">Everything here,<br>one link.</div>
     <span class="cta solid" style="font-size:26px">Link in bio →</span>
@@ -978,7 +978,7 @@ def _cover2(products, imgs, P, *, title, subtitle, handle, cover_tags=None):
     # Top third: AI headline + subtitle + deal badges + the selection tags for this post.
     # Lower two-thirds: a COLLAGE of every product (image + name, no price).
     inner = f"""
-  <div class="placard"><span class="kick">The Drop</span><span class="code">AURA · EDIT</span></div>
+  <div class="placard"><span class="kick">The Drop</span><span class="code">SK · EDIT</span></div>
   <span class="spark" style="top:150px;left:90px;font-size:26px">✧</span>
   <div style="position:absolute;left:60px;right:60px;top:150px;z-index:2">
     <div class="serif" style="font-size:88px;line-height:.92;letter-spacing:-.02em;max-width:960px">{_multiline(title)}</div>
@@ -1014,7 +1014,7 @@ def _spotlight2(p, img, P, handle):
     off = _discount_pct(p) or 0
     word = _multiline(_deal_word(p))          # AI 1-2 word hype label, stacked if two words
     inner = f"""
-  <div class="placard"><span class="kick">Price Drop</span><span class="code">AURA · DEAL</span></div>
+  <div class="placard"><span class="kick">Price Drop</span><span class="code">SK · DEAL</span></div>
   <span class="spark" style="top:150px;right:110px">✦</span>
   <div style="position:absolute;inset:120px 60px 130px 60px;z-index:2;display:flex;flex-direction:column;gap:18px">
     <div class="stage" style="flex:1 1 auto;min-height:0"><img src="{img}"></div>
@@ -1031,7 +1031,7 @@ def _spotlight2(p, img, P, handle):
 def _editorial2(p, img, P, handle):
     chips = _chips2(p)
     inner = f"""
-  <div class="placard"><span class="kick">Editor's Pick</span><span class="code">AURA · HERO</span></div>
+  <div class="placard"><span class="kick">Editor's Pick</span><span class="code">SK · HERO</span></div>
   <span class="spark" style="top:150px;right:110px">✦</span>
   <div style="position:absolute;inset:120px 60px 130px 60px;z-index:2;display:flex;flex-direction:column;gap:16px">
     <div class="stage" style="flex:1 1 auto;min-height:0"><img src="{img}"></div>
@@ -1046,7 +1046,7 @@ def _editorial2(p, img, P, handle):
 def _proof2(p, img, P, handle):
     chips = _chips2(p)
     inner = f"""
-  <div class="placard"><span class="kick">Loved by shoppers</span><span class="code">AURA · PROOF</span></div>
+  <div class="placard"><span class="kick">Loved by shoppers</span><span class="code">SK · PROOF</span></div>
   <div style="position:absolute;left:60px;right:60px;top:150px;bottom:150px;z-index:2;display:flex;flex-direction:column;gap:24px">
     <div class="stage" style="flex:1 1 auto;min-height:0"><img src="{img}"></div>
     <div style="display:flex;flex-direction:column;gap:15px">
@@ -1063,7 +1063,7 @@ def _lookbook2(p, img, P, handle):
     """Full-bleed LOOKBOOK — the product fills the frame under a soft scrim, with the name + price
     overlaid at the foot. Editorial, lifestyle, scroll-stopping (great for fashion/home/beauty)."""
     inner = f"""
-  <div class="placard" style="position:absolute;left:60px;right:60px;top:96px;z-index:4"><span class="kick" style="color:#fff">The Look</span><span class="code" style="color:#FFFFFFCC">AURA · LOOKBOOK</span></div>
+  <div class="placard" style="position:absolute;left:60px;right:60px;top:96px;z-index:4"><span class="kick" style="color:#fff">The Look</span><span class="code" style="color:#FFFFFFCC">SK · LOOKBOOK</span></div>
   <div class="stage" style="position:absolute;left:40px;right:40px;top:88px;bottom:88px;z-index:1;border-radius:30px"><img src="{img}" style="width:90%;height:90%"></div>
   <div style="position:absolute;left:40px;right:40px;bottom:88px;height:440px;z-index:2;border-radius:0 0 30px 30px;background:linear-gradient(to top,rgba(24,22,18,.86) 8%,rgba(24,22,18,.45) 48%,rgba(24,22,18,0) 100%)"></div>
   <div style="position:absolute;left:80px;right:80px;bottom:150px;z-index:3;display:flex;flex-direction:column;gap:20px">
@@ -1110,7 +1110,7 @@ def _feature2(p, img, P, handle):
         f'<div style="font-family:{_SANS};font-weight:600;font-size:30px;color:{P["text"]};line-height:1.2;padding-top:6px">{f}</div></div>'
         for i, f in enumerate(pts))
     inner = f"""
-  <div class="placard"><span class="kick">Why we love it</span><span class="code">AURA · PICK</span></div>
+  <div class="placard"><span class="kick">Why we love it</span><span class="code">SK · PICK</span></div>
   <div class="stage" style="position:absolute;left:48px;top:150px;bottom:150px;width:470px;z-index:1"><img src="{img}"></div>
   <div style="position:absolute;right:56px;top:150px;bottom:150px;width:470px;z-index:2;display:flex;
        flex-direction:column;gap:26px;justify-content:center">
@@ -1129,7 +1129,7 @@ def _savings2(p, img, P, handle):
     saved = int(round(mr - pr)) if (pr and mr and mr > pr) else 0
     big = f"₹{_indian_group(saved)}" if saved >= 300 else f"{_discount_pct(p) or 0}%"
     inner = f"""
-  <div class="placard"><span class="kick">You Save</span><span class="code">AURA · SAVINGS</span></div>
+  <div class="placard"><span class="kick">You Save</span><span class="code">SK · SAVINGS</span></div>
   <span class="spark" style="top:150px;left:120px;font-size:30px">✧</span>
   <div class="stage" style="position:absolute;right:48px;top:170px;width:500px;height:560px;z-index:1"><img src="{img}"></div>
   <div style="position:absolute;left:60px;top:230px;z-index:2;max-width:560px;display:flex;flex-direction:column;gap:6px">
@@ -1146,7 +1146,7 @@ def _bold2(p, img, P, handle):
     """STATEMENT — the product name set BIG as the hero (editorial typography), the product framed
     below, price at the foot. A clean typographic change of pace; works for any product."""
     inner = f"""
-  <div class="placard"><span class="kick">The Statement</span><span class="code">AURA · EDIT</span></div>
+  <div class="placard"><span class="kick">The Statement</span><span class="code">SK · EDIT</span></div>
   <span class="spark" style="top:150px;right:110px">✦</span>
   <div style="position:absolute;inset:150px 60px 120px 60px;z-index:2;display:flex;flex-direction:column;gap:18px">
     <div class="serif" style="font-size:84px;line-height:.92;letter-spacing:-.02em;max-width:960px">{_multiline(_clean_title(p, limit=52))}</div>
@@ -1189,7 +1189,7 @@ def _stat2(p, img, P, handle):
     """BY THE NUMBERS — product image over a strip of REAL stat tiles (rating, ratings, % off, ₹ saved,
     demand). All grounded in the product's own data; strong for well-reviewed / discounted picks."""
     inner = f"""
-  <div class="placard"><span class="kick">By the numbers</span><span class="code">AURA · STATS</span></div>
+  <div class="placard"><span class="kick">By the numbers</span><span class="code">SK · STATS</span></div>
   <div style="position:absolute;inset:130px 60px 110px 60px;z-index:2;display:flex;flex-direction:column;gap:20px">
     <div class="stage" style="flex:1 1 auto;min-height:0"><img src="{img}"></div>
     <div class="pname" style="font-size:38px;max-width:940px">{_esc(_clean_title(p, limit=56))}</div>
@@ -1204,7 +1204,7 @@ def _minimal2(p, img, P, handle):
     """MINIMAL — a calm, centered hero: product floating on the palette, name + price centered below.
     Lots of whitespace; premium and scroll-stopping for well-shot products."""
     inner = f"""
-  <div class="placard"><span class="kick">Simply put</span><span class="code">AURA · MINIMAL</span></div>
+  <div class="placard"><span class="kick">Simply put</span><span class="code">SK · MINIMAL</span></div>
   <span class="spark" style="top:160px;left:96px;font-size:26px">✧</span>
   <div style="position:absolute;inset:170px 80px 130px 80px;z-index:2;display:flex;flex-direction:column;align-items:center;gap:20px;text-align:center">
     <div class="stage" style="flex:1 1 auto;min-height:0;width:74%"><img src="{img}"></div>
@@ -1239,7 +1239,7 @@ def _deal_card2(p, P, handle):
                      f'<span style="font-size:34px">🎟️</span>'
                      f'<span style="font-family:{_MONO};font-weight:700;font-size:26px;color:{P["text"]}">Coupon available in the store</span></div>') if has_code else ""
     inner = f"""
-  <div class="placard"><span class="kick">Deal Drop</span><span class="code">AURA · CUELINKS</span></div>
+  <div class="placard"><span class="kick">Deal Drop</span><span class="code">SK · CUELINKS</span></div>
   <span class="spark" style="top:150px;right:110px">✦</span>
   <div style="position:absolute;left:60px;right:60px;top:180px;z-index:2;display:flex;flex-direction:column;gap:26px;align-items:flex-start">
     {_deal_logo(brand, P, big=True)}
@@ -1259,7 +1259,7 @@ def _deal_cover2(deals, P, *, title, subtitle, handle):
     """Cover for a DEALS post — headline + a grid of the merchant logos featured."""
     n = len(deals)
     inner = f"""
-  <div class="placard"><span class="kick">The Deals Edit</span><span class="code">AURA · CUELINKS</span></div>
+  <div class="placard"><span class="kick">The Deals Edit</span><span class="code">SK · CUELINKS</span></div>
   <span class="spark" style="top:150px;left:90px;font-size:26px">✧</span>
   <div style="position:absolute;left:60px;right:60px;top:150px;z-index:2">
     <div class="serif" style="font-size:88px;line-height:.92;letter-spacing:-.02em;max-width:960px">{_multiline(title or "Today's Best Deals")}</div>
@@ -1282,7 +1282,7 @@ def _closer2(P, handle):
                 f'<div style="font-family:{_SANS};font-weight:800;font-size:34px;color:{P["text"]}">{big}</div>'
                 f'<div style="font-family:{_MONO};font-size:21px;color:{P["muted"]}">{sub}</div></div></div>')
     inner = f"""
-  <div class="placard"><span class="kick">Get the links</span><span class="code">AURA · SHOP</span></div>
+  <div class="placard"><span class="kick">Get the links</span><span class="code">SK · SHOP</span></div>
   <span class="spark" style="top:150px;right:120px">✦</span><span class="spark" style="bottom:170px;left:110px;font-size:30px">✧</span>
   <div style="position:absolute;inset:140px 60px;z-index:2;display:flex;flex-direction:column;justify-content:center;gap:24px">
     <div class="serif" style="font-size:92px;line-height:.96;text-align:center;margin-bottom:6px">Want these deals?</div>
