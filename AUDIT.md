@@ -440,3 +440,9 @@ SINGLE structured call it (1) picks the best `count` products from the candidate
   new image/storefront pushes and the IG-bio shop link target the renamed repo. GitHub redirects cover
   old URLs meanwhile; the app is stopped, so nothing pushes to the wrong repo before this is fixed.
 - **gh CLI installed** (v2.100.0), authenticated as Skarthik06.
+
+## 21. v2.x — where to read the rest (2026-09-26)
+The build history after section 20 (the multi-store engine v2.0, the AI Art Director v2.2, the
+Scene Prompt Builder and palette Looks v2.3, slash-command style presets and GPU scheduling v2.4,
+verified-follower follow gate and once-per-comment replies) is documented in full in
+[`docs/MASTER.md`](docs/MASTER.md) (§7–§18) and the release log in [`RELEASES.md`](RELEASES.md).
