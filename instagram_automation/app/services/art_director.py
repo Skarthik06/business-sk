@@ -102,7 +102,8 @@ def _assemble_prompt(f: Dict[str, Any]) -> str:
     """Fixed field order Z-Image responds to best: setting → surfaces → light → props → palette → camera → mood."""
     parts = [str(f.get("setting") or "").strip(), str(f.get("wall") or "").strip(),
              str(f.get("floor") or "").strip(), str(f.get("light") or "").strip()]
-    props = str(f.get("props") or "").strip()
+    props = re.sub(r"\s*(at|on|near)\s+(the\s+)?(far\s+)?(left\s+|right\s+)?(edge|side)(\s+of\s+the\s+frame)?\.?$", "",
+                   str(f.get("props") or "").strip(), flags=re.I)
     if props and props.lower() not in ("none", "no props", "-"):
         parts.append(f"{props} at the far edge of the frame")
     cols = [str(c).strip() for c in (f.get("colors") or []) if str(c).strip()][:3]
