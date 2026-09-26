@@ -115,6 +115,30 @@ def parse_styles(styles: Any) -> List[str]:
     return out[:3]
 
 
+def _fill_presets(chosen: List[str], palette: str, analysis: List[Dict[str, Any]], products: List[Dict[str, Any]],
+                  want: int = 3) -> List[str]:
+    """Top up the agent's presets to `want` with presets that are coherent with the palette, ranked by
+    how well their 'best for' matches the analysed products, then by least recent use."""
+    ps = presets()
+    words = " ".join([str(a.get(k, "")) for a in (analysis or []) for k in ("type", "style", "vibe", "material")] +
+                     [str(p.get("product_title") or p.get("title") or "") for p in products]).lower()
+    used = [p for r in _recent_looks(12) for p in (r.get("presets") or [])]
+
+    def score(key: str) -> float:
+        best = ps[key]["best_for"].lower()
+        hits = sum(1 for w in re.findall(r"[a-z]{4,}", best) if w in words)
+        return hits * 3 - used.count(key)
+
+    out = [p for p in chosen if p in ps][:want]
+    pool = sorted((k for k, v in ps.items() if palette in v["palettes"] and k not in out), key=score, reverse=True)
+    for k in pool:
+        if len(out) >= want:
+            break
+        if k != "/studio" or not out:                   # /studio is the generic filler, only if nothing else
+            out.append(k)
+    return out
+
+
 def _row_rule(key: str, row: Dict[str, str]) -> str:
     return (f"LOOK = {row['look']} (palette '{key}'): scene colours {row['colors']}; materials {row['materials']}; "
             f"light {row['light']}; mood {row['mood']}. Write the scene INSIDE this look.")
@@ -130,9 +154,10 @@ def _recent_looks(n: int = 6) -> List[Dict[str, str]]:
         return []
 
 
-def _remember_look(palette: str, concept: str, scene: str) -> None:
+def _remember_look(palette: str, concept: str, scene: str, used_presets: Optional[List[str]] = None) -> None:
     try:
-        hist = _recent_looks(30) + [{"palette": palette, "concept": concept[:60], "scene": scene[:60]}]
+        hist = _recent_looks(30) + [{"palette": palette, "concept": concept[:60], "scene": scene[:60],
+                                     "presets": list(used_presets or [])}]
         _LOOK_LOG.write_text(json.dumps(hist[-30:]), "utf-8")
     except Exception:
         pass
@@ -284,8 +309,10 @@ def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: st
         f"{J({k: v['best_for'] + ' | palettes: ' + ','.join(v['palettes']) for k, v in presets().items()})}\n"
         "A preset may ONLY be combined with one of its listed palettes — the palette, the presets and the "
         "scene fields must describe ONE coherent scene.\n"
-        "Pick the 1-2 presets that best fit YOUR product analysis in `presets` (unless the post gives "
-        "USER STYLE COMMANDS — then use exactly those), and design the scene fields to match them.\n\n"
+        "Pick the 2-3 presets that best fit YOUR product analysis in `presets` (unless the post gives "
+        "USER STYLE COMMANDS — then use exactly those). The presets LEAD the scene: build the scene fields "
+        "(setting, wall, floor, light, props) from the presets' materials and light; the palette row only "
+        "sets the colour family. Prefer presets the recent posts did NOT use, so the feed stays fresh.\n\n"
         f"SLIDE LAYOUTS (choose one per product — these are the ONLY layouts):\n{J(_LAYOUT_GUIDE)}\n\n"
         "STEP 1 — ANALYSE EVERY PRODUCT first, from its photo AND its facts: product type, its real colours "
         "(read them from the photo), material/texture, style, and the vibe/occasion it suits. Be precise — "
@@ -438,10 +465,12 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "", s
         style_rule = _row_rule(lk, rows[lk]) + (" " + PREMIUM_RULE if lk == "noir" else "")
     else:                                                 # 'ai': the agent picks the look
         recent = _recent_looks()
+        _used = [p for r in recent for p in (r.get("presets") or [])]
         variety = ("RECENT POSTS used these looks (newest last): " + json.dumps(recent, ensure_ascii=False) +
                    ". Do your best, most creative work and keep the feed VARIED: choose a different "
                    "palette/scene idea than the last posts unless these products clearly demand the same "
-                   "style.\n") if recent else ""
+                   "style.\n" + (f"Presets used recently (prefer others): {' '.join(_used[-8:])}.\n" if _used else "")
+                   ) if recent else ""
         _forced = parse_styles(styles)
         if _forced:
             _sets = [set(presets()[p]["palettes"]) for p in _forced]
@@ -480,8 +509,9 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "", s
             plan["scene"]["new"]["palette"] = plan["palette"]
     forced = parse_styles(styles)
     _pal = plan.get("palette")
-    plan["presets"] = forced or [p for p in (plan.get("presets") or [])
-                                 if _pal in presets().get(p, {}).get("palettes", [])]
+    plan["presets"] = forced or _fill_presets(
+        [p for p in (plan.get("presets") or []) if _pal in presets().get(p, {}).get("palettes", [])],
+        _pal, plan.get("analysis") or [], products, want=int(_knob("ART_PRESETS_PER_POST", "3")))
     _new = plan["scene"].get("new")
     if _new and _new.get("fields") and any(_new["fields"].get(k) for k in ("setting", "wall", "floor", "light")):
         _new["prompt"] = _assemble_prompt(_new["fields"], plan["presets"])
@@ -497,5 +527,6 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "", s
             plan["palette"] = new["palette"]
     plan["error"] = err
     plan["worker_online"] = scene_store.worker_online()
-    _remember_look(plan.get("palette", ""), plan.get("concept", ""), str(plan["scene"].get("use") or ""))
+    _remember_look(plan.get("palette", ""), plan.get("concept", ""), str(plan["scene"].get("use") or ""),
+                   plan.get("presets"))
     return plan
