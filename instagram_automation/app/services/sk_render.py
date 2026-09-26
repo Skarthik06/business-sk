@@ -1940,9 +1940,9 @@ def _scene_ctx(products: List[Dict[str, Any]], art: Dict[str, Any]) -> Optional[
     scene_store.wait_for(urls, [], wait)
     if key and not scene_store.backdrop_path(key):     # the post's OWN scene is still being painted
         try:
-            swait = float(os.getenv("ART_SCENE_WAIT_SECS", "150"))
+            swait = float(os.getenv("ART_SCENE_WAIT_SECS", "240"))
         except ValueError:
-            swait = 150.0
+            swait = 240.0
         scene_store.wait_for([], [key], swait)
     bgp = scene_store.backdrop_path(key) if key else None
     fb = str(((art or {}).get("scene") or {}).get("fallback") or "")

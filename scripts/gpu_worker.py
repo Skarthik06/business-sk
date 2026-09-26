@@ -22,7 +22,7 @@ import traceback
 import urllib.request
 
 API = os.getenv("SK_API", "https://140-238-247-18.nip.io").rstrip("/")
-VER = "1.1"
+VER = "1.2"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0 Safari/537.36")
 IDLE_UNLOAD = int(os.getenv("GPU_IDLE_UNLOAD_SECS", "1800"))
@@ -192,6 +192,20 @@ def do_cutout(M: Models, job: dict) -> tuple[str, dict]:
 
 
 def do_scene(M: Models, job: dict) -> tuple[str, dict]:
+    torch = M.torch
+    # Give Z-Image the whole 8 GB card: park BiRefNet on the CPU while painting (else VRAM spills
+    # into shared memory and a paint takes ~3 min instead of ~1).
+    if M._bir is not None and M.dev == "cuda":
+        M._bir.to("cpu")
+        torch.cuda.empty_cache()
+    try:
+        return _paint(M, job)
+    finally:
+        if M._bir is not None and M.dev == "cuda":
+            M._bir.to("cuda")
+
+
+def _paint(M: Models, job: dict) -> tuple[str, dict]:
     torch = M.torch
     pipe = M.zimage()
     prompt = f"{job['prompt']}, {EMPTY}"
