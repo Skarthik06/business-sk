@@ -876,6 +876,9 @@ body{{font-family:{_SANS};background:{P['g2']};color:{P['text']};overflow:hidden
 .ctile small{{display:block;font-size:19px;opacity:.85;letter-spacing:.16em;margin-top:4px}}
 .selchip{{display:inline-flex;align-items:center;font-family:{_MONO};font-size:20px;font-weight:700;letter-spacing:.02em;
    color:{P['text']};background:{P['chip']};border:1.5px solid {t};border-radius:100px;padding:8px 18px}}
+.skwm{{position:absolute;left:50%;bottom:40px;transform:translateX(-50%);z-index:7;width:48px;height:48px;border-radius:50%;
+   border:1.5px solid currentColor;display:flex;align-items:center;justify-content:center;font-family:{_SERIF};font-size:23px;
+   letter-spacing:.06em;color:{P['muted']};opacity:.75;pointer-events:none}}
 .cta{{display:inline-flex;align-items:center;gap:12px;font-family:{_MONO};font-weight:700;letter-spacing:.16em;text-transform:uppercase;
    border-radius:100px;padding:18px 34px;font-size:26px;background:{t};color:#fff}}
 """
@@ -889,6 +892,7 @@ def _page2(P: Dict[str, str], inner: str, *, foot_right: str = "SWIPE →", hand
   <div class="frame"></div><span class="corner c1"></span><span class="corner c2"></span><span class="corner c3"></span><span class="corner c4"></span>
   {inner}
   <div class="foot"><span>{_esc(handle)}</span><span>{_esc(foot_right)}</span></div>
+  <div class="skwm">SK</div>
 </div></body></html>"""
 
 
@@ -1313,6 +1317,7 @@ def _scene_css(P: Dict[str, str], dark: bool) -> str:
     ink = "#FFFFFF" if dark else P["text"]
     return f"""<style>
 .frame,.corner{{z-index:6}} .foot{{z-index:6;color:{'#FFFFFFD9' if dark else P['muted']}}}
+.skwm{{color:{'#FFFFFFD9' if dark else P['muted']}}}
 .scn{{position:absolute;inset:0;z-index:0;background-size:cover;background-position:center}}
 .scol{{position:absolute;inset:66px 56px 104px 56px;z-index:2;display:flex;flex-direction:column}}
 .schip{{align-self:center;font-family:{_MONO};font-weight:700;font-size:23px;letter-spacing:.12em;text-transform:uppercase;
@@ -1377,32 +1382,32 @@ def _scene_panel(p: Dict[str, Any], P: Dict[str, str], kick: str, num: int = 0) 
     </div>"""
 
 
-def _scene_page(P, bg: str, inner: str, handle: str, dark: bool) -> str:
+def _scene_page(P, bg: str, inner: str, handle: str, dark: bool, foot: str = "SWIPE →") -> str:
     body = f'<div class="scn" style="background-image:url({bg})"></div>{_scene_css(P, dark)}{inner}'
-    return _page2(P, body, foot_right="SWIPE →", handle=handle)
+    return _page2(P, body, foot_right=foot, handle=handle)
 
 
-def _scene_hero(p, cut, bg, P, handle, chip, kick, dark=False, num=0):
+def _scene_hero(p, cut, bg, P, handle, chip, kick, dark=False, num=0, foot="SWIPE →"):
     """A MODEL wearing the item stands in the scene; the panel overlaps the photo's cropped edge."""
     inner = f"""<div class="scol">
       <div class="schip">{_esc(chip)}</div>
       <div class="sstage shero" style="align-items:flex-end;margin-bottom:-120px;margin-top:10px"><img src="{cut}"></div>
       {_scene_panel(p, P, kick, num)}
     </div>"""
-    return _scene_page(P, bg, inner, handle, dark)
+    return _scene_page(P, bg, inner, handle, dark, foot)
 
 
-def _scene_float(p, cut, bg, P, handle, chip, kick, dark=False, num=0):
+def _scene_float(p, cut, bg, P, handle, chip, kick, dark=False, num=0, foot="SWIPE →"):
     """A WHOLE object floats, fully visible, centred in the scene with a soft shadow beneath."""
     inner = f"""<div class="scol">
       <div class="schip">{_esc(chip)}</div>
       <div class="sstage sfloat" style="align-items:center;margin:18px 0 26px"><img src="{cut}"></div>
       {_scene_panel(p, P, kick, num)}
     </div>"""
-    return _scene_page(P, bg, inner, handle, dark)
+    return _scene_page(P, bg, inner, handle, dark, foot)
 
 
-def _scene_split(p, cut, bg, P, handle, chip, kick, dark=False, num=0):
+def _scene_split(p, cut, bg, P, handle, chip, kick, dark=False, num=0, foot="SWIPE →"):
     """Editorial split: the product in the scene on the left, the details in a tall card on the right."""
     inner = f"""<div class="scol">
       <div class="schip">{_esc(chip)}</div>
@@ -1417,7 +1422,7 @@ def _scene_split(p, cut, bg, P, handle, chip, kick, dark=False, num=0):
         </div>
       </div>
     </div>"""
-    return _scene_page(P, bg, inner, handle, dark)
+    return _scene_page(P, bg, inner, handle, dark, foot)
 
 
 # Collage tiles (x, y, w, h in % of the collage area) — deliberately MIXED aspect ratios
@@ -1486,10 +1491,11 @@ def _scene_flatlay(products, cuts, bg, P, handle, *, title, subtitle, chip, dark
 
 
 def _scene_closer(P, bg, handle, dark=False):
-    """CLOSER on the post's scene: how to get the links (follow → comment LINK → bio)."""
-    steps = [("➕", f"Follow {_esc(handle)}", "DMs go to followers only"),
-             ("💬", "Comment “LINK”", "we’ll DM you every product link"),
-             ("🔗", "Tap the link in bio", "shop all picks in the store")]
+    """CLOSER (last slide) on the post's scene: the Follow → Comment → DM process. No SWIPE here."""
+    steps = [("➕", f"1 · Follow {_esc(handle)}", "links go to followers only"),
+             ("💬", "2 · Comment “LINK”", "on this post"),
+             ("📩", "3 · Check your DM", "every product link, sent instantly"),
+             ("🔗", "Or tap the link in bio", "shop all picks in the store")]
     rows = "".join(
         f'<div style="display:flex;align-items:center;gap:22px;padding:20px 26px;background:{P["chip"]};'
         f'border-radius:20px"><span style="font-size:40px">{ic}</span><div><div style="font-family:{_SANS};'
@@ -1502,7 +1508,7 @@ def _scene_closer(P, bg, handle, dark=False):
         {rows}
       </div>
     </div>"""
-    return _scene_page(P, bg, inner, handle, dark)
+    return _scene_page(P, bg, inner, handle, dark, foot="FOLLOW · COMMENT · DM")
 
 
 # The Instagram-worthy per-product templates the renderer agent chooses between.
@@ -1849,7 +1855,8 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
         if t in _SCENE_LAYOUTS:
             fn = {"scene_hero": _scene_hero, "scene_float": _scene_float, "scene_split": _scene_split}[t]
             htmls.append(fn(ps[0], scene["cuts"][_src(ps[0])], scene["bg"], P, handle, chip, sp["kick"], dark,
-                            num=_slide_no.get(id(ps[0]), 0)))
+                            num=_slide_no.get(id(ps[0]), 0),
+                            foot=("FOLLOW · COMMENT · DM" if sp is specs[-1] else "SWIPE →")))
         elif t == "scene_flatlay":
             htmls.append(_scene_flatlay(ps, [scene["cuts"][_src(p)] for p in ps], scene["bg"], P, handle,
                                         title=_cover_hook(sp.get("title", ""), category, len(products)),
