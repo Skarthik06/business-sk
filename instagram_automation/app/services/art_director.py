@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app import settings
@@ -54,7 +55,63 @@ PREMIUM_RULE = ("HOUSE STYLE = PREMIUM DARK: the scene must be a deep, moody, lu
 
 
 def look_of(look: str = "") -> str:
-    return (look or _knob("ART_LOOK", "premium")).strip().lower() or "premium"
+    lk = (look or _knob("ART_LOOK", "premium")).strip().lower() or "premium"
+    return "noir" if lk == "premium" else lk             # premium = the Noir Gold palette row
+
+
+_AGENT_MD = Path(__file__).resolve().parent.parent / "agents" / "scene-prompt.agents.md"
+_FALLBACK_RULES = ("EMPTY scene only (no people/products/text); centre and lower half open; name real wall "
+                   "and floor materials; state light source + direction; 2-3 palette colours contrasting the "
+                   "products; eye-level straight-on 35mm; 30-70 words.")
+
+
+def _agent_md() -> str:
+    try:
+        return _AGENT_MD.read_text("utf-8")
+    except Exception:
+        return ""
+
+
+def _prompt_rules() -> str:
+    """The RULES block of agents/scene-prompt.agents.md — the live constraints for scene prompts."""
+    m = re.search(r"<!-- RULES:BEGIN -->(.*?)<!-- RULES:END -->", _agent_md(), re.S)
+    return (m.group(1).strip() if m else "") or _FALLBACK_RULES
+
+
+def _palette_rows() -> Dict[str, Dict[str, str]]:
+    """The PALETTE table of agents/scene-prompt.agents.md → {palette key: scene direction}."""
+    m = re.search(r"<!-- PALETTES:BEGIN -->(.*?)<!-- PALETTES:END -->", _agent_md(), re.S)
+    rows: Dict[str, Dict[str, str]] = {}
+    for line in (m.group(1).splitlines() if m else []):
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) >= 6 and cells[0] in PALETTES:
+            rows[cells[0]] = {"look": cells[1], "colors": cells[2], "materials": cells[3],
+                              "light": cells[4], "mood": cells[5]}
+    return rows
+
+
+def _row_rule(key: str, row: Dict[str, str]) -> str:
+    return (f"LOOK = {row['look']} (palette '{key}'): scene colours {row['colors']}; materials {row['materials']}; "
+            f"light {row['light']}; mood {row['mood']}. Write the scene INSIDE this look.")
+
+
+_SCENE_FIELDS = ("setting", "wall", "floor", "light", "props", "camera", "mood")
+
+
+def _assemble_prompt(f: Dict[str, Any]) -> str:
+    """Fixed field order Z-Image responds to best: setting → surfaces → light → props → palette → camera → mood."""
+    parts = [str(f.get("setting") or "").strip(), str(f.get("wall") or "").strip(),
+             str(f.get("floor") or "").strip(), str(f.get("light") or "").strip()]
+    props = str(f.get("props") or "").strip()
+    if props and props.lower() not in ("none", "no props", "-"):
+        parts.append(f"{props} at the far edge of the frame")
+    cols = [str(c).strip() for c in (f.get("colors") or []) if str(c).strip()][:3]
+    if cols:
+        parts.append("colour palette of " + ", ".join(cols))
+    parts += [str(f.get("camera") or "eye-level, straight-on, 35mm, deep focus").strip(),
+              (str(f.get("mood") or "").strip() + " mood") if f.get("mood") else "",
+              "editorial fashion photography, minimal luxury studio, open empty space in the centre and lower half"]
+    return ", ".join(p for p in parts if p)[:900]
 
 
 def enabled() -> bool:
@@ -148,9 +205,10 @@ def _facts(products, metas) -> List[Dict[str, Any]]:
 def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: str = "") -> str:
     scenes = [{"key": s["key"], "mood": s.get("mood"), "palette": s.get("palette"), "niches": s.get("niches"),
                "tags": s.get("tags"), "uses": s.get("uses", 0)} for s in lib if s.get("ready")]
-    new_rule = ("STEP 2 — WRITE THE SCENE PROMPT (required): from YOUR analysis in step 1, write ONE new "
-                "scene for THIS post in scene.new — it is painted by the image model and used for this post. "
-                "Also give the closest library scene in scene.use as a fallback." if allow_new else
+    new_rule = ("STEP 2 — DESIGN THE SCENE for THIS post (required): from YOUR analysis in step 1, fill "
+                "scene.new as STRUCTURED fields (setting, wall, floor, light, props, colors, camera, mood). It is "
+                "painted by the local image model and used for this post. Also give the closest library scene "
+                "in scene.use as a fallback." if allow_new else
                 "STEP 2 — pick the best library scene in scene.use; set scene.new to null.")
     return (
         f"Design ONE Instagram carousel for category '{category or 'mixed'}' with {len(products)} products.\n\n"
@@ -162,13 +220,7 @@ def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: st
         "(read them from the photo), material/texture, style, and the vibe/occasion it suits. Be precise — "
         "this analysis drives everything else.\n"
         f"{new_rule}\n"
-        "  The scene must flatter THESE products: a setting where they'd naturally be styled for their vibe, "
-        "with a colour palette that CONTRASTS with the products' main colours so they pop (dark products → a "
-        "light/warm scene; light products → a deeper scene; never the same colour as the product). "
-        "Describe an EMPTY photographic scene only — no people, no products, no text, no logos — with open "
-        "space in the centre and lower half, real materials, surfaces and light direction (e.g. 'warm taupe "
-        "limewash wall, pale oak floor, soft window light from the left, a linen-covered bench at the far "
-        "edge'). 30-70 words.\n"
+        f"{_prompt_rules()}\n"
         + (f"{style_rule}\n" if style_rule else "") +
         "STEP 3 — LAYOUTS: a model wearing it with the photo cropped at the bottom → scene_hero; a whole "
         "object → scene_float; vary layouts so the post isn't monotonous.\n"
@@ -180,7 +232,8 @@ def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: st
         "- concept: ≤ 6 words naming the post's mood.\n\n"
         'Return JSON: {"analysis": [{"i": int, "type": str, "colors": [str], "material": str, "style": str, '
         '"vibe": str}], "concept": str, "scene": {"use": "<library key>", "new": null | {"key": "snake_case", '
-        '"prompt": str, "palette": str, "mood": str, "niches": [str], "tags": [str]}}, "palette": str, '
+        '"palette": str, "setting": str, "wall": str, "floor": str, "light": str, "props": str, "colors": [str], '
+        '"camera": str, "mood": str, "niches": [str], "tags": [str]}}, "palette": str, '
         '"cover": {"layout": str}, "chip": str, "slides": [{"i": int, "layout": str, "why": "≤ 10 words"}]}'
     )
 
@@ -213,6 +266,8 @@ def _validate(raw: Dict[str, Any], base: Dict[str, Any], products, lib, allow_ne
     if sc.get("use") in keys:
         plan["scene"]["use"] = sc["use"]
     new = sc.get("new")
+    if isinstance(new, dict) and any(new.get(k) for k in ("setting", "wall", "floor", "light")):
+        new["prompt"] = _assemble_prompt(new)            # structured fields → the fixed-order prompt
     if allow_new and isinstance(new, dict) and len(str(new.get("prompt") or "")) >= 40:
         import hashlib as _h
         base_key = scene_store.scene_key(str(new.get("key") or new["prompt"][:40]))[:40]
@@ -221,7 +276,8 @@ def _validate(raw: Dict[str, Any], base: Dict[str, Any], products, lib, allow_ne
                                 "palette": new.get("palette") if new.get("palette") in PALETTES else plan["palette"],
                                 "mood": str(new.get("mood") or "")[:120],
                                 "niches": [str(x) for x in (new.get("niches") or [])][:6],
-                                "tags": [str(x) for x in (new.get("tags") or [])][:8]}
+                                "tags": [str(x) for x in (new.get("tags") or [])][:8],
+                                "fields": {k: str(new.get(k) or "")[:160] for k in _SCENE_FIELDS}}
     if raw.get("palette") in PALETTES:
         plan["palette"] = raw["palette"]
     elif plan["scene"]["use"]:
@@ -262,14 +318,19 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "") -
     scene_store.wait_for([_img_url(p) for p in products], [], float(_knob("ART_META_WAIT_SECS", "15")))
     lk = look_of(look)
     lib = scene_store.library()
-    fixed = scene_store.scene(lk) if lk not in ("premium", "ai") else None
+    rows = _palette_rows()
+    fixed = scene_store.scene(lk) if (lk != "ai" and lk not in rows) else None
     style_rule = ""
     if fixed and fixed.get("ready"):
         lib = [fixed]                                     # a chosen scene: always that backdrop
-    elif lk == "premium":
-        dark = [s for s in lib if s.get("palette") == "noir"]
-        lib = dark or lib                                 # premium fallbacks = the dark scenes
-        style_rule = PREMIUM_RULE
+    elif lk in rows:                                      # a palette Look (premium = noir)
+        same = [x for x in lib if x.get("palette") == lk]
+        lib = same or lib                                 # fallbacks in the same palette
+        style_rule = _row_rule(lk, rows[lk]) + (" " + PREMIUM_RULE if lk == "noir" else "")
+    else:                                                 # 'ai': the agent picks the look
+        style_rule = ("LOOK = AI CHOICE: pick the palette row that best flatters these products, set "
+                      "`palette` to its key and write the scene inside it:\n" +
+                      "\n".join(f"- {k}: {_row_rule(k, r)}" for k, r in rows.items()))
     metas = {u: scene_store.cutout_meta(u) for u in (_img_url(p) for p in products) if u}
     plan = _fallback_plan(products, category, lib, metas)
     allow_new = (_knob("ART_ALLOW_NEW_SCENES", "1").lower() not in ("0", "false", "off")) and not fixed
@@ -279,10 +340,10 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "") -
             plan = _validate(_call_llm(products, category, lib, metas, allow_new, style_rule), plan, products, lib, allow_new)
         except Exception as e:                            # noqa: BLE001 — rules plan stands
             err = str(e)[:160]
-    if lk == "premium":                                   # the brand look: noir panels + gold accents
-        plan["palette"] = "noir"
+    if lk in rows:                                        # the chosen Look fixes the slide palette
+        plan["palette"] = lk
         if plan["scene"].get("new"):
-            plan["scene"]["new"]["palette"] = "noir"
+            plan["scene"]["new"]["palette"] = lk
     elif fixed:
         plan["palette"] = fixed.get("palette") or plan["palette"]
     plan["look"] = lk

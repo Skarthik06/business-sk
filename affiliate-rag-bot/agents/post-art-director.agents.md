@@ -74,6 +74,15 @@ Worker endpoints bypass the admin gate but require `GPU_WORKER_TOKEN` (constant-
 upload is decoded + verified as a real image (size-bounded) and saved under a hash/slug name — the
 worker cannot write arbitrary files. Scene assets are git-ignored (`images/sk_scenes/`).
 
+## AD9 — Looks + prompt constraints ✓ enforced
+The Studio **Look** (knob `ART_LOOK`, default `premium`) sets the post's palette and the scene's colour
+direction: `premium` (= Noir Gold: dark panels + gold accents, dark luxurious scene), any slide palette
+(`warm`, `clay`, `mono`, `sky`, `rose`, `mint`, `lilac`) or `ai` (the agent picks the row). Every post
+gets its OWN scene: the agent analyses the products, then fills STRUCTURED scene fields under the rules
+of [[scene-prompt]] (`instagram_automation/app/agents/scene-prompt.agents.md`, read live); the code
+assembles them in a fixed order into the Z-Image prompt. Library scenes are only the fallback while the
+laptop paints (the render waits ≤ `ART_SCENE_WAIT_SECS`, a busy worker counts as online).
+
 ---
 
 ## Tunable knobs (env, IG backend)

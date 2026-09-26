@@ -65,6 +65,7 @@ its file, so the spec never overstates reality.
 | Carousel Publisher | [carousel-publisher.agents.md](agents/carousel-publisher.agents.md) | IG carousel selection/order, secure posting, comment→DM, storefront refresh | `instagram_automation/app/*` |
 | Still Set Templates | [still-set-templates.agents.md](agents/still-set-templates.agents.md) | Designed-slide look: product-is-hero (big/clean), index frame, tint system, type, layout-by-count, no-fabrication | `instagram_automation/app/services/sk_render.py` |
 | Post Art Director | [post-art-director.agents.md](agents/post-art-director.agents.md) | THE post design since 2026-09-26: vision LLM picks concept, AI scene (library / new Z-Image prompt), per-slide layout (hero / float / split / flat-lay cover / closer), palette + headline; real product cut-outs, never altered | `instagram_automation/app/services/art_director.py`, `scene_store.py`, `sk_render.py`, `scripts/gpu_worker.py` |
+| Scene Prompt Builder | [scene-prompt.agents.md](../instagram_automation/app/agents/scene-prompt.agents.md) | Constraints for the image-model prompt (read LIVE by the art director): empty-scene rules, composition, materials, light, palette-row colours per Look (noir/warm/clay/mono/sky/rose/mint/lilac), structured fields → fixed-order prompt | `instagram_automation/app/services/art_director.py`, `scripts/gpu_worker.py` |
 
 ### Autopilot layer (v5 — Phases 1–2 of the [Autopilot blueprint](docs/AUTOPILOT_BLUEPRINT.md))
 

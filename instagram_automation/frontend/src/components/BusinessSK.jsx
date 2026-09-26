@@ -677,27 +677,16 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                 </select>
               </div>
               <div>
-                <label className="text-xs" style={{ color: 'var(--muted)' }}>Slide palette</label>
-                <div className="ctrl-chips" style={{ marginTop: 6 }}>
-                  {(renderOpts.palettes?.length ? renderOpts.palettes : [{ id: 'warm', label: 'Warm Sand', swatch: '#EFE9E1', tint: '#B04A32' }, { id: 'sky', label: 'Sky Blue', swatch: '#E7F0F8', tint: '#2E7DC4' }]).map((o) => (
-                    <button key={o.id} type="button" className={cx('opt-card', palette === o.id && 'on')} onClick={() => setPalette(o.id)} title={o.dark ? 'Dark theme' : ''} style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-                      <span style={{ width: 16, height: 16, borderRadius: 5, flex: 'none', background: o.swatch, border: `2px solid ${o.tint}`, boxShadow: 'inset 0 0 0 1px rgba(0,0,0,.12)' }} />
-                      {o.label}{o.dark ? ' 🌙' : ''}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div>
-                <label className="text-xs" style={{ color: 'var(--muted)' }}>Design</label>
+                <label className="text-xs" style={{ color: 'var(--muted)' }}>Design · Look</label>
                 <div className="text-sm" style={{ marginTop: 8, fontWeight: 700 }}>✨ AI Art Director</div>
                 <div className="ctrl-chips" style={{ marginTop: 6, flexWrap: 'wrap', maxWidth: 520 }}>
-                  {[{ key: 'premium', label: '🖤 Premium dark', tip: 'Brand look: dark panels + gold accents; the AI writes a dark, luxurious scene for each post' },
+                  {[{ key: 'premium', label: '🖤 Premium dark (Noir Gold)', tip: 'Brand look: dark panels + gold accents; the AI writes a dark, luxurious scene for each post' },
                     { key: 'ai', label: '✨ AI free', tip: 'The AI picks any scene + palette per post' },
-                    ...((scenes?.library || []).filter((x) => x.ready).map((x) => ({ key: x.key, label: x.key.replace(/_/g, ' '), thumb: x.thumb, tip: x.mood || x.key })))]
+                    ...((renderOpts.palettes || []).filter((o) => o.id !== 'noir').map((o) => ({ key: o.id, label: o.label, swatch: o.swatch, tint: o.tint, tip: `${o.label}: the AI writes a scene in this palette's colours (agents/scene-prompt.agents.md)` })))]
                     .map((o) => (
                       <button key={o.key} type="button" className={cx('opt-card', look === o.key && 'on')} title={o.tip}
                         onClick={() => setLook(o.key)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
-                        {o.thumb && <img src={o.thumb} alt="" style={{ width: 18, height: 22, objectFit: 'cover', borderRadius: 3 }} />}
+                        {o.swatch && <span style={{ width: 14, height: 14, borderRadius: 4, flex: 'none', background: o.swatch, border: `2px solid ${o.tint}` }} />}
                         {o.label}
                       </button>
                     ))}
