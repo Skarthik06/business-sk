@@ -83,6 +83,17 @@ of [[scene-prompt]] (`instagram_automation/app/agents/scene-prompt.agents.md`, r
 assembles them in a fixed order into the Z-Image prompt. Library scenes are only the fallback while the
 laptop paints (the render waits ≤ `ART_SCENE_WAIT_SECS`, a busy worker counts as online).
 
+## AD10 — Token economy + cost transparency ✓ enforced
+Static instructions first, per-post data last (OpenAI prompt cache bills the ~1.3k fixed tokens at
+10%); compact JSON; library trimmed to key/mood/palette; photos sent as small cut-out thumbnails
+(`ART_IMG_PX` 320) instead of full images; minimal reasoning. Measured per 4-product post: Art
+Director ~2.9k in (1.3k cached) + ~0.7k out ≈ $0.0004; with the caption writer ≈ 5.7k tokens,
+**$0.00055 (₹0.05) per post** (was ~8k+ input for the Art Director alone). Every preview returns the
+priced breakdown (input / cached / output / reasoning per step) and the Studio post card shows it.
+Knobs: `LLM_PRICE_IN_PER_M` 0.05 · `LLM_PRICE_CACHED_PER_M` 0.005 · `LLM_PRICE_OUT_PER_M` 0.40 ·
+`USD_INR` 88 · `ART_REASONING_EFFORT` minimal · `ART_IMG_PX` 320. Default look is `ai` (the agent decides
+per post; a palette used by the last 2 posts is excluded for variety; `recent_looks.json`).
+
 ---
 
 ## Tunable knobs (env, IG backend)
