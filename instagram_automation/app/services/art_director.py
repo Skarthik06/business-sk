@@ -97,7 +97,8 @@ def presets() -> Dict[str, Dict[str, str]]:
     for line in (m.group(1).splitlines() if m else []):
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
         if len(cells) >= 3 and re.fullmatch(r"/[a-z0-9][a-z0-9-]{1,24}", cells[0]):
-            out[cells[0]] = {"adds": cells[1], "best_for": cells[2]}
+            pals = [x.strip() for x in (cells[3] if len(cells) > 3 else "").split(",") if x.strip() in PALETTES]
+            out[cells[0]] = {"adds": cells[1], "best_for": cells[2], "palettes": pals or list(PALETTES)}
     return out
 
 
@@ -280,7 +281,9 @@ def _user_prompt(products, category, lib, metas, allow_new: bool, style_rule: st
     return (
         "You design ONE Instagram carousel for the products given at the END under === THIS POST ===.\n\n"
         "STYLE PRESETS (slash commands; each adds proven scene phrases): "
-        f"{J({k: v['best_for'] for k, v in presets().items()})}\n"
+        f"{J({k: v['best_for'] + ' | palettes: ' + ','.join(v['palettes']) for k, v in presets().items()})}\n"
+        "A preset may ONLY be combined with one of its listed palettes — the palette, the presets and the "
+        "scene fields must describe ONE coherent scene.\n"
         "Pick the 1-2 presets that best fit YOUR product analysis in `presets` (unless the post gives "
         "USER STYLE COMMANDS — then use exactly those), and design the scene fields to match them.\n\n"
         f"SLIDE LAYOUTS (choose one per product — these are the ONLY layouts):\n{J(_LAYOUT_GUIDE)}\n\n"
@@ -439,9 +442,14 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "", s
                    ". Do your best, most creative work and keep the feed VARIED: choose a different "
                    "palette/scene idea than the last posts unless these products clearly demand the same "
                    "style.\n") if recent else ""
+        _forced = parse_styles(styles)
+        if _forced:
+            _sets = [set(presets()[p]["palettes"]) for p in _forced]
+            _ok = set.intersection(*_sets) or set.union(*_sets)
+            rows = {k: r for k, r in rows.items() if k in _ok} or rows
         last2 = [r.get("palette") for r in recent[-2:]]
         banned = last2[0] if (len(last2) == 2 and last2[0] and last2[0] == last2[1]) else ""
-        if banned:
+        if banned and len(rows) > 1:
             rows = {k: r for k, r in rows.items() if k != banned}
             variety += f"The last 2 posts both used '{banned}', so it is NOT available this time.\n"
         style_rule = (variety + "LOOK = AI CHOICE: pick the palette row that best flatters these products, set "
@@ -471,7 +479,9 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "", s
         if plan["scene"].get("new"):
             plan["scene"]["new"]["palette"] = plan["palette"]
     forced = parse_styles(styles)
-    plan["presets"] = forced or plan.get("presets") or []
+    _pal = plan.get("palette")
+    plan["presets"] = forced or [p for p in (plan.get("presets") or [])
+                                 if _pal in presets().get(p, {}).get("palettes", [])]
     _new = plan["scene"].get("new")
     if _new and _new.get("fields") and any(_new["fields"].get(k) for k in ("setting", "wall", "floor", "light")):
         _new["prompt"] = _assemble_prompt(_new["fields"], plan["presets"])

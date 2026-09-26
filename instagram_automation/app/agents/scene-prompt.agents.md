@@ -61,25 +61,27 @@ Each `/preset` expands into proven prompt phrases that are appended to the assem
 The agent picks 1–2 that fit the analysed products; you can force them from the Studio
 ("Style commands", e.g. `/premium /cinematic`). Add a row to create a new command — no code change.
 Phrases are POSITIVE (Z-Image has no negative prompt) and describe only the empty scene.
+`palettes` = the palette rows a preset is coherent with — forced presets restrict the palette to
+these, and an agent-picked preset that clashes with the post's palette is dropped (no muddy mixes).
 
 <!-- PRESETS:BEGIN -->
-| preset | adds to the scene | best for |
-|--------|-------------------|----------|
-| /premium | quiet luxury, polished stone and brushed brass details, controlled warm spotlight, rich deep shadows, expensive editorial finish | premium apparel, watches, fragrance, leather |
-| /vintage | film photography look, warm faded tones, aged plaster and worn wood, soft grain, 1970s editorial warmth | denim, jackets, retro sneakers, leather bags |
-| /minimal | clean seamless backdrop, generous negative space, soft even light, one subtle shadow, calm restraint | basics, tees, tech, skincare |
-| /streetwear | urban concrete and raw brick, cool daylight with hard shadows, gritty texture, street editorial energy | hoodies, sneakers, caps, oversized fits |
-| /cinematic | cinematic lighting with a single strong key light, dramatic falloff, subtle haze, anamorphic depth | statement pieces, gadgets, dark products |
-| /golden-hour | low warm sun raking across the wall, long soft shadows, honey-gold glow | summer wear, linen, sunglasses, outdoor |
-| /studio | professional photo studio, seamless paper sweep, softbox lighting, crisp controlled shadows | any product, catalogue clarity |
-| /cozy | soft knit throw and warm wood, lamp-lit ambience, gentle warm glow, homely calm | sweaters, loungewear, winter wear, home |
-| /coastal | whitewashed plaster, pale sand and driftwood tones, airy sea-light, breezy calm | resort wear, sandals, linen shirts |
-| /scandi | pale birch wood, white walls, soft north light, simple functional calm | home, kitchen, minimal fashion |
-| /industrial | raw concrete, black steel beams, exposed brick, cool diffused skylight | boots, jackets, tools, tech |
-| /botanical | lush green leaves at the edge, dappled natural light through foliage, fresh organic calm | beauty, wellness, summer dresses |
-| /tech | sleek dark surfaces, cool rim light, subtle reflective sheen, precise modern minimalism | earbuds, smartwatches, phones, gadgets |
-| /y2k | glossy pastel surfaces, iridescent sheen, playful soft pop lighting | trend fashion, accessories, beauty |
-| /editorial | high-fashion magazine set, sculptural plinth, confident directional light, art-directed composition | fashion hero pieces, curated edits |
+| preset | adds to the scene | best for | palettes |
+|--------|-------------------|----------|----------|
+| /premium | quiet luxury, polished stone and brushed brass details, controlled warm spotlight, rich deep shadows, expensive editorial finish | premium apparel, watches, fragrance, leather | noir, mono, warm |
+| /vintage | film photography look, warm faded tones, aged plaster and worn wood, soft grain, 1970s editorial warmth | denim, jackets, retro sneakers, leather bags | warm, clay, noir |
+| /minimal | clean seamless backdrop, generous negative space, soft even light, one subtle shadow, calm restraint | basics, tees, tech, skincare | mono, warm, sky, mint, lilac, rose |
+| /streetwear | urban concrete and raw brick, cool daylight with hard shadows, gritty texture, street editorial energy | hoodies, sneakers, caps, oversized fits | mono, noir |
+| /cinematic | cinematic lighting with a single strong key light, dramatic falloff, subtle haze, anamorphic depth | statement pieces, gadgets, dark products | noir, mono, clay |
+| /golden-hour | low warm sun raking across the wall, long soft shadows, honey-gold glow | summer wear, linen, sunglasses, outdoor | warm, clay, rose |
+| /studio | professional photo studio, seamless paper sweep, softbox lighting, crisp controlled shadows | any product, catalogue clarity | mono, warm, sky, rose, mint, lilac, clay, noir |
+| /cozy | soft knit throw and warm wood, lamp-lit ambience, gentle warm glow, homely calm | sweaters, loungewear, winter wear, home | warm, clay, noir |
+| /coastal | whitewashed plaster, pale sand and driftwood tones, airy sea-light, breezy calm | resort wear, sandals, linen shirts | sky, warm, mono |
+| /scandi | pale birch wood, white walls, soft north light, simple functional calm | home, kitchen, minimal fashion | mono, warm, mint |
+| /industrial | raw concrete, black steel beams, exposed brick, cool diffused skylight | boots, jackets, tools, tech | mono, noir |
+| /botanical | lush green leaves at the edge, dappled natural light through foliage, fresh organic calm | beauty, wellness, summer dresses | mint, warm, sky |
+| /tech | sleek dark surfaces, cool rim light, subtle reflective sheen, precise modern minimalism | earbuds, smartwatches, phones, gadgets | noir, mono, sky |
+| /y2k | glossy pastel surfaces, iridescent sheen, playful soft pop lighting | trend fashion, accessories, beauty | lilac, rose, sky, mint |
+| /editorial | high-fashion magazine set, sculptural plinth, confident directional light, art-directed composition | fashion hero pieces, curated edits | noir, warm, mono, rose, clay |
 <!-- PRESETS:END -->
 
 ## Knobs
