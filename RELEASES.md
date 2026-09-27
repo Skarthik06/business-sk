@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.4.8** (2026-09-27) — /gallery preset made palette-neutral
 - **v2.4.7** (2026-09-27) — Elegant scenes: quiet-luxury real interiors (boutique/gallery) replace photo-studio sets
 - **v2.4.6** (2026-09-27) — Scraping can run fully online through a residential proxy (no laptop needed); laptop worker kept as fallback
 - **v2.4.5** (2026-09-27) — Preview returns the post snapshot URLs (every view shows the same files)
