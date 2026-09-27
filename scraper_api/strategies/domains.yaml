@@ -1,0 +1,55 @@
+# Domain strategies — site-specific behaviour lives HERE, not in the engine.
+# mode:        http | browser | auto (http first, browser fallback when the page needs JavaScript)
+# residential: the site blocks datacenter IPs (the Oracle server) → only fetch through a proxy;
+#              with no proxy the API answers NEEDS_RESIDENTIAL at once (no pointless hits) and the
+#              caller uses its residential route (the laptop worker).
+# min_bytes:   a real page is at least this big; smaller = a block / challenge page.
+# challenge_markers: text that only appears on a block / challenge page.
+defaults:
+  mode: auto
+  timeout: 30
+  max_attempts: 3
+  concurrency: 4
+  cache_ttl: 1800
+  min_bytes: 1500
+  residential: false
+  extract: [title, images, metadata, jsonld, price]
+  challenge_markers: []
+
+domains:
+  amazon.in:
+    mode: http
+    timeout: 30
+    max_attempts: 2
+    concurrency: 2
+    cache_ttl: 1800
+    min_bytes: 80000
+    residential: true
+    challenge_markers:
+      - "api-services-support@amazon.com"
+      - "Enter the characters you see below"
+      - "/errors/validateCaptcha"
+      - "Robot Check"
+  flipkart.com:
+    mode: http
+    timeout: 30
+    max_attempts: 2
+    concurrency: 2
+    cache_ttl: 1800
+    min_bytes: 80000
+    residential: true
+    challenge_markers:
+      - "Please verify you are a human"
+      - "Are you a human?"
+      - "Access Denied"
+  shopsy.in:
+    mode: auto
+    timeout: 30
+    concurrency: 2
+    cache_ttl: 1800
+    min_bytes: 20000
+  myshopify.com:
+    mode: http
+    timeout: 20
+    concurrency: 3
+    cache_ttl: 3600

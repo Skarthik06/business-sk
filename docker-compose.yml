@@ -151,6 +151,32 @@ services:
   # ── HTTPS reverse proxy (Caddy) — gives the studio a real domain + auto TLS ──
   # so Google OAuth works (Google blocks raw-IP / http origins). Only used on the
   # cloud server; harmless locally (it just can't get a cert without a public domain).
+  scraper_api:
+    # ── Scraper API (open-source ScraperAPI-style service; blueprint MVP) ──
+    # Internal only (no published port): the affiliate engine calls http://scraper_api:8200.
+    # HTTP-first + Playwright fallback, classification/retry, disk cache (Redis only holds
+    # pointers — the shared Redis is small/LRU), proxy registry, attempt log, /metrics.
+    build:
+      context: ./scraper_api
+    container_name: business_sk_scraper_api
+    restart: unless-stopped
+    env_file:
+      - ./scraper_api/.env
+    environment:
+      SCRAPER_DATABASE_URL: postgresql://instagram:instagram@db:5432/scraper_api
+      SCRAPER_REDIS_URL: redis://redis:6379/3
+      SCRAPER_DATA_DIR: /data
+    volumes:
+      - ./scraper_api:/app
+      - scraper_data:/data
+    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8200", "--reload"]
+    shm_size: "1gb"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   caddy:
     image: caddy:2-alpine
     container_name: business_sk_caddy
@@ -173,3 +199,4 @@ volumes:
   caddy_data:
   redisdata:
   caddy_config:
+  scraper_data:

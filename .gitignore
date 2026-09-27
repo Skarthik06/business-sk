@@ -64,3 +64,6 @@ desktop.ini
 .idea/
 *.swp
 **/images/sk_scenes/
+
+# scraper_api test scratch
+scraper_api/tests/_data/

@@ -26,83 +26,27 @@ def worker_online() -> bool:
     return _WORKER["seen"] > 0 and (time.time() - _WORKER["seen"]) < 40
 
 
-# ── ONLINE path: the server fetches through a residential proxy (no laptop needed) ────────────
-# Same env the browser scraper uses: SCRAPER_PROXY_SERVER=http://host:port, SCRAPER_PROXY_USER,
-# SCRAPER_PROXY_PASS. Set them on the server and scraping works 24/7 from anywhere (phone too);
-# the laptop worker stays as a free fallback. Credentials are never logged or returned.
-_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
-_BROWSER = {
-    "User-Agent": _UA,
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "Accept-Language": "en-IN,en-GB;q=0.9,en;q=0.8",
-    "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
-    "sec-ch-ua-mobile": "?0", "sec-ch-ua-platform": '"Windows"',
-    "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Site": "none",
-    "Sec-Fetch-User": "?1", "Upgrade-Insecure-Requests": "1",
-}
-_PROXY_STATS = {"ok": 0, "fail": 0, "last_error": ""}
-
-
-def _proxy_url() -> str:
-    server = (os.getenv("SCRAPER_PROXY_SERVER") or "").strip()
-    if not server:
-        return ""
-    if "://" not in server:
-        server = "http://" + server
-    user = (os.getenv("SCRAPER_PROXY_USER") or "").strip()
-    pw = (os.getenv("SCRAPER_PROXY_PASS") or "").strip()
-    if not user:
-        return server
-    from urllib.parse import quote
-    scheme, rest = server.split("://", 1)
-    return f"{scheme}://{quote(user, safe='')}:{quote(pw, safe='')}@{rest}"
-
-
-def proxy_enabled() -> bool:
-    return bool(_proxy_url())
+# ── ONLINE path: the Scraper API service (tools/scraper_client) ────────────────────────────────
+# It caches, classifies block pages, retries within bounds and routes Amazon/Flipkart through a
+# registered residential proxy. The laptop/phone worker below stays as the free fallback.
+from tools import scraper_client  # noqa: E402
 
 
 def online() -> bool:
-    """Can we fetch Amazon/Flipkart right now? (server proxy OR the laptop worker)."""
-    return proxy_enabled() or worker_online()
-
-
-def _fetch_via_proxy(url: str, timeout: float = 45.0) -> dict:
-    import ssl
-    import urllib.request
-    purl = _proxy_url()
-    ctx = ssl.create_default_context()
-    if (os.getenv("SCRAPER_PROXY_INSECURE") or "").strip() in ("1", "true", "yes"):
-        ctx.check_hostname = False                    # some scraping-API proxies re-sign TLS
-        ctx.verify_mode = ssl.CERT_NONE
-    opener = urllib.request.build_opener(urllib.request.ProxyHandler({"http": purl, "https": purl}),
-                                         urllib.request.HTTPSHandler(context=ctx))
-    last, err = b"", ""
-    for attempt in range(1, 4):                       # each retry usually gets a fresh proxy IP
-        try:
-            with opener.open(urllib.request.Request(url, headers=_BROWSER), timeout=timeout) as r:
-                last = r.read()
-            if len(last) > 80_000:                     # a real results page; a few KB = bot-check page
-                _PROXY_STATS["ok"] += 1
-                return {"ok": True, "html": last.decode("utf-8", "ignore"), "via": "proxy"}
-            err = f"blocked/short page ({len(last)} bytes)"
-        except Exception as e:                        # noqa: BLE001 — never raise to callers
-            err = type(e).__name__ + ": " + str(e)[:120].replace(purl, "<proxy>")
-        time.sleep(2 * attempt)
-    _PROXY_STATS["fail"] += 1
-    _PROXY_STATS["last_error"] = err
-    html = last.decode("utf-8", "ignore") if last else ""
-    return {"ok": bool(html), "html": html, "via": "proxy", "error": err}
+    """Can we fetch Amazon/Flipkart right now? (Scraper API with a proxy OR the laptop worker)."""
+    return scraper_client.residential_ready() or worker_online()
 
 
 def fetch(url: str, kind: str, timeout: float = 55.0) -> dict:
-    """Fetch a shopping page from a residential IP: the server's proxy when configured (online,
-    no laptop needed), else the laptop/phone worker. Run via asyncio.to_thread. Never raises."""
-    if proxy_enabled():
-        res = _fetch_via_proxy(url)
-        if (res.get("ok") and len(res.get("html") or "") > 80_000) or not worker_online():
-            return res
+    """Fetch a shopping page: the Scraper API first (cached / proxied / classified), else the
+    laptop/phone worker (residential IP). Run via asyncio.to_thread. Never raises."""
+    if scraper_client.available():
+        res = scraper_client.scrape_html(url, timeout=45)
+        if res.get("ok"):
+            return {"ok": True, "html": res["html"], "via": "scraper_api", "cached": res.get("cached", False)}
+        if not worker_online():
+            return {"ok": False, "error": f"scraper API: {res.get('outcome')} ({res.get('reason')}) and no "
+                                          f"laptop worker online", "via": "scraper_api"}
     jid = uuid.uuid4().hex[:12]
     with _LOCK:
         _JOBS[jid] = {"url": url, "kind": kind, "status": "pending", "html": "", "error": "", "created": time.time()}
@@ -168,9 +112,11 @@ def status() -> dict:
     with _LOCK:
         total = len(_JOBS)
         pending = sum(1 for j in _JOBS.values() if j["status"] == "pending")
+    h = scraper_client.health() if scraper_client.available() else {}
     return {"ok": True, "online": online(), "worker_online": worker_online(),
-            "mode": "proxy (online)" if proxy_enabled() else ("laptop worker" if worker_online() else "offline"),
-            "proxy": {"enabled": proxy_enabled(), "ok": _PROXY_STATS["ok"], "fail": _PROXY_STATS["fail"],
-                      "last_error": _PROXY_STATS["last_error"]},
+            "mode": ("scraper API + proxy (online)" if scraper_client.residential_ready()
+                     else "laptop worker" if worker_online() else "offline"),
+            "scraper_api": {"configured": scraper_client.available(), "healthy": bool(h.get("ok")),
+                            "proxies": h.get("proxies"), "residential_ready": bool(h.get("residential_ready"))},
             "last_seen_secs": (round(time.time() - seen) if seen else None),
             "queue_total": total, "queue_pending": pending, "pid": os.getpid()}
