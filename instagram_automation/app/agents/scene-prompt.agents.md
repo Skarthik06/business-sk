@@ -75,7 +75,7 @@ these, and an agent-picked preset that clashes with the post's palette is droppe
 | /cinematic | cinematic lighting with a single strong key light, dramatic falloff, subtle haze, anamorphic depth | statement pieces, gadgets, dark products | noir, mono, clay |
 | /golden-hour | low warm sun raking across the wall, long soft shadows, honey-gold glow | summer wear, linen, sunglasses, outdoor | warm, clay, rose |
 | /boutique | elegant boutique interior, fluted plaster wall with a slim brass rail, honed stone floor, soft gallery lighting, refined calm | any fashion piece, premium basics, curated edits | mono, warm, sky, rose, mint, lilac, clay, noir |
-| /gallery | quiet gallery alcove, pale venetian plaster, a single framed shadow of window light, museum-calm negative space | statement pieces, accessories, minimal fashion | mono, warm, noir, sky |
+| /gallery | quiet gallery alcove, a single framed shadow of window light on the wall, museum-calm negative space | statement pieces, accessories, minimal fashion | mono, warm, noir, sky |
 | /cozy | soft knit throw and warm wood, lamp-lit ambience, gentle warm glow, homely calm | sweaters, loungewear, winter wear, home | warm, clay, noir |
 | /coastal | whitewashed plaster, pale sand and driftwood tones, airy sea-light, breezy calm | resort wear, sandals, linen shirts | sky, warm, mono |
 | /scandi | pale birch wood, white walls, soft north light, simple functional calm | home, kitchen, minimal fashion | mono, warm, mint |
