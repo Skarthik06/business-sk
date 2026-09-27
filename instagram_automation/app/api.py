@@ -630,22 +630,50 @@ def sk_scenes():
             "library": [dict(s, thumb=scene_store.thumb(s["key"])) for s in scene_store.library()]}
 
 
-@app.get("/api/sk/scraper-dashboard")
-def sk_scraper_dashboard():
-    """Scraper API ops view for the Studio (admin-gated here; the Scraper API itself is internal)."""
+def _scraper_call(method: str, path: str, timeout: int = 10) -> dict:
+    """Call the internal Scraper API with its key (admin-gated here). Never leaks the key or URL."""
     import json as _json
     import os as _os
+    import urllib.error as _ue
     import urllib.request as _ur
     base = (_os.getenv("SCRAPER_API_URL") or "").strip().rstrip("/")
     key = (_os.getenv("SCRAPER_API_KEY") or "").strip()
     if not base or not key:
         return {"success": False, "error": "not configured"}
     try:
-        req = _ur.Request(base + "/v1/dashboard", headers={"X-API-Key": key})
-        with _ur.urlopen(req, timeout=10) as r:
-            return {"success": True, **_json.loads(r.read().decode("utf-8"))}
-    except Exception as e:                              # never leak the key / URL details
+        req = _ur.Request(base + path, method=method, headers={"X-API-Key": key})
+        with _ur.urlopen(req, timeout=timeout) as r:
+            return {"success": True, **_json.loads(r.read().decode("utf-8") or "{}")}
+    except _ue.HTTPError as e:
+        try:
+            detail = _json.loads(e.read().decode("utf-8")).get("detail")
+        except Exception:
+            detail = None
+        return {"success": False, "error": detail or f"HTTP {e.code}"}
+    except Exception as e:
         return {"success": False, "error": f"unreachable ({type(e).__name__})"}
+
+
+@app.get("/api/sk/scraper-dashboard")
+def sk_scraper_dashboard():
+    """Scraper API ops view for the Studio (admin-gated here; the Scraper API itself is internal)."""
+    return _scraper_call("GET", "/v1/dashboard")
+
+
+@app.post("/api/sk/scraper/pairing")
+def sk_scraper_pairing():
+    """One-time code + QR to pair a phone running the Business-SK Helper app (valid 10 min)."""
+    return _scraper_call("POST", "/v1/admin/pairing")
+
+
+@app.get("/api/sk/scraper/devices")
+def sk_scraper_devices():
+    return _scraper_call("GET", "/v1/admin/devices")
+
+
+@app.delete("/api/sk/scraper/devices/{device_id}")
+def sk_scraper_revoke_device(device_id: int):
+    return _scraper_call("DELETE", f"/v1/admin/devices/{int(device_id)}")
 
 
 class GpuResultReq(BaseModel):

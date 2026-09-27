@@ -11,3 +11,4 @@ cryptography>=42
 prometheus-client>=0.20
 pydantic>=2.7
 pytest>=8
+segno>=1.6

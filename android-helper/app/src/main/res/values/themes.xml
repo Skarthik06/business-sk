@@ -1,0 +1,8 @@
+<resources>
+    <!-- Compose draws the UI; this theme only styles the window before Compose starts (no white flash). -->
+    <style name="Theme.Helper" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+</resources>

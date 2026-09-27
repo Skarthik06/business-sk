@@ -70,6 +70,10 @@ export default {
   skScenes: () => http.get('/sk/scenes').then(data),
   // Scraper API ops view (routes, workers, circuits) — via the admin-gated IG backend.
   skScraperDashboard: () => http.get('/sk/scraper-dashboard').then(data),
+  // Business-SK Helper phone pairing (QR + one-time code) and device management.
+  skScraperPairing: () => http.post('/sk/scraper/pairing').then(data),
+  skScraperDevices: () => http.get('/sk/scraper/devices').then(data),
+  skScraperRevokeDevice: (id) => http.delete(`/sk/scraper/devices/${id}`).then(data),
 
   // Palettes + per-slide templates (with details) for the Content Studio pickers.
   skRenderOptions: () => http.get('/sk/render-options').then(data),

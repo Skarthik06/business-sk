@@ -69,13 +69,15 @@ async def http_fetch(url: str, timeout: int, proxy: Optional[Proxy]) -> Dict[str
         return {"status": None, "html": "", "final_url": url, "content_type": "", "headers": {}, "error": msg}
 
 
-async def build_routes(s: Strategy, render: bool, use_proxy: Optional[bool]) -> List[Route]:
+async def build_routes(s: Strategy, render: bool, use_proxy: Optional[bool], host: str = "") -> List[Route]:
     """Every route that could serve this request right now (health/circuits are applied by the ranker)."""
     modes = ["browser"] if (render or s.mode == "browser") else (["http"] if s.mode == "http" else ["http", "browser"])
     routes: List[Route] = []
     if use_proxy is not True:
         routes += [Route(f"direct_{m}", "direct", m) for m in modes]
         for w in await workers.list_workers():
+            if w.get("status") == "paused" or not workers.allows(w, host):
+                continue                              # paused (data cap / battery) or site not allowed
             avail = {"online": 1.0, "stale": 0.5}.get(w["state"], 0.0)
             routes += [Route(f"worker_{m}:{w['worker_id']}", "worker", m, avail, w)
                        for m in modes if m in (w.get("capabilities") or [])]
@@ -144,7 +146,7 @@ async def scrape(url: str, *, api_key_id: int, render: bool = False, fields: Opt
                     "duration_ms": int((time.monotonic() - t_start) * 1000)}
 
     priors = s.priors()
-    routes = await build_routes(s, render, use_proxy)
+    routes = await build_routes(s, render, use_proxy, host)
     deadline = t_start + s.max_time
     exclude: set = set()
     retried: Dict[str, int] = {}

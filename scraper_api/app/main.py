@@ -8,7 +8,8 @@
   GET/POST/DELETE /v1/admin/proxies   proxy registry (credentials never returned)
   GET  /v1/stats           per-domain success / latency (24 h)
   GET  /v1/dashboard       route health, circuits, workers, throughput (the ops dashboard's data)
-  POST /v1/workers/heartbeat · /v1/workers/jobs/lease · /v1/workers/jobs/{id}/result
+  POST /v1/workers/heartbeat · /v1/workers/jobs/lease · /v1/workers/jobs/{id}/result · /v1/workers/pair
+  POST /v1/admin/pairing · GET /v1/admin/devices · DELETE /v1/admin/devices/{id}   (device pairing)
                            remote workers (laptop / phone / any machine) — X-Worker-Token auth;
                            the ONLY paths exposed publicly (Caddy /scraper-worker/*)
   GET  /metrics            Prometheus (internal network only)
@@ -22,11 +23,11 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
 import redis.asyncio as aioredis
-from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query, Request
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import cache, config, engine, metrics, routing, security, store, workers
+from . import cache, config, devices, engine, metrics, routing, security, store, workers
 from .browser import pool as browser_pool
 from .proxies import manager as proxies
 
@@ -255,20 +256,38 @@ async def prom():
 
 
 # ── remote workers (laptop / phone / any machine) ─────────────────────────────────────────────
-async def worker_auth(x_worker_token: str = Header("", alias="X-Worker-Token")) -> None:
-    if not workers.token_ok(x_worker_token):
-        raise HTTPException(401, "bad worker token")
+async def worker_auth(x_worker_token: str = Header("", alias="X-Worker-Token")) -> Dict[str, Any]:
+    """Shared worker token (laptop, any worker id) OR a paired device's own token (bound to ITS id)."""
+    if workers.token_ok(x_worker_token):
+        return {"kind": "shared"}
+    dev = await devices.by_token(x_worker_token)
+    if dev:
+        return {"kind": "device", "worker_id": dev["worker_id"], "device_id": dev["id"]}
+    raise HTTPException(401, "bad worker token")
+
+
+def _same_worker(ident: Dict[str, Any], worker_id: str) -> None:
+    if ident.get("kind") == "device" and ident.get("worker_id") != worker_id:
+        raise HTTPException(403, "this token belongs to another worker")
 
 
 class HeartbeatReq(BaseModel):
     worker_id: str = Field(..., max_length=40)
-    status: str = Field("healthy", max_length=20)
+    status: str = Field("healthy", max_length=20)          # healthy | paused
     capabilities: list = Field(default_factory=lambda: ["http"])
     active_jobs: int = Field(0, ge=0, le=1000)
     cpu_percent: Optional[float] = None
     memory_percent: Optional[float] = None
     kind: str = Field("remote", max_length=20)
     version: str = Field("", max_length=20)
+    # phone telemetry (optional)
+    battery_percent: Optional[float] = Field(None, ge=0, le=100)
+    charging: Optional[bool] = None
+    network: Optional[str] = Field(None, max_length=20)     # wifi | cellular | other
+    data_today_mb: Optional[float] = Field(None, ge=0, le=1_000_000)
+    jobs_today: Optional[int] = Field(None, ge=0, le=1_000_000)
+    allowed_domains: Optional[list] = None
+    paused_reason: Optional[str] = Field(None, max_length=80)
 
 
 class LeaseReq(HeartbeatReq):
@@ -287,28 +306,75 @@ class ResultReq(BaseModel):
     duration_ms: Optional[int] = None
 
 
-@app.post("/v1/workers/heartbeat", dependencies=[Depends(worker_auth)])
-async def worker_heartbeat(body: HeartbeatReq):
+async def _beat(ident: Dict[str, Any], body: HeartbeatReq) -> None:
     if not workers.valid_id(body.worker_id):
         raise HTTPException(400, "worker_id: letters, digits, . _ - (max 40)")
+    _same_worker(ident, body.worker_id)
     await workers.heartbeat(body.worker_id, body.model_dump())
+    if ident.get("kind") == "device":
+        await devices.touch(ident["device_id"])
+
+
+@app.post("/v1/workers/heartbeat")
+async def worker_heartbeat(body: HeartbeatReq, ident: Dict[str, Any] = Depends(worker_auth)):
+    await _beat(ident, body)
     return {"ok": True, "online_secs": workers.ONLINE_SECS}
 
 
-@app.post("/v1/workers/jobs/lease", dependencies=[Depends(worker_auth)])
-async def worker_lease(body: LeaseReq):
-    if not workers.valid_id(body.worker_id):
-        raise HTTPException(400, "bad worker_id")
-    await workers.heartbeat(body.worker_id, body.model_dump())
+@app.post("/v1/workers/jobs/lease")
+async def worker_lease(body: LeaseReq, ident: Dict[str, Any] = Depends(worker_auth)):
+    await _beat(ident, body)
+    if body.status == "paused":
+        return {"jobs": []}
     return {"jobs": await workers.lease(body.worker_id, body.max, body.wait)}
 
 
-@app.post("/v1/workers/jobs/{attempt_id}/result", dependencies=[Depends(worker_auth)])
-async def worker_result(body: ResultReq, attempt_id: str = Path(..., max_length=80, pattern=r"^[A-Za-z0-9_]+$")):
+@app.post("/v1/workers/jobs/{attempt_id}/result")
+async def worker_result(body: ResultReq, attempt_id: str = Path(..., max_length=80, pattern=r"^[A-Za-z0-9_]+$"),
+                        ident: Dict[str, Any] = Depends(worker_auth)):
+    _same_worker(ident, body.worker_id)
     res = await workers.submit(body.worker_id, attempt_id, body.model_dump())
     if not res.get("ok"):
         raise HTTPException(409, res.get("error", "rejected"))
     return res
+
+
+class PairReq(BaseModel):
+    code: str = Field(..., max_length=20)
+    name: str = Field("Phone", max_length=60)
+    model: str = Field("", max_length=60)
+
+
+@app.post("/v1/workers/pair")
+async def worker_pair(body: PairReq, request: Request):
+    """PUBLIC (rate-limited): a device trades a one-time pairing code for its own worker id + token."""
+    fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    ip = fwd or (request.client.host if request.client else "")
+    if await devices.rate_limited(ip):
+        raise HTTPException(429, "too many pairing attempts — wait 10 minutes", headers={"Retry-After": "600"})
+    res = await devices.redeem(body.code, body.name, body.model)
+    if not res:
+        raise HTTPException(400, "pairing code is invalid or expired — create a new one in the Studio")
+    return {"ok": True, **res, "online_secs": workers.ONLINE_SECS}
+
+
+# ── device admin (pairing codes, list, revoke) ────────────────────────────────────────────────
+@app.post("/v1/admin/pairing", status_code=201)
+async def admin_pairing(key: Dict[str, Any] = Depends(api_key)):
+    return await devices.create_pairing(key["id"])
+
+
+@app.get("/v1/admin/devices")
+async def admin_devices(key: Dict[str, Any] = Depends(api_key)):
+    return {"devices": await devices.list_devices()}
+
+
+@app.delete("/v1/admin/devices/{device_id}")
+async def admin_revoke_device(device_id: int, key: Dict[str, Any] = Depends(api_key)):
+    wid = await devices.revoke(device_id)
+    if not wid:
+        raise HTTPException(404, "device not found or already revoked")
+    return {"revoked": device_id, "worker_id": wid}
 
 
 # ── ops dashboard data ─────────────────────────────────────────────────────────────────────────
@@ -327,8 +393,10 @@ async def dashboard(key: Dict[str, Any] = Depends(api_key)):
         "route_success_24h": [{"route": r["route"], "attempts": r["attempts"],
                                "success_rate": round(int(r["success"] or 0) / r["attempts"], 3) if r["attempts"] else None}
                               for r in n.get("by_route") or []],
-        "workers": [{k: w.get(k) for k in ("worker_id", "kind", "state", "age_s", "capabilities", "active_jobs",
-                                           "cpu_percent", "memory_percent", "version")} for w in ws],
+        "workers": [{k: w.get(k) for k in ("worker_id", "kind", "state", "status", "age_s", "capabilities",
+                                           "active_jobs", "cpu_percent", "memory_percent", "version",
+                                           "battery_percent", "charging", "network", "data_today_mb",
+                                           "jobs_today", "allowed_domains", "paused_reason")} for w in ws],
         "proxies": [p.public() for p in proxies.proxies.values()],
         **routing.book.snapshot(),
         "weights": routing.weights(),

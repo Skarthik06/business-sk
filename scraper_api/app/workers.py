@@ -52,6 +52,16 @@ def valid_id(worker_id: str) -> bool:
     return bool(_ID.match(worker_id or ""))
 
 
+def allows(worker: Dict[str, Any], host: str) -> bool:
+    """A worker that declares `allowed_domains` (the phone app does) only gets jobs for those sites
+    (the phone refuses anything else anyway). No list = any site."""
+    doms = worker.get("allowed_domains")
+    if not doms:
+        return True
+    h = (host or "").lower().rstrip(".")
+    return any(h == d or h.endswith("." + d) for d in doms)
+
+
 def state_of(age: float) -> str:
     return "online" if age < ONLINE_SECS else ("stale" if age < STALE_SECS else "offline")
 
@@ -66,6 +76,18 @@ async def heartbeat(worker_id: str, info: Dict[str, Any]) -> None:
            "capabilities": caps, "active_jobs": int(info.get("active_jobs") or 0),
            "cpu_percent": info.get("cpu_percent"), "memory_percent": info.get("memory_percent"),
            "kind": str(info.get("kind") or "remote")[:20], "version": str(info.get("version") or "")[:20]}
+    # phone / device telemetry (all optional)
+    for k, cast, lim in (("battery_percent", float, None), ("data_today_mb", float, None), ("jobs_today", int, None),
+                         ("charging", bool, None), ("network", str, 20), ("paused_reason", str, 80)):
+        v = info.get(k)
+        if v is not None:
+            try:
+                rec[k] = cast(v)[:lim] if (cast is str and lim) else cast(v)
+            except (TypeError, ValueError):
+                pass
+    doms = info.get("allowed_domains")
+    if isinstance(doms, list):
+        rec["allowed_domains"] = [str(d).lower().strip()[:60] for d in doms if str(d).strip()][:20]
     await metrics.redis.set(HB + worker_id, json.dumps(rec), ex=STALE_SECS * 10)
     await metrics.redis.delete(UNRESP + worker_id)        # alive again → eligible again
     if now - _LAST_DB.get(worker_id, 0) > 60:              # persist at most once a minute

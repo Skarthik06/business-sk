@@ -1472,21 +1472,76 @@ function OverviewPanel({ active, health, stats, accounts = [], go }) {
 function ScraperPanel({ active }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
+  const [devices, setDevices] = useState([]);
+  const [pairing, setPairing] = useState(null);     // { code, qr_svg, expires_at } while the modal is open
+  const [pairErr, setPairErr] = useState('');
+  const [now, setNow] = useState(Date.now());
+  const loadDevices = () => api.skScraperDevices().then((r) => setDevices(r.success ? (r.devices || []) : [])).catch(() => {});
   useEffect(() => {
     if (!active) return undefined;
     const load = () => api.skScraperDashboard()
       .then((r) => { if (r.success) { setD(r); setErr(''); } else setErr(r.error || 'unavailable'); })
       .catch(() => setErr('unavailable'));
-    load();
-    const t = setInterval(load, 30000);
+    load(); loadDevices();
+    const t = setInterval(() => { load(); loadDevices(); }, 30000);
     return () => clearInterval(t);
   }, [active]);
+  useEffect(() => {                                 // countdown + auto-refresh the device list while pairing
+    if (!pairing) return undefined;
+    const t = setInterval(() => { setNow(Date.now()); loadDevices(); }, 3000);
+    return () => clearInterval(t);
+  }, [pairing]);
+  const startPairing = async () => {
+    setPairErr('');
+    try {
+      const r = await api.skScraperPairing();
+      if (!r.success) { setPairErr(r.error || 'Could not create a pairing code'); return; }
+      setPairing({ code: r.code, qr: r.qr_svg, expiresAt: Date.now() + (r.expires_in || 600) * 1000, known: devices.length });
+      setNow(Date.now());
+    } catch { setPairErr('Could not create a pairing code'); }
+  };
+  const revoke = async (dev) => {
+    if (!window.confirm(`Revoke ${dev.name || dev.worker_id}? The phone stops working as a route immediately.`)) return;
+    await api.skScraperRevokeDevice(dev.id).catch(() => {});
+    loadDevices();
+  };
+  const secsLeft = pairing ? Math.max(0, Math.round((pairing.expiresAt - now) / 1000)) : 0;
+  const paired = pairing && devices.filter((x) => !x.revoked_at).length > 0 && devices.length > pairing.known;
   const pct = (v) => (v == null ? '—' : Math.round(v * 100) + '%');
   const dot = (s) => ({ online: '#3fb950', stale: 'var(--amber)', CLOSED: '#3fb950', HALF_OPEN: 'var(--amber)' }[s] || 'var(--danger)');
   const mins = (s) => (s > 3600 ? Math.round(s / 3600) + ' h' : Math.max(1, Math.round(s / 60)) + ' min');
   return (
     <div className="panel p-4">
-      <div className="eyebrow mb-3">Scraper routes</div>
+      <div className="flex items-center mb-3">
+        <div className="eyebrow">Scraper routes</div>
+        <span className="flex-1" />
+        <button className="btn btn-sm" onClick={startPairing} title="Pair a phone running the Business-SK Helper app">
+          <Icon name="bolt" size={12} /> Pair a phone
+        </button>
+      </div>
+      {pairErr && <p className="text-xs mb-2" style={{ color: 'var(--danger)' }}>{pairErr}</p>}
+      {pairing && (
+        <div onClick={() => setPairing(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.6)', zIndex: 60, display: 'grid', placeItems: 'center', padding: 16 }}>
+          <div className="panel p-5" onClick={(e) => e.stopPropagation()} style={{ width: 'min(420px, 100%)', textAlign: 'center' }}>
+            <div className="eyebrow mb-2">Pair a phone</div>
+            {paired ? <>
+              <div style={{ fontSize: 40 }}>✅</div>
+              <p className="text-sm mt-2">Phone paired. It appears under Workers within a few seconds.</p>
+              <button className="btn btn-sm mt-4" onClick={() => setPairing(null)}>Done</button>
+            </> : secsLeft === 0 ? <>
+              <p className="text-sm" style={{ color: 'var(--muted)' }}>This code expired.</p>
+              <button className="btn btn-sm mt-3" onClick={startPairing}>New code</button>
+            </> : <>
+              <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>Open <b>Business-SK Helper</b> on your phone → <b>Scan QR</b>, or type the code.</p>
+              {pairing.qr && <div style={{ background: '#fff', borderRadius: 12, padding: 8, width: 240, margin: '0 auto' }}
+                                  dangerouslySetInnerHTML={{ __html: pairing.qr.replace('<svg', '<svg width="224" height="224"') }} />}
+              <div className="font-mono mt-3" style={{ fontSize: 28, letterSpacing: '.12em', fontWeight: 700 }}>{pairing.code}</div>
+              <p className="text-xs mt-2" style={{ color: 'var(--faint)' }}>One-time code · expires in {Math.floor(secsLeft / 60)}:{String(secsLeft % 60).padStart(2, '0')}</p>
+              <button className="btn btn-sm btn-ghost mt-3" onClick={() => setPairing(null)}>Cancel</button>
+            </>}
+          </div>
+        </div>
+      )}
       {!d ? <p className="text-sm" style={{ color: 'var(--muted)' }}>{err ? `Scraper API ${err}` : <Spinner size={14} />}</p> : <>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
           <div className="stat-tile"><div className="stat-v">{d.requests_per_min}</div><div className="stat-k">Requests / min</div></div>
@@ -1500,13 +1555,33 @@ function ScraperPanel({ active }) {
             {(d.workers || []).length === 0
               ? <p className="text-sm" style={{ color: 'var(--muted)' }}>No worker has checked in yet — start the laptop or phone worker.</p>
               : d.workers.map((w) => (
-                <div key={w.worker_id} className="flex items-center gap-2 text-sm mb-1.5">
-                  <span style={{ width: 9, height: 9, borderRadius: '50%', background: dot(w.state) }} />
-                  <span className="font-mono">{w.worker_id}</span>
-                  <span className="text-xs" style={{ color: 'var(--faint)' }}>{w.kind}</span>
-                  <span className="flex-1" />
-                  <span className="text-xs font-mono" style={{ color: 'var(--faint)' }}>{w.state} · {w.age_s}s ago</span>
+                <div key={w.worker_id} className="mb-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span style={{ width: 9, height: 9, borderRadius: '50%', background: w.status === 'paused' ? 'var(--amber)' : dot(w.state) }} />
+                    <span className="font-mono">{w.worker_id}</span>
+                    <span className="text-xs" style={{ color: 'var(--faint)' }}>{w.kind}</span>
+                    <span className="flex-1" />
+                    <span className="text-xs font-mono" style={{ color: 'var(--faint)' }}>{w.status === 'paused' ? 'paused' : w.state} · {w.age_s}s ago</span>
+                  </div>
+                  {w.kind === 'phone' && (
+                    <div className="text-xs font-mono" style={{ color: 'var(--faint)', paddingLeft: 17 }}>
+                      {w.battery_percent != null && `🔋 ${Math.round(w.battery_percent)}%${w.charging ? ' ⚡' : ''} · `}
+                      {w.network && `${w.network} · `}
+                      {w.data_today_mb != null && `${w.data_today_mb.toFixed(1)} MB today · `}
+                      {w.jobs_today != null && `${w.jobs_today} pages`}
+                      {w.paused_reason && ` · ${w.paused_reason}`}
+                    </div>)}
                 </div>))}
+            {devices.filter((x) => !x.revoked_at).length > 0 && <>
+              <div className="text-xs mt-3 mb-2" style={{ color: 'var(--muted)' }}>Paired phones</div>
+              {devices.filter((x) => !x.revoked_at).map((x) => (
+                <div key={x.id} className="flex items-center gap-2 text-xs mb-1.5">
+                  <span>📱</span><span>{x.name}</span>
+                  <span className="font-mono" style={{ color: 'var(--faint)' }}>{x.worker_id}</span>
+                  <span className="flex-1" />
+                  <button className="btn btn-sm btn-ghost" onClick={() => revoke(x)} title="Stop this phone from working as a route">Revoke</button>
+                </div>))}
+            </>}
             <div className="text-xs mt-3 mb-2" style={{ color: 'var(--muted)' }}>Open circuits</div>
             {(d.open_circuits || []).length === 0
               ? <p className="text-sm" style={{ color: 'var(--muted)' }}>None — every route is allowed.</p>

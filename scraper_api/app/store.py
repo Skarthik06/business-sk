@@ -47,6 +47,10 @@ create table if not exists circuit_breakers (
   open_until double precision, opens int not null default 0, reason text,
   updated_at timestamptz not null default now(), primary key (domain, route));
 alter table scrape_attempts add column if not exists route text;
+create table if not exists devices (
+  id serial primary key, worker_id text unique not null, name text, model text,
+  token_hash text unique not null, created_at timestamptz not null default now(),
+  last_seen timestamptz, revoked_at timestamptz);
 create table if not exists usage_daily (
   api_key_id int not null, day date not null, requests int not null default 0,
   bandwidth bigint not null default 0, browser_requests int not null default 0,
