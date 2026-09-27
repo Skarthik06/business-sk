@@ -556,7 +556,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     if (!fresh && artPlans[g.id]) return artPlans[g.id];
     setArtBusy(g.id);
     try {
-      const res = await api.skArtDirect((g.products || []).slice(0, 10), g.category || '', look, styles);
+      const res = await api.skArtDirect((g.products || []).slice(0, 10), g.category || '', look, styles, fresh);
       setArtPlans((m) => ({ ...m, [g.id]: res.art }));
       return res.art;
     } catch (e) {
@@ -853,7 +853,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
         <div className="flex flex-col gap-4">
           {queue.map((g) => (
             <IgPostCard key={g.id + ':' + look + ':' + styles} g={g} st={statuses[g.id] || {}} posting={busyId === g.id}
-              busyAll={busyAll} accountLabel={acctHandle} getArt={getArt}
+              busyAll={busyAll} accountLabel={acctHandle} getArt={getArt} artId={artPlans[g.id] ? `${artPlans[g.id].id}:${artPlans[g.id].rev}` : ''}
               onPost={() => postOneReal(g)} onDry={() => publishOne(g, true)} />
           ))}
         </div>
@@ -870,7 +870,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
 }
 
 // ── Instagram-style post preview card — swipe the carousel, read the caption, publish ──
-function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getArt }) {
+function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getArt, artId }) {
   const pins = (g.products || []).slice(0, 10);
   const [idx, setIdx] = useState(0);
   const [showCap, setShowCap] = useState(false);
@@ -891,11 +891,13 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
 
   // Render the actual Still Set designed slides for THIS post's products (layout adapts to the
   // number of products) — the same renderer the real post uses, so preview == final post.
+  const renderedArt = useRef('');                    // the plan id this card is showing
   const renderDesign = async () => {
     setDesigning(true); setDesignErr('');
     try {
-      // SAME Art Director plan the real post uses (cached per post) → preview == post
+      // SAME Art Director plan the real post uses (one plan + one render per post, server-side)
       const art = getArt ? await getArt(g) : null;
+      renderedArt.current = art ? `${art.id}:${art.rev}` : '';
       const res = await api.skRenderPreview(pins, { category: g.category, art });
       setDesign(res.images || []);
       setArtInfo(res.art || null);
@@ -909,6 +911,9 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
   // Auto-render the designed slides once when the post loads, so Content Studio ALWAYS shows the
   // real post (product photos for products, deal cards for deals) instead of a blank carousel.
   useEffect(() => { if (pins.length && !design && !designing) renderDesign(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [g.id]);
+  // The post got a NEW plan (a "fresh design" re-roll in the big preview) → show that one here too,
+  // so this card never shows a different design from what will post.
+  useEffect(() => { if (artId && renderedArt.current && artId !== renderedArt.current && !designing) renderDesign(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [artId]);
 
   return (
     <div className={cx('ig-card', done && 'is-done', st.phase === 'failed' && 'is-fail')}>

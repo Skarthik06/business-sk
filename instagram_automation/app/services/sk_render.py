@@ -1914,6 +1914,7 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
                        "product": (s["products"][0].get("product_title") if s["products"] else None)}
                       for s in specs]
     result["palette"] = P["name"]
+    result["cover_title"] = (cover_spec or {}).get("title", "")
     result["isolated"] = isolate and _REMBG_SESSION is not None
     if art:
         _new = ((art.get("scene") or {}).get("new") or {})
@@ -1940,6 +1941,13 @@ def _scene_ctx(products: List[Dict[str, Any]], art: Dict[str, Any]) -> Optional[
         return None
     key = str(((art or {}).get("scene") or {}).get("use") or "")
     urls = [_src(p) for p in products if _src(p)]
+    pid = str((art or {}).get("id") or "")
+    # ONE look per post: the first render pins the backdrop; every later render of this post
+    # (card preview, big preview, publish) uses exactly that backdrop — never a different one.
+    pinned = str((scene_store.plan_get(pid) or {}).get("pinned_scene") or "") if pid else ""
+    if pinned and scene_store.backdrop_path(pinned):
+        cuts = {u: scene_store.data_uri(scene_store.cutout_path(u)) for u in urls if scene_store.cutout_path(u)}
+        return {"key": pinned, "bg": scene_store.data_uri(scene_store.backdrop_path(pinned), jpeg=True), "cuts": cuts}
     try:
         wait = float(os.getenv("ART_WAIT_SECS", "20"))
     except ValueError:
@@ -1961,6 +1969,11 @@ def _scene_ctx(products: List[Dict[str, Any]], art: Dict[str, Any]) -> Optional[
             return None
         key = ready[0]["key"]
         bgp = scene_store.backdrop_path(key)
+    if pid:
+        scene_store.plan_update(pid, pinned_scene=key)
+        own = str((((art or {}).get("scene") or {}).get("new") or {}).get("key") or "")
+        if own and own != key:                   # a stand-in was shown → this post keeps it; the
+            scene_store.cancel_scene(own)        # unneeded paint is dropped (saves the laptop GPU)
     scene_store.note_scene_use(key)
     cuts = {u: scene_store.data_uri(scene_store.cutout_path(u)) for u in urls if scene_store.cutout_path(u)}
     return {"key": key, "bg": scene_store.data_uri(bgp, jpeg=True), "cuts": cuts}

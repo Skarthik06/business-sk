@@ -453,11 +453,20 @@ def _render_sk_slides(products: list[dict], *, category: str, arc: str, theme: s
     from app.services import sk_render, hosting
     slug = hashlib.md5((category + palette + str([p.get("asin") or p.get("product_title") for p in products])).encode()).hexdigest()[:8]
     out_dir = settings.IMAGES_DIR / "sk_slides"
-    res = sk_render.render_carousel(products, category=category, out_dir=out_dir,
-                                    cdn_prefix="/cdn/sk_slides", slug=slug, arc=arc,
-                                    theme=theme, handle=handle, palette=palette,
-                                    cover_tags=cover_tags or [], templates=templates or [],
-                                    track_cover=track_cover, art=art)
+    # ONE render per post: publish the EXACT slides the preview showed (no second render that
+    # could come out different). Falls back to rendering when there was no matching preview.
+    snap = _preview_snapshot(art, handle, templates, cover_tags, palette)
+    if snap:
+        res = {"rendered": True, "local": snap["local"], "images": snap["cdn"], "count": len(snap["local"]),
+               "plan": snap.get("plan")}
+        if track_cover and snap.get("cover_title"):
+            sk_render._remember_cover(out_dir, snap["cover_title"])
+    else:
+        res = sk_render.render_carousel(products, category=category, out_dir=out_dir,
+                                        cdn_prefix="/cdn/sk_slides", slug=slug, arc=arc,
+                                        theme=theme, handle=handle, palette=palette,
+                                        cover_tags=cover_tags or [], templates=templates or [],
+                                        track_cover=track_cover, art=art)
     if not res.get("rendered") or not res.get("local"):
         return {"images": [], "count": 0, "plan": res.get("plan"), "error": res.get("error")}
     # push the rendered PNGs to GitHub raw so Instagram can fetch them, then wait for the CDN
@@ -521,6 +530,64 @@ def _preview_handle(body) -> str:
     return "@lostinframes0605.exe"
 
 
+def _render_sig(art: dict | None, handle: str, templates, cover_tags, palette: str) -> str:
+    """What makes two renders of the same post identical (AI-scene posts ignore cover chips and
+    the palette picker — the Art Director's plan decides those)."""
+    import hashlib
+    import json
+    a = art or {}
+    key = [str(a.get("id") or ""), (handle or "").lstrip("@").lower(), [t or "" for t in (templates or [])],
+           [] if a else list(cover_tags or []), "" if a.get("palette") else (palette or "")]
+    return hashlib.sha1(json.dumps(key).encode()).hexdigest()[:10]
+
+
+def _save_preview_snapshot(art: dict | None, handle: str, templates, cover_tags, palette: str, res: dict) -> None:
+    """Keep a copy of what the preview showed, so publishing posts exactly those slides."""
+    import shutil
+    import time
+    from app.services import scene_store
+    pid = str((art or {}).get("id") or "")
+    if not pid or not res.get("rendered") or not res.get("local"):
+        return
+    sig = _render_sig(art, handle, templates, cover_tags, palette)
+    d = settings.IMAGES_DIR / "sk_slides" / f"plan_{pid}_{sig}"
+    try:
+        shutil.rmtree(d, ignore_errors=True)
+        d.mkdir(parents=True, exist_ok=True)
+        local, cdn = [], []
+        for i, src in enumerate(res["local"], 1):
+            dst = d / f"slide_{i:02d}.png"
+            shutil.copyfile(src, dst)
+            local.append(str(dst))
+            cdn.append(f"/cdn/sk_slides/{d.name}/{dst.name}")
+        cur = (scene_store.plan_get(pid) or {}).get("renders") or {}
+        cur[sig] = {"local": local, "cdn": cdn, "plan": res.get("plan"),
+                    "cover_title": res.get("cover_title", ""), "t": time.time()}
+        scene_store.plan_update(pid, renders=cur)
+    except Exception:
+        pass
+
+
+def _art_summary(art: dict | None, snap: dict | None = None) -> dict | None:
+    """The '✨ AI direction' panel data for a post that was already rendered."""
+    from app.services import scene_store
+    pid = str((art or {}).get("id") or "")
+    return (scene_store.plan_get(pid) or {}).get("art_summary") if pid else None
+
+
+def _preview_snapshot(art: dict | None, handle: str, templates, cover_tags, palette: str) -> dict | None:
+    import os
+    from app.services import scene_store
+    pid = str((art or {}).get("id") or "")
+    if not pid:
+        return None
+    snap = ((scene_store.plan_get(pid) or {}).get("renders") or {}).get(
+        _render_sig(art, handle, templates, cover_tags, palette))
+    if snap and snap.get("local") and all(os.path.exists(p) for p in snap["local"]):
+        return snap
+    return None
+
+
 # ---- AI Art Director + laptop GPU worker (agent: post-art-director) ----------------------
 def _ensure_art(art: dict | None, products: list[dict], category: str) -> dict | None:
     """AI-scene design is THE format for product posts: when the client sent no plan, the server
@@ -538,6 +605,7 @@ class ArtDirectReq(BaseModel):
     category: str = ""
     look: str = ""                     # ai (default) | premium | a palette | <scene key>
     styles: str = ""                   # slash-command presets, e.g. "/premium /cinematic"
+    fresh: bool = False                # explicit re-roll → a NEW plan (+ one new paint) for this post
 
 
 @app.post("/api/sk/art-direct")
@@ -548,7 +616,8 @@ def sk_art_direct(body: ArtDirectReq):
     from app.services import art_director
     if not body.products:
         raise HTTPException(400, "No products")
-    return {"success": True, "art": art_director.direct(body.products, body.category, body.look, body.styles)}
+    return {"success": True, "art": art_director.direct(body.products, body.category, body.look, body.styles,
+                                                        fresh=body.fresh)}
 
 
 @app.get("/api/sk/scenes")
@@ -599,16 +668,28 @@ def sk_render_preview(body: SkRenderReq):
     from app.services import sk_render
     slug = hashlib.md5(str([p.get("asin") or p.get("product_title") for p in body.products]).encode()).hexdigest()[:8]
     out_dir = settings.IMAGES_DIR / "sk_slides"
+    art = _ensure_art(getattr(body, "art", None), body.products, body.category)
+    handle = _preview_handle(body)
+    palette = getattr(body, "palette", None) or "warm"
+    cover_tags = getattr(body, "cover_tags", None) or []
+    templates = getattr(body, "templates", None) or []
+    snap = _preview_snapshot(art, handle, templates, cover_tags, palette)
+    if snap:                                 # this post was already rendered → show THAT render
+        return {"success": True, "images": snap["cdn"], "count": len(snap["cdn"]), "plan": snap.get("plan"),
+                "art": _art_summary(art, snap), "cost": _post_cost(body.products, art)}
     res = sk_render.render_carousel(body.products, category=body.category, out_dir=out_dir,
                                     cdn_prefix="/cdn/sk_slides", slug=slug, arc=body.arc,
-                                    theme=body.theme, handle=_preview_handle(body),
-                                    palette=(getattr(body, "palette", None) or "warm"),
-                                    cover_tags=getattr(body, "cover_tags", None) or [],
-                                    templates=getattr(body, "templates", None) or [],
+                                    theme=body.theme, handle=handle, palette=palette,
+                                    cover_tags=cover_tags, templates=templates,
                                     track_cover=False,   # preview: don't consume the cover-uniqueness history
-                                    art=_ensure_art(getattr(body, "art", None), body.products, body.category))
+                                    art=art)
     if not res.get("rendered"):
         raise HTTPException(500, f"Render failed: {res.get('error')}")
+    _save_preview_snapshot(art, handle, templates, cover_tags, palette, res)
+    if res.get("art"):
+        from app.services import scene_store as _ss
+        if art and art.get("id"):
+            _ss.plan_update(art["id"], art_summary=res["art"])
     return {"success": True, "images": res["images"], "count": res["count"],
             "plan": res.get("plan"), "isolated": res.get("isolated"), "art": res.get("art"),
             "cost": _post_cost(body.products, res.get("art"))}

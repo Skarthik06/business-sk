@@ -199,6 +199,56 @@ def enqueue_scene(key: str, prompt: str, seed: int = 0) -> Optional[str]:
     return jid
 
 
+def cancel_scene(key: str) -> bool:
+    """Drop a queued scene the post no longer needs (not yet picked up by the laptop) — saves a
+    ~80 s full-GPU paint. A scene already being painted is left to finish."""
+    path = _jpath("scene_" + scene_key(key))
+    with _LOCK:
+        job = _read_job(path) if path and path.exists() else None
+        if not job or (job.get("lease") and time.time() - job["lease"] < _LEASE_SECS):
+            return False
+        path.unlink(missing_ok=True)
+    return True
+
+
+# ── per-post plans: ONE art-direction plan + ONE rendered look per post ──────────────────────
+PLANS = ROOT / "plans"
+PLANS.mkdir(parents=True, exist_ok=True)
+_PID = re.compile(r"^[a-f0-9]{16,40}$")
+_PLAN_LOCKS: Dict[str, threading.Lock] = {}
+
+
+def plan_lock(pid: str) -> threading.Lock:
+    """One lock per post: concurrent previews of the same post share ONE plan (no double paint)."""
+    with _LOCK:
+        return _PLAN_LOCKS.setdefault(pid, threading.Lock())
+
+
+def plan_get(pid: str) -> Optional[Dict[str, Any]]:
+    if not _PID.match(pid or ""):
+        return None
+    try:
+        return json.loads((PLANS / f"{pid}.json").read_text("utf-8"))
+    except Exception:
+        return None
+
+
+def plan_put(pid: str, data: Dict[str, Any]) -> None:
+    if not _PID.match(pid or ""):
+        return
+    tmp = PLANS / f"{pid}.tmp"
+    tmp.write_text(json.dumps(data, ensure_ascii=False), "utf-8")
+    tmp.replace(PLANS / f"{pid}.json")
+
+
+def plan_update(pid: str, **kv: Any) -> None:
+    with _LOCK:
+        cur = plan_get(pid)
+        if cur is not None:
+            cur.update(kv)
+            plan_put(pid, cur)
+
+
 def _last_poll() -> Dict[str, Any]:
     try:
         return json.loads(_POLL_FILE.read_text("utf-8"))

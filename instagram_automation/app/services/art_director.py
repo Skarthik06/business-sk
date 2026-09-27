@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -404,7 +405,8 @@ def _validate(raw: Dict[str, Any], base: Dict[str, Any], products, lib, allow_ne
     if allow_new and isinstance(new, dict) and len(str(new.get("prompt") or "")) >= 40:
         import hashlib as _h
         _k = str(new.get("key") or "").strip()
-        if not _k or _k.lower() in ("snake_case", "key", "scene", "new"):
+        if (not _k or _k.lower() in ("snake_case", "key", "scene", "new")
+                or _k.lower() in SCENE_LAYOUTS or _k.lower().startswith("scene_")):   # a layout name is not a scene
             _k = " ".join(str(new.get(f) or "") for f in ("mood", "setting"))[:40] or new["prompt"][:40]
         base_key = scene_store.scene_key(_k)[:40]
         plan["scene"]["new"] = {"key": f"{base_key}_{_h.sha1(str(new['prompt']).encode()).hexdigest()[:6]}",
@@ -446,7 +448,37 @@ def _validate(raw: Dict[str, Any], base: Dict[str, Any], products, lib, allow_ne
     return plan
 
 
-def direct(products: List[Dict[str, Any]], category: str = "", look: str = "", styles: Any = None) -> Dict[str, Any]:
+def plan_id(products: List[Dict[str, Any]], category: str = "", look: str = "", styles: Any = None) -> str:
+    """Stable id of ONE post: same products + category + look + style commands → same plan."""
+    import hashlib as _h
+    ids = [str(p.get("asin") or p.get("product_id") or _img_url(p) or p.get("product_title") or "")
+           for p in (products or []) if isinstance(p, dict)][:8]
+    sig = json.dumps([ids, (category or "").strip().lower(), look_of(look), sorted(parse_styles(styles))])
+    return _h.sha1(sig.encode("utf-8")).hexdigest()[:24]
+
+
+def direct(products: List[Dict[str, Any]], category: str = "", look: str = "", styles: Any = None,
+           fresh: bool = False) -> Dict[str, Any]:
+    """ONE plan per post. The first call art-directs (LLM) and queues the GPU work; every later
+    call for the same post (reloads, card + big preview, publish) returns that SAME plan — no new
+    LLM call and no new GPU paint. `fresh=True` (an explicit re-roll) makes a new plan."""
+    pid = plan_id(products, category, look, styles)
+    with scene_store.plan_lock(pid):
+        cached = None if fresh else scene_store.plan_get(pid)
+        if cached and cached.get("plan") and time.time() - float(cached.get("t") or 0) < 7 * 86400:
+            return cached["plan"]
+        old = (cached or scene_store.plan_get(pid) or {}).get("plan") or {}
+        plan = _direct(products, category, look, styles)
+        plan["id"] = pid
+        plan["rev"] = int(time.time())                    # a re-roll = same post, new revision
+        _old_new = ((old.get("scene") or {}).get("new") or {}).get("key")
+        if fresh and _old_new and _old_new != ((plan.get("scene") or {}).get("new") or {}).get("key"):
+            scene_store.cancel_scene(_old_new)            # the re-rolled plan replaces the old paint
+        scene_store.plan_put(pid, {"t": time.time(), "plan": plan})
+        return plan
+
+
+def _direct(products: List[Dict[str, Any]], category: str = "", look: str = "", styles: Any = None) -> Dict[str, Any]:
     """Return the art-direction plan for these products and QUEUE the GPU work it needs
     (cut-outs for every photo, plus any new scene). Never raises."""
     products = [p for p in (products or []) if isinstance(p, dict)][:8]

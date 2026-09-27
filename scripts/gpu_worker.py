@@ -7,7 +7,12 @@
 Polls the cloud (/api/gpu/worker/jobs) and posts results back (/api/gpu/worker/result).
 Runs from the dedicated AI venv:  %USERPROFILE%\\sk-ai\\venv\\Scripts\\pythonw.exe scripts\\gpu_worker.py
 Token: env GPU_WORKER_TOKEN or ~/.sk_worker_token (same file the scrape worker uses).
-Knobs (env): SK_API (server), GPU_IDLE_UNLOAD_SECS (free the Z-Image VRAM after idle, default 1800).
+Knobs (env): SK_API (server), GPU_IDLE_RELEASE_SECS (default 300).
+
+GPU only when needed: while there is no work the worker is a tiny poller that never touches CUDA
+(0 MB VRAM, the laptop's NVIDIA GPU can power down). Models load on the first job; after
+GPU_IDLE_RELEASE_SECS with no jobs the worker restarts itself as a fresh CUDA-free poller, which
+frees ALL GPU memory and the CUDA context (unloading models alone keeps the GPU awake).
 """
 from __future__ import annotations
 
@@ -22,10 +27,10 @@ import traceback
 import urllib.request
 
 API = os.getenv("SK_API", "https://140-238-247-18.nip.io").rstrip("/")
-VER = "1.2"
+VER = "1.3"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0 Safari/537.36")
-IDLE_UNLOAD = int(os.getenv("GPU_IDLE_UNLOAD_SECS", "1800"))
+IDLE_RELEASE = int(os.getenv("GPU_IDLE_RELEASE_SECS", "300"))
 EMPTY = ("completely empty scene, no people, no person, no mannequin, no clothes, no products, no text, "
          "no logo, clear open space in the center and lower half, photorealistic, editorial photography, "
          "shot on medium format, soft natural shadows, high detail")
@@ -74,17 +79,41 @@ def _download(url: str) -> bytes:
 
 
 # ── models ───────────────────────────────────────────────────────────────────
+def _gpu_name() -> str:
+    """GPU name WITHOUT touching CUDA (nvidia-smi only), so an idle worker holds no GPU context."""
+    try:
+        import subprocess
+        out = subprocess.run(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], capture_output=True,
+                             text=True, timeout=10, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return (out.stdout or "").strip().splitlines()[0] or "gpu"
+    except Exception:
+        return "gpu"
+
+
 class Models:
+    """Lazy: torch/CUDA are only touched when the first job arrives."""
     def __init__(self):
-        import torch
-        self.torch = torch
-        self.gpu = torch.cuda.get_device_name(0) if torch.cuda.is_available() else "cpu"
-        self.dev = "cuda" if torch.cuda.is_available() else "cpu"
+        self.gpu = _gpu_name()
+        self._torch = None
+        self.dev = "cpu"
         self._bir = None
         self._zimg = None
         self.last_scene = 0.0
 
+    @property
+    def torch(self):
+        if self._torch is None:
+            import torch
+            self._torch = torch
+            self.dev = "cuda" if torch.cuda.is_available() else "cpu"
+        return self._torch
+
+    @property
+    def gpu_in_use(self) -> bool:
+        return self._torch is not None
+
     def birefnet(self):
+        _ = self.torch                                  # decides cuda/cpu
         if self._bir is None:
             from transformers import AutoModelForImageSegmentation
             m = AutoModelForImageSegmentation.from_pretrained("ZhengPeng7/BiRefNet", trust_remote_code=True)
@@ -107,13 +136,6 @@ class Models:
         self.last_scene = time.time()
         return self._zimg
 
-    def maybe_unload(self):
-        if self._zimg is not None and time.time() - self.last_scene > IDLE_UNLOAD:
-            self._zimg = None
-            gc.collect()
-            if self.dev == "cuda":
-                self.torch.cuda.empty_cache()
-            log("Z-Image unloaded (idle) — GPU memory freed")
 
 
 # ── jobs ─────────────────────────────────────────────────────────────────────
@@ -223,9 +245,9 @@ def main() -> None:
     if not tok:
         log("No token: set GPU_WORKER_TOKEN or create ~/.sk_worker_token")
         sys.exit(1)
-    M = Models()
-    M.birefnet()                                   # fast (~1 GB) — keep warm for cut-outs
-    log(f"GPU worker {VER} online · {M.gpu} · {API}")
+    M = Models()                                   # nothing loaded: GPU untouched until a job arrives
+    log(f"GPU worker {VER} online (GPU idle, released) · {M.gpu} · {API}")
+    last_job = time.time()
     # heartbeat while busy: a scene paint takes ~2 min; tell the server we're alive every 20 s
     import threading
     busy = {"on": False}
@@ -250,7 +272,8 @@ def main() -> None:
             continue
         if not jobs:
             idle += 1
-            M.maybe_unload()
+            if M.gpu_in_use and time.time() - last_job > IDLE_RELEASE:
+                _release_gpu()                     # restart as a CUDA-free poller (never returns)
             time.sleep(3 if idle < 20 else 8)
             continue
         idle = 0
@@ -267,6 +290,17 @@ def main() -> None:
                 if "CUDA" in str(e):
                     log(traceback.format_exc()[-600:])
         busy["on"] = False
+        last_job = time.time()
+
+
+def _release_gpu() -> None:
+    """Free the GPU completely: start a fresh worker (no torch, no CUDA context) and exit this
+    one. Only unloading models would still keep the NVIDIA GPU awake via the CUDA context."""
+    import subprocess
+    log(f"idle {IDLE_RELEASE}s → releasing the GPU (fresh CUDA-free worker)")
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
+    subprocess.Popen([sys.executable] + sys.argv, close_fds=True, creationflags=flags)
+    os._exit(0)
 
 
 if __name__ == "__main__":
