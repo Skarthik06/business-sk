@@ -19,7 +19,7 @@ class Strategy:
     max_attempts: int = 3
     concurrency: int = 4
     cache_ttl: int = 1800
-    min_bytes: int = 1500
+    min_bytes: int = 512
     residential: bool = False
     wait_for: str = ""                              # CSS selector the browser waits for (optional)
     extract: List[str] = field(default_factory=lambda: ["title", "images", "metadata", "jsonld", "price"])

@@ -11,7 +11,7 @@ defaults:
   max_attempts: 3
   concurrency: 4
   cache_ttl: 1800
-  min_bytes: 1500
+  min_bytes: 512
   residential: false
   extract: [title, images, metadata, jsonld, price]
   challenge_markers: []
