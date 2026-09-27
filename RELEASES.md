@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.4.6** (2026-09-27) — Scraping can run fully online through a residential proxy (no laptop needed); laptop worker kept as fallback
 - **v2.4.5** (2026-09-27) — Preview returns the post snapshot URLs (every view shows the same files)
 - **v2.4.4** (2026-09-27) — One plan + one render per post (preview == post); GPU worker only uses the GPU when needed and fully releases it when idle
 - **v2.4.3** (2026-09-26) — Last slide = Follow → Comment → DM process (no swipe); SK watermark on every slide
