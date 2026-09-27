@@ -43,7 +43,7 @@ async def _seed_keys() -> None:
 async def _job_worker(n: int) -> None:
     while True:
         try:
-            item = await metrics.redis.blpop([Q_BROWSER, Q_HTTP], timeout=5)
+            item = await metrics.redis.blpop([Q_BROWSER, Q_HTTP], timeout=3)   # < the client read timeout (~5 s)
             if not item:
                 continue
             job = json.loads(item[1])

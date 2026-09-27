@@ -88,44 +88,50 @@ async def list_workers() -> List[Dict[str, Any]]:
     return sorted(out, key=lambda r: r["worker_id"])
 
 
+async def _blpop(keys: List[str], seconds: float):
+    """BLPOP in short slices (the Redis client's read timeout is ~5 s): wait up to `seconds`."""
+    deadline = time.time() + max(0.0, seconds)
+    while True:
+        left = deadline - time.time()
+        item = await metrics.redis.blpop(keys, timeout=max(1, min(4, int(left)))) if left > 0 else None
+        if item or time.time() >= deadline:
+            return item
+
+
+def _fail(url: str, msg: str) -> Dict[str, Any]:
+    return {"status": None, "html": "", "final_url": url, "content_type": "", "headers": {}, "error": msg}
+
+
 async def dispatch(worker_id: str, attempt_id: str, url: str, mode: str, timeout: int) -> Dict[str, Any]:
     """Queue a fetch for one worker and wait (bounded) for its result. Never raises."""
     job = {"attempt_id": attempt_id, "url": url, "mode": mode, "timeout": timeout, "queued": time.time()}
     qkey = QW + worker_id
-    await metrics.redis.rpush(qkey, json.dumps(job))
-    await metrics.redis.expire(qkey, 3600)
-    deadline = time.time() + PICKUP_SECS
-    picked = False
-    while True:                                           # 1) wait for the lease (the worker is alive)
-        if await metrics.redis.exists(LEASE + attempt_id):
-            picked = True
-            break
-        if time.time() > deadline:
-            break
-        item = await metrics.redis.blpop([RESULT + attempt_id], timeout=1)
-        if item:
-            return json.loads(item[1])
-    if not picked:
-        await metrics.redis.lrem(qkey, 0, json.dumps(job))   # stale job must never run later
-        return {"status": None, "html": "", "final_url": url, "content_type": "", "headers": {},
-                "error": f"worker {worker_id} did not pick up the job in {PICKUP_SECS}s"}
-    item = await metrics.redis.blpop([RESULT + attempt_id], timeout=timeout + 25)   # 2) wait for the result
-                                                              # (the worker may retry a throttled page
-                                                              #  within `timeout`, then uploads)
-    if not item:
-        return {"status": None, "html": "", "final_url": url, "content_type": "", "headers": {},
-                "error": f"worker {worker_id} timed out"}
-    return json.loads(item[1])
+    try:
+        await metrics.redis.rpush(qkey, json.dumps(job))
+        await metrics.redis.expire(qkey, 3600)
+        deadline = time.time() + PICKUP_SECS
+        while not await metrics.redis.exists(LEASE + attempt_id):    # 1) the worker picks it up
+            if time.time() > deadline:
+                await metrics.redis.lrem(qkey, 0, json.dumps(job))   # stale job must never run later
+                return _fail(url, f"worker {worker_id} did not pick up the job in {PICKUP_SECS}s")
+            item = await _blpop([RESULT + attempt_id], 1)
+            if item:
+                return json.loads(item[1])
+        # 2) the result (the worker may retry a throttled page within `timeout`, then uploads)
+        item = await _blpop([RESULT + attempt_id], timeout + 25)
+        return json.loads(item[1]) if item else _fail(url, f"worker {worker_id} timed out")
+    except Exception as e:                                          # noqa: BLE001 — failover, never 500
+        return _fail(url, f"worker dispatch error: {type(e).__name__}")
 
 
 async def lease(worker_id: str, max_jobs: int, wait: float) -> List[Dict[str, Any]]:
     """Long-poll: hand this worker up to max_jobs of ITS queued jobs, each with a lease."""
     out: List[Dict[str, Any]] = []
     qkey = QW + worker_id
-    item = await metrics.redis.blpop([qkey], timeout=max(1, int(wait)))
+    item = await _blpop([qkey], max(1.0, float(wait)))
     while item and len(out) < max_jobs:
         job = json.loads(item[1])
-        await metrics.redis.set(LEASE + job["attempt_id"], worker_id, ex=int(job.get("timeout", 30)) + 30)
+        await metrics.redis.set(LEASE + job["attempt_id"], worker_id, ex=int(job.get("timeout", 30)) + 45)
         out.append({k: job[k] for k in ("attempt_id", "url", "mode", "timeout")})
         raw = await metrics.redis.lpop(qkey)
         item = (qkey, raw) if raw else None
