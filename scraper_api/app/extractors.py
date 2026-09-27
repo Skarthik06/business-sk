@@ -83,15 +83,23 @@ def normalize_image(url: str, base: str) -> Optional[str]:
 
 def images(doc, base: str, items: Optional[List[Dict[str, Any]]] = None, limit: int = 200) -> List[Dict[str, Any]]:
     found: List[Dict[str, Any]] = []
-    seen = set()
+    seen: Dict[str, Dict[str, Any]] = {}          # scheme-less url → entry (http/https are one image)
 
     def add(u: str, source: str, w=None, h=None):
         n = normalize_image(u, base)
-        if not n or n in seen or len(found) >= limit:
+        if not n:
             return
-        seen.add(n)
+        k = n.split("://", 1)[1]
+        if k in seen:
+            if n.startswith("https://") and seen[k]["url"].startswith("http://"):
+                seen[k]["url"] = n                    # prefer the https copy
+            return
+        if len(found) >= limit:
+            return
         ext = "." + urlsplit(n).path.rsplit(".", 1)[-1].lower() if "." in urlsplit(n).path else ""
-        found.append({"url": n, "source": source, "width": w, "height": h, "content_type": _IMG_EXT.get(ext)})
+        entry = {"url": n, "source": source, "width": w, "height": h, "content_type": _IMG_EXT.get(ext)}
+        seen[k] = entry
+        found.append(entry)
 
     for src, prop in (("og:image", "og:image"), ("og:image:secure_url", "og:image"), ("twitter:image", "twitter:image")):
         for v in doc.xpath(f'//meta[@property="{prop}" or @name="{prop}" or @property="{src}"]/@content'):

@@ -97,6 +97,13 @@ def test_extract_html_only_and_garbage():
     assert extract("", "https://a.test/", ["title", "images"])["images"] == []
 
 
+def test_http_https_duplicates_collapse_to_https():
+    h = ('<html><head><meta property="og:image" content="http://cdn.test/x.jpg">'
+         '<meta property="og:image:secure_url" content="https://cdn.test/x.jpg"></head></html>')
+    imgs = extract(h, "https://a.test/", ["images"])["images"]
+    assert [i["url"] for i in imgs] == ["https://cdn.test/x.jpg"]
+
+
 def test_normalize_image():
     assert normalize_image("//cdn.test/x.jpg", "https://a.test/") == "https://cdn.test/x.jpg"
     assert normalize_image("javascript:alert(1)", "https://a.test/") is None
