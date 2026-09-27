@@ -39,7 +39,10 @@ LOG = os.path.join(os.path.expanduser("~"), "sk-ai", "gpu_worker.log")
 
 def log(msg: str) -> None:
     line = f"{time.strftime('%Y-%m-%d %H:%M:%S')} {msg}"
-    print(line, flush=True)
+    try:
+        print(line, flush=True)                    # never let a console encoding kill the worker
+    except Exception:
+        pass
     try:
         with open(LOG, "a", encoding="utf-8") as f:
             f.write(line + "\n")
@@ -297,7 +300,7 @@ def _release_gpu() -> None:
     """Free the GPU completely: start a fresh worker (no torch, no CUDA context) and exit this
     one. Only unloading models would still keep the NVIDIA GPU awake via the CUDA context."""
     import subprocess
-    log(f"idle {IDLE_RELEASE}s → releasing the GPU (fresh CUDA-free worker)")
+    log(f"idle {IDLE_RELEASE}s -> releasing the GPU (fresh CUDA-free worker)")
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0) | getattr(subprocess, "DETACHED_PROCESS", 0)
     subprocess.Popen([sys.executable] + sys.argv, close_fds=True, creationflags=flags)
     os._exit(0)
