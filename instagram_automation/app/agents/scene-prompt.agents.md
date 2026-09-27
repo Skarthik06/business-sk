@@ -27,13 +27,14 @@ slide) · seed from the prompt.
 
 <!-- RULES:BEGIN -->
 SCENE PROMPT CONSTRAINTS (for Z-Image-Turbo — follow every rule):
+0. ELEGANCE FIRST: the scene is a REAL, quietly luxurious place — a boutique fitting-room corner, a sunlit apartment wall, a gallery alcove, a stone-and-oak dressing room — never a photo studio. No seamless paper sweeps, softboxes, light stands, backdrops or "studio" set dressing. Restraint: few elements, generous calm space, one beautiful material story.
 1. EMPTY SCENE ONLY: describe a place, never a subject. No people, bodies, mannequins, hangers, clothes, products, packaging, text, signage, logos or screens.
 2. COMPOSITION: straight-on, eye-level view of a wall meeting a floor/surface; the CENTRE and LOWER HALF are open, uncluttered space where the product will stand. Any prop sits only at the far left/right edge and is small.
-3. SURFACES: name real materials with texture — e.g. limewash plaster, microcement, travertine, black marble with fine veins, raw oak, walnut, linen drape, seamless paper, terrazzo. One wall material + one floor material.
+3. SURFACES: name real materials with texture — e.g. limewash plaster, venetian plaster, travertine, honed marble with fine veins, raw oak, walnut panelling, linen drape, terrazzo, fluted plaster. One wall material + one floor material.
 4. LIGHT: always state the light source, direction and quality — e.g. "soft window light from the left", "warm spotlight glow behind centre", "golden-hour side light with long soft shadows". Light must make the centre the brightest or most glowing area so the product pops.
 5. COLOUR: use exactly the palette's scene colours (table) — 2–3 named colours. The scene must CONTRAST with the products' main colours (dark products → warm glow / lighter wall; light products → deeper tones). Never repeat the product's own colour as the main wall colour.
 6. PROPS (optional, max 1–2): quiet, niche-appropriate, at the edge — fashion: a lounge chair, a plinth, a linen drape; tech: a stone block, a shelf edge; beauty: a travertine tray, dried stems; home: a ceramic vase.
-7. STYLE WORDS that work: "editorial fashion photography", "minimal luxury studio", "medium format", "soft natural shadows", "high detail". Avoid vague words ("nice", "beautiful") and avoid fantasy/CGI words.
+7. STYLE WORDS that work: "editorial interior photography", "quiet luxury boutique", "architectural digest style", "medium format", "soft natural shadows", "high detail". Avoid "studio", vague words ("nice", "beautiful") and fantasy/CGI words.
 8. LENGTH: 30–70 words across all fields. Each field one short phrase.
 9. CAMERA: "eye-level, straight-on, 35mm, deep focus" (or 50mm for tighter sets). No tilt, no top-down (the product photos are front views).
 10. MOOD: one phrase matching the post concept (e.g. "calm quiet luxury", "moody after-dark streetwear", "fresh summer morning").
@@ -49,11 +50,11 @@ one row (or lets the AI choose); the LLM must write the scene inside that row.
 | noir | Premium dark (Noir Gold) | charcoal, espresso brown, black with a hint of brass/gold | black marble with fine veins, espresso limewash plaster, dark walnut | warm spotlight glow behind centre, soft rim light | moody quiet luxury |
 | warm | Warm Sand | warm taupe, sand beige, soft oat | limewash plaster, pale oak floor, travertine | soft window light from the left, gentle shadows | calm editorial warmth |
 | clay | Terracotta | terracotta, peach, warm clay | clay plaster, terracotta tiles, seamless peach paper | golden-hour side light, long soft shadows | sunlit Mediterranean |
-| mono | Mono Ink | light grey, off-white, graphite | microcement, smooth concrete, white seamless | cool diffused daylight, crisp soft shadows | clean modern minimal |
+| mono | Mono Ink | light grey, off-white, graphite | microcement wall, pale limestone floor, fluted plaster | cool diffused daylight, crisp soft shadows | clean modern minimal |
 | sky | Sky Blue | pale sky blue, white, soft grey | blue-tinted plaster, white oak, linen | airy morning daylight from above-left | fresh and breezy |
 | rose | Rose Blush | blush pink, dusty rose, cream | rose plaster, cream terrazzo, silk drape | soft diffused glow, gentle vignette | soft romantic |
 | mint | Fresh Mint | sage green, mint, stone white | sage limewash, pale stone floor, leafy shadow | morning sun with soft leaf shadows | fresh natural calm |
-| lilac | Lilac Pop | lilac, lavender, soft white | lilac plaster, white terrazzo, frosted glass block | soft pastel studio light | playful soft pastel |
+| lilac | Lilac Pop | lilac, lavender, soft white | lilac plaster, white terrazzo, frosted glass block | soft pastel daylight through sheer curtains | playful soft pastel |
 <!-- PALETTES:END -->
 
 ## Style presets (slash commands)
@@ -73,7 +74,8 @@ these, and an agent-picked preset that clashes with the post's palette is droppe
 | /streetwear | urban concrete and raw brick, cool daylight with hard shadows, gritty texture, street editorial energy | hoodies, sneakers, caps, oversized fits | mono, noir |
 | /cinematic | cinematic lighting with a single strong key light, dramatic falloff, subtle haze, anamorphic depth | statement pieces, gadgets, dark products | noir, mono, clay |
 | /golden-hour | low warm sun raking across the wall, long soft shadows, honey-gold glow | summer wear, linen, sunglasses, outdoor | warm, clay, rose |
-| /studio | professional photo studio, seamless paper sweep, softbox lighting, crisp controlled shadows | any product, catalogue clarity | mono, warm, sky, rose, mint, lilac, clay, noir |
+| /boutique | elegant boutique interior, fluted plaster wall with a slim brass rail, honed stone floor, soft gallery lighting, refined calm | any fashion piece, premium basics, curated edits | mono, warm, sky, rose, mint, lilac, clay, noir |
+| /gallery | quiet gallery alcove, pale venetian plaster, a single framed shadow of window light, museum-calm negative space | statement pieces, accessories, minimal fashion | mono, warm, noir, sky |
 | /cozy | soft knit throw and warm wood, lamp-lit ambience, gentle warm glow, homely calm | sweaters, loungewear, winter wear, home | warm, clay, noir |
 | /coastal | whitewashed plaster, pale sand and driftwood tones, airy sea-light, breezy calm | resort wear, sandals, linen shirts | sky, warm, mono |
 | /scandi | pale birch wood, white walls, soft north light, simple functional calm | home, kitchen, minimal fashion | mono, warm, mint |
