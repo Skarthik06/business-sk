@@ -57,6 +57,9 @@ Publish to Instagram ─► comment "LINK" ─► follow gate ─► DM affiliat
   product slides with truthful details (price, MRP, % off, rating, store) → "Want these?" closer.
 * **Comment → DM automation** — per-post rules, 30 s poller + webhooks, **verified-followers-only**
   follow gate with automatic re-checks, and exactly **one public reply + one DM per comment**.
+* **Scraper API** — our own self-hosted ScraperAPI-style service (`scraper_api/`): HTTP-first with a
+  Playwright fallback, block/captcha detection, bounded retries, caching, image/metadata extraction,
+  proxy registry and a full attempt log. Amazon/Flipkart use the laptop worker until a proxy is added.
 * **Storefront** — every posted product, categorised, with affiliate disclosure
   (`lostinframes-sk-store.vercel.app`).
 * **Transparent cost** — tokens (input / cached / output / reasoning) and ₹/$ shown per post.
@@ -141,6 +144,7 @@ Health: `/api/health` (both backends) · GPU: `/api/sk/scenes` · scraping: `/sk
 | [`instagram_automation/business/AGENTS.md`](instagram_automation/business/AGENTS.md) | Business-JK agent constitution (17 charters in `business/agents/`) |
 | [`instagram_automation/business/META_INTEGRATION.md`](instagram_automation/business/META_INTEGRATION.md) | Meta / Instagram Graph API integration notes |
 | [`creative-system.html`](creative-system.html) | The "Still Set" creative system (visual playbook) |
+| [`scraper_api/README.md`](scraper_api/README.md) | Self-hosted Scraper API: endpoints, pipeline, setup, security |
 
 ## Versions
 | Version | Highlights |

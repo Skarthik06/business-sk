@@ -85,6 +85,8 @@ Product found  ──►  Instagram carousel  ──►  Viewer follows + commen
                          │            │                                        engagement, Art Director)     │
                          │            └─ /sk-api/* ──► affiliate_backend :8100 (affiliate engine, LangGraph,│
                          │                                                     scrapers, storefront /hub)   │
+                         │  scraper_api :8200 (internal) ◄── affiliate_backend: HTTP-first / browser scraping,│
+                         │     cache, retries, proxy registry, attempt log, /metrics                          │
                          │  db :5432 (PostgreSQL 18 + pgvector)   redis :6379   volumes: pgdata, redisdata…  │
                          └───────────────────────────────────────────────────────────────────────────────────┘
         ▲ poll jobs / post results (token-auth)                    ▲ poll jobs / post HTML (token-auth)
@@ -114,6 +116,7 @@ has a fallback path, so a post never fails because the laptop is off.
 | `frontend` | `node:20-alpine` | 3000 | Studio (Vite dev server, HMR) |
 | `redis` | `redis:7-alpine` | 6379 | Follow-gate state, once-per-comment claims, counters |
 | `caddy` | `caddy:2-alpine` | 80/443 | HTTPS reverse proxy (Let's Encrypt via nip.io) |
+| `scraper_api` | `scraper_api/Dockerfile` | 8200 (internal only) | Self-hosted Scraper API (see §8.11): HTTP-first + Playwright, cache, retries, proxy registry |
 
 ## 4. Repository map
 
@@ -129,6 +132,11 @@ BUSINESS_SK/
 │   ├── release.sh / deploy.sh / rollback.sh   ← versioning & production deploys
 │   ├── scrape_worker.py       ← residential scrape worker (runs on the laptop)
 │   └── gpu_worker.py          ← GPU worker: BiRefNet + YuNet + Z-Image (runs on the laptop)
+├── scraper_api/               ← SCRAPER API service (FastAPI + HTTPX + Playwright; README inside)
+│   ├── app/                   ← main (routes), engine, browser, classifier, extractors, proxies,
+│   │                            cache, store (Postgres), security (keys, SSRF, encryption), metrics
+│   ├── strategies/domains.yaml ← per-site behaviour (mode, timeouts, residential, challenge markers)
+│   └── tests/                 ← unit tests (run inside the container)
 ├── storefront/                ← Vercel proxy config for the public store
 ├── affiliate-rag-bot/         ← AFFILIATE ENGINE (Business-SK brain)
 │   ├── server.py              ← FastAPI :8100 (63 routes) + storefront /hub
@@ -356,6 +364,24 @@ affiliate disclosure; `storefront/vercel.json` proxies `lostinframes-sk-store.ve
 ### 8.10 Performance & learning
 IG insights and Cuelinks reports feed `performance/store.py`; the learner adjusts discovery weights
 and the winner/prediction models; the Studio shows revenue, winners, trends and recommendations.
+
+### 8.11 Scraper API (self-hosted, `scraper_api/`)
+Built from the *Open-Source Scraper API* blueprint (MVP). One internal endpoint
+(`GET /v1/scrape`, plus async `POST /v1/jobs`) that the affiliate engine's `scrape_bus` calls first.
+1. **Strategy** — `strategies/domains.yaml` decides mode (http / browser / auto), timeouts, minimum
+   real-page size, challenge markers and whether the site blocks datacenter IPs (`residential`).
+2. **Cache** — gzip JSON on disk, a pointer + TTL in Redis (the shared Redis is 128 MB LRU; big
+   pages there would evict the engagement once-claims).
+3. **Fetch** — HTTPX first (streamed, size-limited, SSRF check on every redirect); Playwright
+   Chromium when the strategy or `render=true` says so, or when an `auto` page comes back blocked.
+4. **Classify** — SUCCESS / ACCESS_DENIED / RATE_LIMITED / SERVER_ERROR / NETWORK_ERROR / CHALLENGE /
+   NOT_FOUND / … Transient errors retry after exponential backoff with jitter (Retry-After honoured);
+   a block is retried only on a different route (browser or another proxy) — never hammered.
+5. **Residential sites** (Amazon, Flipkart): with no healthy proxy the API answers
+   `NEEDS_RESIDENTIAL` at once and `scrape_bus` uses the laptop worker. With a proxy registered
+   (`POST /v1/admin/proxies`, credentials encrypted) they work 24/7 without the laptop.
+6. **Extract** — title, metadata, JSON-LD, price, normalised image URLs (og/twitter/img/srcset/JSON-LD).
+7. **Record** — every attempt in Postgres (`scrape_attempts`), daily usage, Prometheus `/metrics`.
 
 ## 9. The agents
 
