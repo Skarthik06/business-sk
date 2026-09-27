@@ -1072,7 +1072,8 @@ def scrape_via_worker(url: str, kind: str, timeout: float = 55.0) -> dict:
 
 
 def _worker_online() -> bool:
-    return scrape_bus.worker_online()
+    """A residential fetch path exists: the server's proxy (online) or the laptop worker."""
+    return scrape_bus.online()
 
 
 @app.get("/api/scrape/jobs")

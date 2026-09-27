@@ -332,7 +332,7 @@ async def _scrape_page(page: Page, category: str, marketplace: str,
     try:
         import asyncio as _aio
         from tools import scrape_bus, amazon_html
-        if scrape_bus.worker_online():
+        if scrape_bus.online():                              # server proxy OR laptop worker
             from config import cfg as _cfg
             res = await _aio.to_thread(scrape_bus.fetch, url, "amazon")
             if res.get("ok"):
