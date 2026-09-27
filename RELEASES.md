@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.4.4** (2026-09-27) — One plan + one render per post (preview == post); GPU worker only uses the GPU when needed and fully releases it when idle
 - **v2.4.3** (2026-09-26) — Last slide = Follow → Comment → DM process (no swipe); SK watermark on every slide
 - **v2.4.2** (2026-09-26) — Docs: complete README + Master document; release process keeps docs current
 - **v2.4.1** (2026-09-26) — One public reply + one DM per comment, ever (Redis claim)
