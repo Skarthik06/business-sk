@@ -57,7 +57,8 @@ def _render_cfg() -> Dict[str, Any]:
         return _RCFG_CACHE["val"]
     cfg = dict(_RENDER_DEFAULTS)
     try:
-        r = requests.get("http://affiliate_backend:8100/api/render-config", timeout=4)
+        r = requests.get("http://affiliate_backend:8100/api/render-config", timeout=4,
+                         headers={"X-Internal-Key": os.getenv("SK_INTERNAL_KEY", "")})   # admin-gated API
         if r.ok:
             for k, v in (r.json() or {}).items():
                 if k in cfg and v is not None:

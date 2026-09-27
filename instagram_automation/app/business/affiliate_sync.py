@@ -21,6 +21,8 @@ from app import rags
 from app.business import analytics
 
 AFFILIATE_URL = os.getenv("AFFILIATE_URL", "http://affiliate_backend:8100")
+# the affiliate API is admin-gated; service-to-service calls carry the shared internal key
+_INTERNAL = {"X-Internal-Key": os.getenv("SK_INTERNAL_KEY", "")}
 
 
 def _accounts_with_tokens() -> List[Dict[str, Any]]:
@@ -36,7 +38,7 @@ def sync_affiliate_performance(limit: int = 50) -> Dict[str, Any]:
     """Pull IG insights for recent affiliate posts and ingest them. Returns a summary."""
     # 1) recent affiliate posts (id + media_id) from the affiliate service
     try:
-        r = requests.get(f"{AFFILIATE_URL}/api/posts", params={"limit": limit}, timeout=20)
+        r = requests.get(f"{AFFILIATE_URL}/api/posts", params={"limit": limit}, headers=_INTERNAL, timeout=20)
         posts = (r.json() or {}).get("posts", [])
     except Exception as e:
         return {"ok": False, "error": f"could not read affiliate posts: {e}", "synced": 0}
@@ -75,7 +77,7 @@ def sync_affiliate_performance(limit: int = 50) -> Dict[str, Any]:
             },
         }
         try:
-            requests.post(f"{AFFILIATE_URL}/api/performance/ingest", json=payload, timeout=20)
+            requests.post(f"{AFFILIATE_URL}/api/performance/ingest", json=payload, headers=_INTERNAL, timeout=20)
             synced += 1
         except Exception as e:  # noqa: BLE001
             errors.append(str(e))

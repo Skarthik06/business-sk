@@ -542,6 +542,15 @@ and the IG backend hold `SCRAPER_API_URL` + `SCRAPER_API_KEY`.
   credential text files are git-ignored (the repository is public).
 * Admin gate on every `/api/*` route (HMAC-signed tokens with a per-boot nonce ⇒ re-login after a
   restart); Google login restricted to allowed emails.
+* The **affiliate API** (`/sk-api/*`, also reachable on the open Vite port 3000) requires the **same
+  admin session** (`affiliate-rag-bot/admin_gate.py`). It can't verify the IG tokens itself (the
+  per-boot nonce), so it asks the IG backend (`GET /api/v1/admin/me` on the Docker network) and caches
+  the answer (valid 60 s, invalid 10 s); if the IG backend can't be reached it answers 503, never a
+  logout. Service-to-service calls (IG backend → affiliate: `/api/posts`, `/api/performance/ingest`,
+  `/api/render-config`) send `X-Internal-Key` = `SK_INTERNAL_KEY` (in both `.env` files) — the network
+  location is not trusted, because public traffic also arrives from inside Docker via the Vite proxy.
+  Open without a session: `/hub` + `/api/hub` (public storefront), `/api/health`, and the scrape-worker
+  endpoints (their own token). `/docs` and `/openapi.json` are gated too.
 * Worker endpoints use a separate token (constant-time compare); uploads verified as images.
 * Webhooks verified by challenge + signature.
 * Affiliate disclosure in the storefront, DMs and captions; Amazon Associates + ASCI rules.

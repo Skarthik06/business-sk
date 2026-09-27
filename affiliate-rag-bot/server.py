@@ -228,6 +228,28 @@ app = FastAPI(
     description="Amazon → Pinterest RAG affiliate pipeline as a JSON-in / JSON-out service.",
 )
 
+import admin_gate  # noqa: E402
+
+
+@app.middleware("http")
+async def _admin_gate(request, call_next):
+    """Same Studio admin session as the IG backend's /api (see admin_gate.py). Open: /hub,
+    /api/hub, /api/health and the token-authenticated scrape-worker endpoints."""
+    path = request.url.path
+    if not admin_gate.needs_auth(request.method, path):
+        return await call_next(request)
+    if admin_gate.internal_ok(request.headers.get("x-internal-key")):
+        return await call_next(request)
+    ok = await asyncio.to_thread(admin_gate.verify_admin, request.headers.get("authorization"))
+    if ok is None:
+        return JSONResponse(status_code=503, content={"ok": False, "error": {
+            "code": "AUTH_UNAVAILABLE", "message": "Could not verify the admin session — try again."}})
+    if not ok:
+        return JSONResponse(status_code=401, content={"ok": False, "error": {
+            "code": "UNAUTHORIZED", "message": "Admin authentication required."}})
+    return await call_next(request)
+
+
 # One run at a time (single browser / single account).
 _run_lock = asyncio.Lock()
 

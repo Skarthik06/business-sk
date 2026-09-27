@@ -1,9 +1,31 @@
 import axios from 'axios';
+import { TOKEN_KEY, REFRESH_KEY } from './api';
 
-// Client for the Business-SK affiliate API (separate service on :8100),
-// proxied via Vite under /sk-api. No admin token — the affiliate has no auth.
+// Client for the Business-SK affiliate API (separate service on :8100), proxied via Vite under
+// /sk-api. It requires the SAME admin session as /api (affiliate-rag-bot/admin_gate.py), so the
+// admin bearer token is attached exactly like the main client does.
 const sk = axios.create({ baseURL: '/sk-api/api', timeout: 0 });
 const data = (r) => r.data;
+
+sk.interceptors.request.use((config) => {
+  const t = localStorage.getItem(TOKEN_KEY);
+  if (t) config.headers.Authorization = `Bearer ${t}`;
+  return config;
+});
+
+// 401 = the session is gone (expired / logged out / server restarted) → back to login, like /api.
+// (503 = the session couldn't be checked right now; that is shown as an error, not a logout.)
+sk.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    if (err?.response?.status === 401) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(REFRESH_KEY);
+      if (!window.__ig_loggingOut) { window.__ig_loggingOut = true; window.location.reload(); }
+    }
+    return Promise.reject(err);
+  }
+);
 
 // Every user-facing affiliate endpoint is wired below. Endpoints intentionally NOT exposed
 // (legacy/internal, superseded by the current Amazon→Instagram flow): /api/run (old
