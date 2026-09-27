@@ -130,12 +130,12 @@ def _fill_presets(chosen: List[str], palette: str, analysis: List[Dict[str, Any]
         hits = sum(1 for w in re.findall(r"[a-z]{4,}", best) if w in words)
         return hits * 3 - used.count(key)
 
-    out = [p for p in chosen if p in ps and p != "/boutique"][:want]    # /boutique = last-resort filler
+    out = [p for p in chosen if p in ps and p != "/studio"][:want]      # /studio = last-resort filler
     pool = sorted((k for k, v in ps.items() if palette in v["palettes"] and k not in out), key=score, reverse=True)
     for k in pool:
         if len(out) >= want:
             break
-        if k != "/boutique" or not out:                 # /boutique is the generic filler, only if nothing else
+        if k != "/studio" or not out:                   # /studio is the generic filler, only if nothing else
             out.append(k)
     return out
 
@@ -204,7 +204,7 @@ def _assemble_prompt(f: Dict[str, Any], style_presets: Optional[List[str]] = Non
     parts += [str(f.get("camera") or "eye-level, straight-on, 35mm, deep focus").strip(),
               (str(f.get("mood") or "").strip() + " mood") if f.get("mood") else "",
               *[presets().get(p, {}).get("adds", "") for p in (style_presets or [])],
-              "editorial interior photography, quiet luxury boutique, open empty space in the centre and lower half"]
+              "clean studio product photography, plain seamless backdrop, open empty space in the centre and lower half"]
     return ", ".join(p for p in parts if p)[:900]
 
 
@@ -275,7 +275,7 @@ def _fallback_plan(products, category, lib, metas) -> Dict[str, Any]:
 _SYSTEM = (
     "You are the ART DIRECTOR of a premium Indian Instagram affiliate page (fashion-first, but it also "
     "posts gadgets, beauty, home and accessories). You design scroll-stopping, aesthetic posts in the "
-    "style of top fashion curator accounts: elegant real interiors (boutiques, galleries, sunlit apartments — never a photo studio), real product photos, "
+    "style of top fashion curator accounts: plain elegant studio backdrops (one calm colour and beautiful light — never invented rooms), real product photos, "
     "elegant typography. You NEVER alter a product — you only choose the SCENE around it and the LAYOUT. "
     "Reply with strict JSON only."
 )
@@ -551,14 +551,14 @@ def _direct(products: List[Dict[str, Any]], category: str = "", look: str = "", 
             plan["palette"] = "noir" if "noir" in _rows_all else next(iter(_rows_all))
         _row = _rows_all[plan["palette"]]
         _mats = [m.strip() for m in _row["materials"].split(",") if m.strip()]
-        _fields = {"setting": "quiet elegant boutique interior corner",
+        _fields = {"setting": "plain seamless photo studio backdrop",
                    "wall": _mats[0] if _mats else "", "floor": _mats[1] if len(_mats) > 1 else "",
                    "light": _row["light"], "props": _mats[2] if len(_mats) > 2 else "",
                    "camera": "eye-level, straight-on, 35mm, deep focus", "mood": _row["mood"],
                    "colors": [c.strip() for c in _row["colors"].split(",")][:3]}
         import hashlib as _h
         _p = _assemble_prompt(_fields)
-        plan["scene"]["new"] = {"key": f"{plan['palette']}_interior_{_h.sha1(_p.encode()).hexdigest()[:6]}",
+        plan["scene"]["new"] = {"key": f"{plan['palette']}_studio_{_h.sha1(_p.encode()).hexdigest()[:6]}",
                                 "prompt": _p, "palette": plan["palette"], "mood": _row["mood"],
                                 "niches": [], "tags": [], "fields": _fields}
     _pal = plan.get("palette")
