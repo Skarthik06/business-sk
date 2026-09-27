@@ -114,8 +114,8 @@ def status() -> dict:
         pending = sum(1 for j in _JOBS.values() if j["status"] == "pending")
     h = scraper_client.health() if scraper_client.available() else {}
     return {"ok": True, "online": online(), "worker_online": worker_online(),
-            "mode": ("scraper API + proxy (online)" if scraper_client.residential_ready()
-                     else "laptop worker" if worker_online() else "offline"),
+            "mode": ("scraper API routes online (workers / proxies)" if scraper_client.residential_ready()
+                     else "legacy laptop worker" if worker_online() else "direct only (no worker / proxy online)"),
             "scraper_api": {"configured": scraper_client.available(), "healthy": bool(h.get("ok")),
                             "proxies": h.get("proxies"), "residential_ready": bool(h.get("residential_ready"))},
             "last_seen_secs": (round(time.time() - seen) if seen else None),

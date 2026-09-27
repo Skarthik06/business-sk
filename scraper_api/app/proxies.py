@@ -118,6 +118,14 @@ class ProxyManager:
     def healthy_count(self) -> int:
         return len(self._usable(None))
 
+    def usable(self, country: Optional[str] = None) -> List[Proxy]:
+        """Proxies the Strategy Engine may consider (active, not cooling down, lease capacity left)."""
+        return self._usable(country)
+
+    async def acquire(self, proxy: Proxy) -> None:
+        async with self.lock:
+            self.leases[proxy.id] = self.leases.get(proxy.id, 0) + 1
+
     async def lease(self, country: Optional[str] = None, exclude: Optional[set] = None) -> Optional[Proxy]:
         """Healthy + not cooling down + geography → lowest failure ratio, then lowest latency."""
         async with self.lock:

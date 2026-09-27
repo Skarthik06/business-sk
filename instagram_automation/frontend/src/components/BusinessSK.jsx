@@ -1453,6 +1453,7 @@ function OverviewPanel({ active, health, stats, accounts = [], go }) {
             : <ActionCard title="Find winning products" body="Run Discover to surface fresh, high-winner-score products, then publish." btn="Open Discover" onClick={() => go?.('sk-affiliate')} />}
         </div>
       </div>
+      <ScraperPanel active={active} />
       <div className="panel p-4">
         <div className="eyebrow mb-3">Recent winners</div>
         {wins == null ? <div className="text-center p-4"><Spinner size={16} /></div>
@@ -1464,6 +1465,72 @@ function OverviewPanel({ active, health, stats, accounts = [], go }) {
                 <span className="text-xs font-mono" style={{ color: 'var(--muted)' }}>{w.price}</span>
               </div>))}</div>}
       </div>
+    </div>
+  );
+}
+// Scraper API ops view (Strategy Engine): which routes are alive, which work per site, open circuits.
+function ScraperPanel({ active }) {
+  const [d, setD] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    if (!active) return undefined;
+    const load = () => api.skScraperDashboard()
+      .then((r) => { if (r.success) { setD(r); setErr(''); } else setErr(r.error || 'unavailable'); })
+      .catch(() => setErr('unavailable'));
+    load();
+    const t = setInterval(load, 30000);
+    return () => clearInterval(t);
+  }, [active]);
+  const pct = (v) => (v == null ? '—' : Math.round(v * 100) + '%');
+  const dot = (s) => ({ online: '#3fb950', stale: 'var(--amber)', CLOSED: '#3fb950', HALF_OPEN: 'var(--amber)' }[s] || 'var(--danger)');
+  const mins = (s) => (s > 3600 ? Math.round(s / 3600) + ' h' : Math.max(1, Math.round(s / 60)) + ' min');
+  return (
+    <div className="panel p-4">
+      <div className="eyebrow mb-3">Scraper routes</div>
+      {!d ? <p className="text-sm" style={{ color: 'var(--muted)' }}>{err ? `Scraper API ${err}` : <Spinner size={14} />}</p> : <>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <div className="stat-tile"><div className="stat-v">{d.requests_per_min}</div><div className="stat-k">Requests / min</div></div>
+          <div className="stat-tile"><div className="stat-v">{pct(d.success_rate_24h)}</div><div className="stat-k">Success (24 h)</div></div>
+          <div className="stat-tile"><div className="stat-v">{d.browser_requests_24h}</div><div className="stat-k">Browser requests (24 h)</div></div>
+          <div className="stat-tile"><div className="stat-v">{(d.queue_depth?.http || 0) + (d.queue_depth?.browser || 0)}</div><div className="stat-k">Queue depth</div></div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <div className="text-xs mb-2" style={{ color: 'var(--muted)' }}>Workers</div>
+            {(d.workers || []).length === 0
+              ? <p className="text-sm" style={{ color: 'var(--muted)' }}>No worker has checked in yet — start the laptop or phone worker.</p>
+              : d.workers.map((w) => (
+                <div key={w.worker_id} className="flex items-center gap-2 text-sm mb-1.5">
+                  <span style={{ width: 9, height: 9, borderRadius: '50%', background: dot(w.state) }} />
+                  <span className="font-mono">{w.worker_id}</span>
+                  <span className="text-xs" style={{ color: 'var(--faint)' }}>{w.kind}</span>
+                  <span className="flex-1" />
+                  <span className="text-xs font-mono" style={{ color: 'var(--faint)' }}>{w.state} · {w.age_s}s ago</span>
+                </div>))}
+            <div className="text-xs mt-3 mb-2" style={{ color: 'var(--muted)' }}>Open circuits</div>
+            {(d.open_circuits || []).length === 0
+              ? <p className="text-sm" style={{ color: 'var(--muted)' }}>None — every route is allowed.</p>
+              : d.open_circuits.map((c) => (
+                <div key={c.domain + c.route} className="flex items-center gap-2 text-xs mb-1.5" title={c.reason}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot(c.state) }} />
+                  <span className="font-mono">{c.domain} / {c.route}</span><span className="flex-1" />
+                  <span style={{ color: 'var(--faint)' }}>{c.state === 'OPEN' ? `probe in ${mins(c.reopens_in_s)}` : 'probing'}</span>
+                </div>))}
+          </div>
+          <div>
+            <div className="text-xs mb-2" style={{ color: 'var(--muted)' }}>Route health by site</div>
+            {(d.routes || []).length === 0
+              ? <p className="text-sm" style={{ color: 'var(--muted)' }}>No history yet — it builds up as products are fetched.</p>
+              : <div style={{ maxHeight: 220, overflowY: 'auto' }}>{d.routes.map((r) => (
+                <div key={r.domain + r.route} className="flex items-center gap-2 text-xs mb-1.5">
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: dot(r.circuit) }} />
+                  <span className="font-mono" style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.domain} · {r.route}</span>
+                  <span className="flex-1" />
+                  <span className="font-mono" style={{ color: 'var(--faint)' }}>{pct(r.success_rate)} · {r.latency_ms ? (r.latency_ms / 1000).toFixed(1) + 's' : '—'}</span>
+                </div>))}</div>}
+          </div>
+        </div>
+      </>}
     </div>
   );
 }

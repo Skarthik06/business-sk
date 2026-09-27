@@ -48,7 +48,8 @@ def health(max_age: float = 30.0) -> dict:
 
 
 def residential_ready() -> bool:
-    """True when the Scraper API has a healthy proxy (so Amazon/Flipkart work without the laptop)."""
+    """True when the Scraper API has a route that reaches sites rejecting the server's IP:
+    an online worker (laptop / phone / remote) or a healthy proxy."""
     return bool(health().get("residential_ready"))
 
 
@@ -58,7 +59,7 @@ def scrape_html(url: str, timeout: int = 45) -> dict:
         return {"ok": False, "outcome": "UNAVAILABLE", "reason": "scraper API not configured"}
     q = urllib.parse.urlencode({"url": url, "extract": "html", "timeout": min(120, max(3, timeout))})
     try:
-        r = _get("/v1/scrape?" + q, timeout + 30)
+        r = _get("/v1/scrape?" + q, 150)            # the engine may fail over across routes (≤ max_time)
     except Exception as e:                                 # noqa: BLE001
         return {"ok": False, "outcome": "UNAVAILABLE", "reason": f"{type(e).__name__}"}
     ok = r.get("outcome") == "SUCCESS" and bool((r.get("data") or {}).get("html"))

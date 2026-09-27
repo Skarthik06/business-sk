@@ -68,6 +68,8 @@ export default {
   skArtDirect: (products, category = '', look = '', styles = '', fresh = false) => http.post('/sk/art-direct', { products, category, look, styles, fresh }, { timeout: 90000 }).then(data),
   // Backdrop library (thumbnails) + laptop GPU worker status.
   skScenes: () => http.get('/sk/scenes').then(data),
+  // Scraper API ops view (routes, workers, circuits) — via the admin-gated IG backend.
+  skScraperDashboard: () => http.get('/sk/scraper-dashboard').then(data),
 
   // Palettes + per-slide templates (with details) for the Content Studio pickers.
   skRenderOptions: () => http.get('/sk/render-options').then(data),

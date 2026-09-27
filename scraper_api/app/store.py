@@ -33,6 +33,20 @@ create table if not exists proxies (
   failure_count int not null default 0, consecutive_failures int not null default 0, latency_ms int,
   last_checked timestamptz, cooldown_until timestamptz, created_at timestamptz not null default now(),
   unique (scheme, host, port, provider));
+create table if not exists workers (
+  worker_id text primary key, kind text, capabilities text, last_heartbeat timestamptz, info jsonb,
+  created_at timestamptz not null default now());
+create table if not exists route_health (
+  domain text not null, route text not null, attempts int not null default 0,
+  successes int not null default 0, recent text, ewma_ms double precision,
+  last_success double precision, last_failure double precision,
+  consecutive_failures int not null default 0, updated_at timestamptz not null default now(),
+  primary key (domain, route));
+create table if not exists circuit_breakers (
+  domain text not null, route text not null, state text not null default 'CLOSED',
+  open_until double precision, opens int not null default 0, reason text,
+  updated_at timestamptz not null default now(), primary key (domain, route));
+alter table scrape_attempts add column if not exists route text;
 create table if not exists usage_daily (
   api_key_id int not null, day date not null, requests int not null default 0,
   bandwidth bigint not null default 0, browser_requests int not null default 0,
@@ -105,7 +119,7 @@ async def job_get(job_id: str) -> Optional[Dict[str, Any]]:
 
 
 async def attempt_log(row: Dict[str, Any]) -> None:
-    cols = ("request_id", "job_id", "api_key_id", "domain", "attempt", "worker", "mode", "proxy_id",
+    cols = ("request_id", "job_id", "api_key_id", "domain", "attempt", "worker", "mode", "route", "proxy_id",
             "status_code", "outcome", "error", "duration_ms", "response_bytes", "cache_hit")
     await q(f"insert into scrape_attempts ({', '.join(cols)}) values ({', '.join(['%s'] * len(cols))})",
             tuple(row.get(c) for c in cols))
@@ -133,6 +147,21 @@ async def domain_stats(hours: int = 24) -> List[Dict[str, Any]]:
                         percentile_cont(0.5) within group (order by duration_ms) as p50_ms
                       from scrape_attempts where created_at > now() - make_interval(hours => %s)
                       group by domain order by attempts desc limit 50""", (hours,)) or []
+
+
+async def dashboard_numbers() -> Dict[str, Any]:
+    r = await q("""select
+          count(*) filter (where created_at > now() - interval '1 minute') as req_1m,
+          count(*) filter (where created_at > now() - interval '24 hours') as req_24h,
+          count(*) filter (where created_at > now() - interval '24 hours' and outcome = 'SUCCESS') as ok_24h,
+          count(*) filter (where created_at > now() - interval '24 hours' and mode = 'browser') as browser_24h,
+          count(*) filter (where created_at > now() - interval '24 hours' and cache_hit) as cache_24h
+        from scrape_attempts""", one=True) or {}
+    by_route = await q("""select coalesce(route, mode) as route, count(*) as attempts,
+          sum(case when outcome = 'SUCCESS' then 1 else 0 end) as success
+        from scrape_attempts where created_at > now() - interval '24 hours' and not cache_hit
+        group by 1 order by 2 desc""") or []
+    return {**r, "by_route": by_route}
 
 
 async def prune_attempts(days: int = 30) -> None:

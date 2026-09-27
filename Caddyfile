@@ -5,5 +5,16 @@
 # Google OAuth works (Google rejects raw-IP / http origins).
 140-238-247-18.nip.io {
 	encode zstd gzip
-	reverse_proxy frontend:3000
+
+	# Remote scrape workers (laptop / phone / any machine) reach the Scraper API's WORKER
+	# endpoints only (heartbeat, lease, result — X-Worker-Token auth). The rest of the
+	# Scraper API stays internal.
+	handle_path /scraper-worker/* {
+		rewrite * /v1/workers{uri}
+		reverse_proxy scraper_api:8200
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
 }

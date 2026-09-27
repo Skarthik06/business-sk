@@ -1,49 +1,56 @@
 #!/usr/bin/env python3
 """
-scrape_worker.py — Business-SK residential scrape worker (ZERO dependencies, stdlib only).
+scrape_worker.py — Business-SK remote scrape worker v2 (ZERO dependencies, stdlib only).
 
-Amazon/Flipkart block the cloud server's datacenter IP. This tiny worker runs on YOUR machine
-(PC or phone via Termux) — a residential IP they don't block — polls the server for fetch jobs,
-downloads the page, and sends the HTML back. The server parses it into products. Our own free
-"ScraperAPI": the cloud coordinates, your device is the proxy.
+One of the Scraper API's routes. Amazon/Flipkart reject the cloud server's datacenter IP; this worker
+runs on YOUR laptop or phone (Termux) — a home / mobile IP — and the server's Strategy Engine sends it
+the jobs that need it. Laptop off? The phone takes over automatically, and vice versa.
 
-Run it (needs only Python 3, nothing to pip install):
-    python scrape_worker.py
+    python scrape_worker.py                      # laptop
+    SK_WORKER_ID=phone-01 SK_WORKER_KIND=phone python scrape_worker.py    # phone (Termux)
 
-Config (env vars, optional — sensible defaults built in):
-    SK_WORKER_URL    base URL of the affiliate API (default the production server)
-    SK_WORKER_TOKEN  shared secret (must match SCRAPE_WORKER_TOKEN in the server .env)
+Config (env, all optional):
+    SK_SCRAPER_URL   worker endpoint base   (default https://140-238-247-18.nip.io/scraper-worker)
+    SK_WORKER_TOKEN  worker token           (default: the file ~/.sk_worker_token)
+    SK_WORKER_ID     unique name, e.g. laptop-01 / phone-01   (default laptop-<hostname>)
+    SK_WORKER_KIND   laptop | phone | remote                    (default laptop)
 
-Only makes OUTBOUND calls, so it works behind home/carrier NAT — no port-forwarding, no tunnel.
-Leave it running while you generate Amazon/Flipkart posts. Ctrl-C to stop.
+Protocol: heartbeat every 20 s · long-poll /jobs/lease · POST the page back to /jobs/<id>/result.
+Only OUTBOUND HTTPS, so it works behind home / carrier NAT — no port-forwarding, no tunnel.
 """
 import base64
 import gzip
 import json
 import os
+import re
+import socket
+import threading
 import time
-import urllib.parse
+import urllib.error
 import urllib.request
+
+VERSION = "2.0"
+
 
 def _load_token() -> str:
     t = os.getenv("SK_WORKER_TOKEN", "").strip()
     if t:
         return t
-    try:                                   # fallback: a local token file (kept out of git)
+    try:                                   # a local token file (kept out of git)
         with open(os.path.join(os.path.expanduser("~"), ".sk_worker_token"), "r") as f:
             return f.read().strip()
     except Exception:
         return ""
 
 
-BASE = os.getenv("SK_WORKER_URL", "https://140-238-247-18.nip.io/sk-api").rstrip("/")
+BASE = os.getenv("SK_SCRAPER_URL", "https://140-238-247-18.nip.io/scraper-worker").rstrip("/")
 TOKEN = _load_token()
+KIND = os.getenv("SK_WORKER_KIND", "laptop").strip() or "laptop"
+WORKER_ID = re.sub(r"[^A-Za-z0-9_.-]", "-", os.getenv("SK_WORKER_ID", "").strip()
+                   or f"{KIND}-{socket.gethostname()}")[:40]
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
-POLL = 2.0
-FETCH_TIMEOUT = 45
-# Full browser-like headers so Amazon/Flipkart treat us like a real visitor (NOT Accept-Encoding —
-# we want plain HTML, not gzip we'd have to decode).
+# Full browser-like headers (NOT Accept-Encoding — we want plain HTML, not gzip to decode).
 _BROWSER = {
     "User-Agent": UA,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -57,83 +64,112 @@ _BROWSER = {
     "Sec-Fetch-User": "?1",
     "Upgrade-Insecure-Requests": "1",
 }
+_ACTIVE = {"n": 0}
 
 
-def _get(url: str, timeout: int = 30, headers: dict | None = None) -> bytes:
-    req = urllib.request.Request(url, headers=headers or {"User-Agent": UA})
+def log(msg: str) -> None:
+    try:
+        print(f"[worker {WORKER_ID}] {time.strftime('%H:%M:%S')} {msg}", flush=True)
+    except Exception:
+        pass
+
+
+def _api(path: str, obj: dict, timeout: float = 40) -> dict:
+    req = urllib.request.Request(BASE + path, data=json.dumps(obj).encode("utf-8"), method="POST",
+                                 headers={"Content-Type": "application/json", "X-Worker-Token": TOKEN,
+                                          "User-Agent": f"sk-scrape-worker/{VERSION}"})
     with urllib.request.urlopen(req, timeout=timeout) as r:
-        return r.read()
+        return json.loads(r.read().decode("utf-8") or "{}")
 
 
-def _fetch_page(url: str) -> bytes:
-    """Fetch a shopping page like a real browser, with retry/backoff. Retries when the site returns
-    a tiny 'block' page (Amazon/Flipkart anti-bot) so a transient throttle doesn't kill the job."""
-    last = b""
-    for attempt in range(1, 4):
+def _info() -> dict:
+    return {"worker_id": WORKER_ID, "status": "healthy", "capabilities": ["http"], "kind": KIND,
+            "active_jobs": _ACTIVE["n"], "version": VERSION}
+
+
+def _fetch(url: str, timeout: int) -> dict:
+    """One page like a real browser. A tiny first page is usually a momentary throttle → one retry."""
+    t0 = time.time()
+    status, body, final, ctype, err = None, b"", url, "", None
+    for attempt in (1, 2):
         try:
-            last = _get(url, FETCH_TIMEOUT, headers=_BROWSER)
-            # a real search page is large; a few-KB page is a bot-check/robot page → back off & retry
-            if len(last) > 80_000:
-                return last
-        except Exception as e:
-            if attempt == 3:
-                raise
-        time.sleep(3 * attempt + 1)          # 4s, 7s — let the throttle cool down
-    return last                               # return whatever we got (server will judge)
+            req = urllib.request.Request(url, headers=_BROWSER)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                status, body, final = r.status, r.read(), r.geturl()
+                ctype = r.headers.get("Content-Type", "")
+            err = None
+        except urllib.error.HTTPError as e:          # 4xx/5xx still carry a page the server classifies
+            status, final, ctype = e.code, url, e.headers.get("Content-Type", "") if e.headers else ""
+            try:
+                body = e.read()
+            except Exception:
+                body = b""
+            err = None
+        except Exception as e:                       # timeout / DNS / connection
+            status, body, err = None, b"", f"{type(e).__name__}: {str(e)[:120]}"
+        if status == 200 and len(body) < 20_000 and attempt == 1:
+            time.sleep(4)
+            continue
+        break
+    return {"status_code": status, "body": body, "final_url": final, "content_type": ctype, "error": err,
+            "duration_ms": int((time.time() - t0) * 1000)}
 
 
-def _post_json(url: str, obj: dict, timeout: int = 60) -> None:
-    data = json.dumps(obj).encode("utf-8")
-    req = urllib.request.Request(url, data=data, method="POST",
-                                 headers={"Content-Type": "application/json"})
-    with urllib.request.urlopen(req, timeout=timeout) as r:
-        r.read()
-
-
-def main():
-    print(f"[worker] Business-SK scrape worker -> {BASE}")
-    print("[worker] polling for Amazon/Flipkart jobs... (Ctrl-C to stop)\n")
-    idle = 0
-    jobs_url = f"{BASE}/api/scrape/jobs?" + urllib.parse.urlencode({"token": TOKEN})
-    result_url = f"{BASE}/api/scrape/result"
+def _heartbeat_loop() -> None:
     while True:
         try:
-            jobs = (json.loads(_get(jobs_url, 30)) or {}).get("jobs", [])
+            _api("/heartbeat", _info(), 20)
+        except Exception:
+            pass
+        time.sleep(20)
+
+
+def main() -> None:
+    if not TOKEN:
+        log("no token: set SK_WORKER_TOKEN or create ~/.sk_worker_token")
+        time.sleep(60)
+        return
+    log(f"v{VERSION} online as {KIND} -> {BASE}")
+    threading.Thread(target=_heartbeat_loop, daemon=True).start()
+    fails = 0
+    while True:
+        try:
+            jobs = _api("/jobs/lease", {**_info(), "max": 1, "wait": 20}, timeout=40).get("jobs", [])
+            fails = 0
+        except urllib.error.HTTPError as e:
+            log(f"lease refused: HTTP {e.code}" + (" (check the token)" if e.code == 401 else ""))
+            time.sleep(30 if e.code == 401 else 10)
+            continue
         except Exception as e:
-            print(f"[worker] poll error: {str(e)[:90]}")
-            time.sleep(5)
+            fails += 1
+            if fails in (1, 10) or fails % 60 == 0:
+                log(f"server unreachable ({str(e)[:80]}) — retrying")
+            time.sleep(min(30, 3 * fails))
             continue
-        if not jobs:
-            idle += 1
-            if idle % 30 == 0:
-                print("[worker] connected, waiting for jobs...")
-            time.sleep(POLL)
-            continue
-        idle = 0
         for j in jobs:
-            jid, url, kind = j.get("job_id"), j.get("url", ""), j.get("kind", "")
+            _ACTIVE["n"] += 1
             try:
-                html = _fetch_page(url)
-                payload = base64.b64encode(gzip.compress(html)).decode("ascii")
-                _post_json(result_url, {"token": TOKEN, "job_id": jid, "html": payload, "gz": True})
-                print(f"[worker] OK  {kind:9s} {len(html):>8,d} bytes  {url[:70]}")
+                r = _fetch(j["url"], int(j.get("timeout") or 30))
+                body = r.pop("body")
+                payload = {"worker_id": WORKER_ID, **r,
+                           "html": base64.b64encode(gzip.compress(body)).decode("ascii") if body else "", "gz": True}
+                _api(f"/jobs/{j['attempt_id']}/result", payload, timeout=90)
+                log(f"{'OK ' if r['status_code'] == 200 else 'ERR'} {r['status_code']} {len(body):>9,d} B "
+                    f"{r['duration_ms']:>6d} ms  {j['url'][:70]}")
             except Exception as e:
-                try:
-                    _post_json(result_url, {"token": TOKEN, "job_id": jid, "error": str(e)[:140]}, 30)
-                except Exception:
-                    pass
-                print(f"[worker] ERR {kind:9s} {str(e)[:80]}")
+                log(f"job failed: {str(e)[:100]}")
+            finally:
+                _ACTIVE["n"] -= 1
 
 
 if __name__ == "__main__":
-    # Self-healing: if main() ever crashes unexpectedly, wait and restart (so an always-on
-    # scheduled task keeps the worker alive indefinitely without manual intervention).
+    # Self-healing: never die for good (runs from the Startup folder / Termux boot).
     while True:
         try:
             main()
         except KeyboardInterrupt:
-            print("\n[worker] stopped.")
+            log("stopped.")
             break
         except Exception as e:
-            print(f"[worker] crashed: {str(e)[:120]} — restarting in 10s")
+            log(f"crashed: {str(e)[:120]} — restarting in 10s")
             time.sleep(10)

@@ -7,6 +7,10 @@
   GET  /v1/domains/{d}     effective domain strategy
   GET/POST/DELETE /v1/admin/proxies   proxy registry (credentials never returned)
   GET  /v1/stats           per-domain success / latency (24 h)
+  GET  /v1/dashboard       route health, circuits, workers, throughput (the ops dashboard's data)
+  POST /v1/workers/heartbeat · /v1/workers/jobs/lease · /v1/workers/jobs/{id}/result
+                           remote workers (laptop / phone / any machine) — X-Worker-Token auth;
+                           the ONLY paths exposed publicly (Caddy /scraper-worker/*)
   GET  /metrics            Prometheus (internal network only)
 """
 from __future__ import annotations
@@ -18,11 +22,11 @@ from contextlib import asynccontextmanager
 from typing import Any, Dict, Optional
 
 import redis.asyncio as aioredis
-from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Path, Query
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import cache, config, engine, metrics, security, store
+from . import cache, config, engine, metrics, routing, security, store, workers
 from .browser import pool as browser_pool
 from .proxies import manager as proxies
 
@@ -90,6 +94,7 @@ async def lifespan(app: FastAPI):
     await _seed_keys()
     await proxies.load()
     await proxies.seed_from_env()
+    await routing.book.load()
     _tasks.extend(asyncio.create_task(_job_worker(i)) for i in range(config.JOB_WORKERS))
     _tasks.append(asyncio.create_task(_housekeeping()))
     yield
@@ -188,7 +193,13 @@ async def health():
         out["redis"], out["ok"] = "down", False
     out["browser"] = {"started": browser_pool.started, "active_pages": browser_pool.active}
     out["proxies"] = {"total": len(proxies.proxies), "healthy": proxies.healthy_count()}
-    out["residential_ready"] = proxies.healthy_count() > 0
+    try:
+        ws = await workers.list_workers()
+    except Exception:
+        ws = []
+    out["workers"] = {w["worker_id"]: w["state"] for w in ws}
+    # a route that can reach sites which reject the server's own IP (a worker or a proxy) is up
+    out["residential_ready"] = proxies.healthy_count() > 0 or any(w["state"] == "online" for w in ws)
     return out
 
 
@@ -241,3 +252,84 @@ async def delete_proxy(pid: int, key: Dict[str, Any] = Depends(api_key)):
 async def prom():
     from prometheus_client import generate_latest
     return PlainTextResponse(generate_latest(metrics.registry).decode(), media_type="text/plain; version=0.0.4")
+
+
+# ── remote workers (laptop / phone / any machine) ─────────────────────────────────────────────
+async def worker_auth(x_worker_token: str = Header("", alias="X-Worker-Token")) -> None:
+    if not workers.token_ok(x_worker_token):
+        raise HTTPException(401, "bad worker token")
+
+
+class HeartbeatReq(BaseModel):
+    worker_id: str = Field(..., max_length=40)
+    status: str = Field("healthy", max_length=20)
+    capabilities: list = Field(default_factory=lambda: ["http"])
+    active_jobs: int = Field(0, ge=0, le=1000)
+    cpu_percent: Optional[float] = None
+    memory_percent: Optional[float] = None
+    kind: str = Field("remote", max_length=20)
+    version: str = Field("", max_length=20)
+
+
+class LeaseReq(HeartbeatReq):
+    max: int = Field(1, ge=1, le=4)
+    wait: float = Field(20, ge=0, le=25)
+
+
+class ResultReq(BaseModel):
+    worker_id: str = Field(..., max_length=40)
+    status_code: Optional[int] = None
+    content_type: str = Field("", max_length=200)
+    final_url: str = Field("", max_length=config.MAX_URL_LEN)
+    html: str = ""
+    gz: bool = False
+    error: Optional[str] = Field(None, max_length=500)
+    duration_ms: Optional[int] = None
+
+
+@app.post("/v1/workers/heartbeat", dependencies=[Depends(worker_auth)])
+async def worker_heartbeat(body: HeartbeatReq):
+    if not workers.valid_id(body.worker_id):
+        raise HTTPException(400, "worker_id: letters, digits, . _ - (max 40)")
+    await workers.heartbeat(body.worker_id, body.model_dump())
+    return {"ok": True, "online_secs": workers.ONLINE_SECS}
+
+
+@app.post("/v1/workers/jobs/lease", dependencies=[Depends(worker_auth)])
+async def worker_lease(body: LeaseReq):
+    if not workers.valid_id(body.worker_id):
+        raise HTTPException(400, "bad worker_id")
+    await workers.heartbeat(body.worker_id, body.model_dump())
+    return {"jobs": await workers.lease(body.worker_id, body.max, body.wait)}
+
+
+@app.post("/v1/workers/jobs/{attempt_id}/result", dependencies=[Depends(worker_auth)])
+async def worker_result(body: ResultReq, attempt_id: str = Path(..., max_length=80, pattern=r"^[A-Za-z0-9_]+$")):
+    res = await workers.submit(body.worker_id, attempt_id, body.model_dump())
+    if not res.get("ok"):
+        raise HTTPException(409, res.get("error", "rejected"))
+    return res
+
+
+# ── ops dashboard data ─────────────────────────────────────────────────────────────────────────
+@app.get("/v1/dashboard")
+async def dashboard(key: Dict[str, Any] = Depends(api_key)):
+    n = await store.dashboard_numbers()
+    req24 = int(n.get("req_24h") or 0)
+    ws = await workers.list_workers()
+    return {
+        "requests_per_min": int(n.get("req_1m") or 0),
+        "requests_24h": req24,
+        "success_rate_24h": round(int(n.get("ok_24h") or 0) / req24, 3) if req24 else None,
+        "browser_requests_24h": int(n.get("browser_24h") or 0),
+        "cache_hits_24h": int(n.get("cache_24h") or 0),
+        "queue_depth": {"http": await metrics.redis.llen(Q_HTTP), "browser": await metrics.redis.llen(Q_BROWSER)},
+        "route_success_24h": [{"route": r["route"], "attempts": r["attempts"],
+                               "success_rate": round(int(r["success"] or 0) / r["attempts"], 3) if r["attempts"] else None}
+                              for r in n.get("by_route") or []],
+        "workers": [{k: w.get(k) for k in ("worker_id", "kind", "state", "age_s", "capabilities", "active_jobs",
+                                           "cpu_percent", "memory_percent", "version")} for w in ws],
+        "proxies": [p.public() for p in proxies.proxies.values()],
+        **routing.book.snapshot(),
+        "weights": routing.weights(),
+    }

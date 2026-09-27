@@ -1,14 +1,22 @@
 # Domain strategies — site-specific behaviour lives HERE, not in the engine.
-# mode:        http | browser | auto (http first, browser fallback when the page needs JavaScript)
-# residential: the site blocks datacenter IPs (the Oracle server) → only fetch through a proxy;
-#              with no proxy the API answers NEEDS_RESIDENTIAL at once (no pointless hits) and the
-#              caller uses its residential route (the laptop worker).
-# min_bytes:   a real page is at least this big; smaller = a block / challenge page.
-# challenge_markers: text that only appears on a block / challenge page.
+#
+# mode:         http | browser | auto (http routes preferred, browser routes also eligible)
+# max_attempts: attempts across ALL routes for one request (bounded failover)
+# max_time:     whole-request time budget in seconds (all routes, all attempts)
+# min_bytes:    a real page is at least this big; smaller = a block / challenge page
+# challenge_markers: text that only appears on a block / challenge page
+# residential:  shorthand prior — this site rejects datacenter IPs, so the DIRECT routes start with
+#               an OPEN circuit (a half-open probe every 6 h lets them recover if that changes) and
+#               worker / proxy routes are favoured. Nothing is a hard rule: route history decides.
+# routes:       optional explicit priors per route family, e.g.
+#                 routes: { direct_http: {success: 0.05, circuit: open, cooldown: 21600},
+#                           worker_http: {success: 0.9} }
+#               families: direct_http, direct_browser, worker_http, worker_browser, proxy_http, proxy_browser
 defaults:
   mode: auto
   timeout: 30
   max_attempts: 3
+  max_time: 90
   concurrency: 4
   cache_ttl: 1800
   min_bytes: 512
@@ -19,8 +27,9 @@ defaults:
 domains:
   amazon.in:
     mode: http
-    timeout: 30
-    max_attempts: 2
+    timeout: 35
+    max_attempts: 3
+    max_time: 120
     concurrency: 2
     cache_ttl: 1800
     min_bytes: 80000
@@ -32,8 +41,9 @@ domains:
       - "Robot Check"
   flipkart.com:
     mode: http
-    timeout: 30
-    max_attempts: 2
+    timeout: 35
+    max_attempts: 3
+    max_time: 120
     concurrency: 2
     cache_ttl: 1800
     min_bytes: 80000

@@ -18,11 +18,11 @@ class Outcome(str, Enum):
     NOT_FOUND = "NOT_FOUND"                 # 404 / 410 (permanent)
     CLIENT_ERROR = "CLIENT_ERROR"           # other 4xx (permanent)
     BAD_CONTENT = "BAD_CONTENT"             # content type / size not allowed (permanent)
-    NEEDS_RESIDENTIAL = "NEEDS_RESIDENTIAL"  # site blocks datacenter IPs and no proxy is configured
+    NO_ROUTE = "NO_ROUTE"                   # no eligible route right now (offline workers / circuits open)
     BLOCKED_TARGET = "BLOCKED_TARGET"       # SSRF guard / invalid URL (permanent)
 
 
-PERMANENT = {Outcome.NOT_FOUND, Outcome.CLIENT_ERROR, Outcome.BAD_CONTENT, Outcome.NEEDS_RESIDENTIAL,
+PERMANENT = {Outcome.NOT_FOUND, Outcome.CLIENT_ERROR, Outcome.BAD_CONTENT, Outcome.NO_ROUTE,
              Outcome.BLOCKED_TARGET}
 # retried with the SAME route after a backoff
 TRANSIENT = {Outcome.RATE_LIMITED, Outcome.SERVER_ERROR, Outcome.NETWORK_ERROR}

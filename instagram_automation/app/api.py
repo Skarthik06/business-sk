@@ -630,6 +630,24 @@ def sk_scenes():
             "library": [dict(s, thumb=scene_store.thumb(s["key"])) for s in scene_store.library()]}
 
 
+@app.get("/api/sk/scraper-dashboard")
+def sk_scraper_dashboard():
+    """Scraper API ops view for the Studio (admin-gated here; the Scraper API itself is internal)."""
+    import json as _json
+    import os as _os
+    import urllib.request as _ur
+    base = (_os.getenv("SCRAPER_API_URL") or "").strip().rstrip("/")
+    key = (_os.getenv("SCRAPER_API_KEY") or "").strip()
+    if not base or not key:
+        return {"success": False, "error": "not configured"}
+    try:
+        req = _ur.Request(base + "/v1/dashboard", headers={"X-API-Key": key})
+        with _ur.urlopen(req, timeout=10) as r:
+            return {"success": True, **_json.loads(r.read().decode("utf-8"))}
+    except Exception as e:                              # never leak the key / URL details
+        return {"success": False, "error": f"unreachable ({type(e).__name__})"}
+
+
 class GpuResultReq(BaseModel):
     model_config = {"extra": "forbid"}
     token: str
