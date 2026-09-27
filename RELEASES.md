@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.6.0** (2026-09-27) — Intelligent Multi-Route Scraper API: Strategy Engine (route scoring from domain history), circuit breakers, bounded failover, remote worker pool (laptop/phone) with heartbeats + leases, dashboard in the Studio; laptop is optional
 - **v2.5.0** (2026-09-27) — Self-hosted Scraper API service (blueprint MVP): HTTP-first + Playwright, classification + bounded retry, disk cache, proxy registry, attempt log, metrics; affiliate engine uses it first
 - **v2.4.9** (2026-09-27) — Scenes back to plain, elegant studio backdrops (no invented rooms); presets change light/tone only
 - **v2.4.8** (2026-09-27) — /gallery preset made palette-neutral
