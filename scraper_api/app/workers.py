@@ -109,7 +109,9 @@ async def dispatch(worker_id: str, attempt_id: str, url: str, mode: str, timeout
         await metrics.redis.lrem(qkey, 0, json.dumps(job))   # stale job must never run later
         return {"status": None, "html": "", "final_url": url, "content_type": "", "headers": {},
                 "error": f"worker {worker_id} did not pick up the job in {PICKUP_SECS}s"}
-    item = await metrics.redis.blpop([RESULT + attempt_id], timeout=timeout + 15)   # 2) wait for the result
+    item = await metrics.redis.blpop([RESULT + attempt_id], timeout=timeout + 25)   # 2) wait for the result
+                                                              # (the worker may retry a throttled page
+                                                              #  within `timeout`, then uploads)
     if not item:
         return {"status": None, "html": "", "final_url": url, "content_type": "", "headers": {},
                 "error": f"worker {worker_id} timed out"}

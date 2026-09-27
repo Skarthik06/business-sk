@@ -39,6 +39,14 @@ def test_no_route_when_worker_offline_and_direct_open():
     assert book.rank(s.domain, [direct, offline], s.priors(), set()) == []
 
 
+def test_easy_site_prefers_server_over_laptop_worker():
+    s = S.for_host("www.snitch.co.in")
+    book = RouteBook()
+    laptop = Route("worker_http:laptop-01", "worker", "http", 1.0, {"worker_id": "laptop-01"})
+    ranked = book.rank(s.domain, [laptop, Route("direct_http", "direct", "http")], s.priors(), set())
+    assert ranked[0][1].id == "direct_http"
+
+
 def test_easy_site_prefers_direct_http_over_browser():
     s = S.for_host("example.org")
     book = RouteBook()

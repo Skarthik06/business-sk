@@ -88,13 +88,18 @@ def _info() -> dict:
 
 
 def _fetch(url: str, timeout: int) -> dict:
-    """One page like a real browser. A tiny first page is usually a momentary throttle → one retry."""
+    """One page like a real browser. A tiny / cut-off page is usually a momentary throttle (Amazon
+    ends the response early), so it is retried with a growing pause — all inside the job's time limit."""
     t0 = time.time()
+    deadline = t0 + max(10, timeout)
     status, body, final, ctype, err = None, b"", url, "", None
-    for attempt in (1, 2):
+    for attempt in (1, 2, 3):
+        left = deadline - time.time()
+        if left < 5:
+            break
         try:
             req = urllib.request.Request(url, headers=_BROWSER)
-            with urllib.request.urlopen(req, timeout=timeout) as r:
+            with urllib.request.urlopen(req, timeout=left) as r:
                 status, body, final = r.status, r.read(), r.geturl()
                 ctype = r.headers.get("Content-Type", "")
             err = None
@@ -107,8 +112,9 @@ def _fetch(url: str, timeout: int) -> dict:
             err = None
         except Exception as e:                       # timeout / DNS / connection
             status, body, err = None, b"", f"{type(e).__name__}: {str(e)[:120]}"
-        if status == 200 and len(body) < 20_000 and attempt == 1:
-            time.sleep(4)
+        pause = 4 * attempt + 1                       # 5 s, 9 s — let the throttle cool down
+        if status == 200 and len(body) < 20_000 and attempt < 3 and deadline - time.time() > pause + 8:
+            time.sleep(pause)
             continue
         break
     return {"status_code": status, "body": body, "final_url": final, "content_type": ctype, "error": err,

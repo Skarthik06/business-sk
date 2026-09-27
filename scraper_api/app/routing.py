@@ -24,9 +24,11 @@ ROUTE_FAILURES = {Outcome.NETWORK_ERROR, Outcome.ACCESS_DENIED, Outcome.CHALLENG
                   Outcome.SERVER_ERROR}
 
 DEFAULT_WEIGHTS = {"success": 0.50, "availability": 0.20, "latency": 0.10, "recent": 0.10, "failure": 0.10}
-# prior success rates per route kind (+ http preferred over the heavier browser)
-DEFAULT_PRIORS = {"direct_http": 0.70, "direct_browser": 0.60, "worker_http": 0.80, "worker_browser": 0.70,
-                  "proxy_http": 0.65, "proxy_browser": 0.55}
+# prior success rates per route kind: the server's own connection first (free, always on), workers
+# are a scarce resource kept for sites that need them (their priors rise via `residential`), paid
+# proxies last; http is preferred over the heavier browser
+DEFAULT_PRIORS = {"direct_http": 0.80, "direct_browser": 0.65, "worker_http": 0.70, "worker_browser": 0.60,
+                  "proxy_http": 0.60, "proxy_browser": 0.50}
 
 
 def weights() -> Dict[str, float]:
