@@ -35,7 +35,8 @@ def _num(name: str, default: int) -> int:
 
 ONLINE_SECS = _num("SCRAPER_WORKER_ONLINE_SECS", 60)
 STALE_SECS = _num("SCRAPER_WORKER_STALE_SECS", 120)
-PICKUP_SECS = _num("SCRAPER_WORKER_PICKUP_SECS", 25)     # a job not leased within this → failover
+PICKUP_SECS = _num("SCRAPER_WORKER_PICKUP_SECS", 10)     # a live worker long-polls → picks up in <1 s
+UNRESP = "scraper:worker:unresponsive:"                  # missed a pickup → no jobs until next heartbeat
 
 
 def tokens() -> List[str]:
@@ -66,6 +67,7 @@ async def heartbeat(worker_id: str, info: Dict[str, Any]) -> None:
            "cpu_percent": info.get("cpu_percent"), "memory_percent": info.get("memory_percent"),
            "kind": str(info.get("kind") or "remote")[:20], "version": str(info.get("version") or "")[:20]}
     await metrics.redis.set(HB + worker_id, json.dumps(rec), ex=STALE_SECS * 10)
+    await metrics.redis.delete(UNRESP + worker_id)        # alive again → eligible again
     if now - _LAST_DB.get(worker_id, 0) > 60:              # persist at most once a minute
         _LAST_DB[worker_id] = now
         await store.q("""insert into workers (worker_id, kind, capabilities, last_heartbeat, info)
@@ -84,7 +86,10 @@ async def list_workers() -> List[Dict[str, Any]]:
             continue
         rec = json.loads(raw)
         age = now - float(rec.get("t") or 0)
-        out.append({**rec, "age_s": int(age), "state": state_of(age)})
+        state = state_of(age)
+        if state != "offline" and await metrics.redis.exists(UNRESP + rec["worker_id"]):
+            state = "offline"                               # missed a job since its last heartbeat
+        out.append({**rec, "age_s": int(age), "state": state})
     return sorted(out, key=lambda r: r["worker_id"])
 
 
@@ -113,6 +118,7 @@ async def dispatch(worker_id: str, attempt_id: str, url: str, mode: str, timeout
         while not await metrics.redis.exists(LEASE + attempt_id):    # 1) the worker picks it up
             if time.time() > deadline:
                 await metrics.redis.lrem(qkey, 0, json.dumps(job))   # stale job must never run later
+                await metrics.redis.set(UNRESP + worker_id, str(time.time()), ex=3600)
                 return _fail(url, f"worker {worker_id} did not pick up the job in {PICKUP_SECS}s")
             item = await _blpop([RESULT + attempt_id], 1)
             if item:
