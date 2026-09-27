@@ -690,6 +690,9 @@ def sk_render_preview(body: SkRenderReq):
         from app.services import scene_store as _ss
         if art and art.get("id"):
             _ss.plan_update(art["id"], art_summary=res["art"])
+    snap = _preview_snapshot(art, handle, templates, cover_tags, palette)
+    if snap:                                 # every view of this post points at the SAME files
+        res["images"] = snap["cdn"]
     return {"success": True, "images": res["images"], "count": res["count"],
             "plan": res.get("plan"), "isolated": res.get("isolated"), "art": res.get("art"),
             "cost": _post_cost(body.products, res.get("art"))}
