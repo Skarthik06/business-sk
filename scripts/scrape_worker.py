@@ -50,11 +50,13 @@ WORKER_ID = re.sub(r"[^A-Za-z0-9_.-]", "-", os.getenv("SK_WORKER_ID", "").strip(
                    or f"{KIND}-{socket.gethostname()}")[:40]
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
-# Full browser-like headers (NOT Accept-Encoding — we want plain HTML, not gzip to decode).
+# Full browser-like headers. gzip is requested and decoded here: an Amazon results page is ~2.5 MB of
+# HTML but ~0.3 MB compressed — about 10x less mobile data on a phone worker.
 _BROWSER = {
     "User-Agent": UA,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
     "Accept-Language": "en-IN,en-GB;q=0.9,en;q=0.8",
+    "Accept-Encoding": "gzip",
     "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
     "sec-ch-ua-mobile": "?0",
     "sec-ch-ua-platform": '"Windows"',
@@ -87,6 +89,17 @@ def _info() -> dict:
             "active_jobs": _ACTIVE["n"], "version": VERSION}
 
 
+def _body(raw: bytes, headers) -> bytes:
+    """Decode a gzip response (we ask for gzip to save data); anything else is returned as-is."""
+    enc = ((headers.get("Content-Encoding") if headers else "") or "").lower()
+    if raw and ("gzip" in enc or raw[:2] == bytes([0x1F, 0x8B])):     # gzip magic number
+        try:
+            return gzip.decompress(raw)
+        except Exception:
+            return raw
+    return raw
+
+
 def _fetch(url: str, timeout: int) -> dict:
     """One page like a real browser. A tiny / cut-off page is usually a momentary throttle (Amazon
     ends the response early), so it is retried with a growing pause — all inside the job's time limit."""
@@ -100,13 +113,13 @@ def _fetch(url: str, timeout: int) -> dict:
         try:
             req = urllib.request.Request(url, headers=_BROWSER)
             with urllib.request.urlopen(req, timeout=left) as r:
-                status, body, final = r.status, r.read(), r.geturl()
+                status, body, final = r.status, _body(r.read(), r.headers), r.geturl()
                 ctype = r.headers.get("Content-Type", "")
             err = None
         except urllib.error.HTTPError as e:          # 4xx/5xx still carry a page the server classifies
             status, final, ctype = e.code, url, e.headers.get("Content-Type", "") if e.headers else ""
             try:
-                body = e.read()
+                body = _body(e.read(), e.headers)
             except Exception:
                 body = b""
             err = None

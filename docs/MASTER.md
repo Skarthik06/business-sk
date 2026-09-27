@@ -116,7 +116,7 @@ has a fallback path, so a post never fails because the laptop is off.
 | `frontend` | `node:20-alpine` | 3000 | Studio (Vite dev server, HMR) |
 | `redis` | `redis:7-alpine` | 6379 | Follow-gate state, once-per-comment claims, counters |
 | `caddy` | `caddy:2-alpine` | 80/443 | HTTPS reverse proxy (Let's Encrypt via nip.io) |
-| `scraper_api` | `scraper_api/Dockerfile` | 8200 (internal only) | Self-hosted Scraper API (see §8.11): HTTP-first + Playwright, cache, retries, proxy registry |
+| `scraper_api` | `scraper_api/Dockerfile` | 8200 (internal; workers via Caddy `/scraper-worker/*`) | Self-hosted multi-route Scraper API (§8.11): Strategy Engine, circuit breakers, worker pool, proxies, cache |
 
 ## 4. Repository map
 
@@ -130,7 +130,7 @@ BUSINESS_SK/
 ├── creative-system.html       ← the "Still Set" creative system (visual playbook)
 ├── scripts/
 │   ├── release.sh / deploy.sh / rollback.sh   ← versioning & production deploys
-│   ├── scrape_worker.py       ← residential scrape worker (runs on the laptop)
+│   ├── scrape_worker.py       ← scrape worker v2 — a Scraper API route (laptop or phone/Termux)
 │   └── gpu_worker.py          ← GPU worker: BiRefNet + YuNet + Z-Image (runs on the laptop)
 ├── scraper_api/               ← SCRAPER API service (FastAPI + HTTPX + Playwright; README inside)
 │   ├── app/                   ← main (routes), engine, browser, classifier, extractors, proxies,
@@ -365,23 +365,34 @@ affiliate disclosure; `storefront/vercel.json` proxies `lostinframes-sk-store.ve
 IG insights and Cuelinks reports feed `performance/store.py`; the learner adjusts discovery weights
 and the winner/prediction models; the Studio shows revenue, winners, trends and recommendations.
 
-### 8.11 Scraper API (self-hosted, `scraper_api/`)
-Built from the *Open-Source Scraper API* blueprint (MVP). One internal endpoint
-(`GET /v1/scrape`, plus async `POST /v1/jobs`) that the affiliate engine's `scrape_bus` calls first.
-1. **Strategy** — `strategies/domains.yaml` decides mode (http / browser / auto), timeouts, minimum
-   real-page size, challenge markers and whether the site blocks datacenter IPs (`residential`).
-2. **Cache** — gzip JSON on disk, a pointer + TTL in Redis (the shared Redis is 128 MB LRU; big
-   pages there would evict the engagement once-claims).
-3. **Fetch** — HTTPX first (streamed, size-limited, SSRF check on every redirect); Playwright
-   Chromium when the strategy or `render=true` says so, or when an `auto` page comes back blocked.
-4. **Classify** — SUCCESS / ACCESS_DENIED / RATE_LIMITED / SERVER_ERROR / NETWORK_ERROR / CHALLENGE /
-   NOT_FOUND / … Transient errors retry after exponential backoff with jitter (Retry-After honoured);
-   a block is retried only on a different route (browser or another proxy) — never hammered.
-5. **Residential sites** (Amazon, Flipkart): with no healthy proxy the API answers
-   `NEEDS_RESIDENTIAL` at once and `scrape_bus` uses the laptop worker. With a proxy registered
-   (`POST /v1/admin/proxies`, credentials encrypted) they work 24/7 without the laptop.
-6. **Extract** — title, metadata, JSON-LD, price, normalised image URLs (og/twitter/img/srcset/JSON-LD).
-7. **Record** — every attempt in Postgres (`scrape_attempts`), daily usage, Prometheus `/metrics`.
+### 8.11 Scraper API — Intelligent Multi-Route (self-hosted, `scraper_api/`)
+Built from the *Open-Source Scraper API* blueprint (MVP) + the *Intelligent Multi-Route Architecture*.
+One internal endpoint (`GET /v1/scrape`, async `POST /v1/jobs`) that the affiliate engine's
+`scrape_bus` calls first. **The laptop is an optional route, not a dependency.**
+1. **Routes** — `direct_http`, `direct_browser` (the server itself), `worker_http:<id>` (laptop, phone,
+   any machine running `scripts/scrape_worker.py`), `proxy_http:<id>` / `proxy_browser:<id>` (registered
+   proxies, credentials encrypted).
+2. **Strategy Engine** (`app/routing.py`) — per request it ranks every eligible route by
+   `0.50·recent success + 0.20·availability + 0.10·latency + 0.10·recent-success bonus − 0.10·failure
+   penalty` (weights: `SCRAPER_ROUTE_WEIGHTS`), using domain × route history (`route_health`).
+   Priors only seed the first guess (`strategies/domains.yaml`): the server's own route first for normal
+   sites; `residential: true` sites (Amazon, Flipkart) start with their direct circuit OPEN and favour
+   workers/proxies. History takes over from there.
+3. **Circuit breakers** per domain × route — CLOSED → OPEN after `SCRAPER_CIRCUIT_FAILURES` (5)
+   consecutive route failures → one HALF_OPEN probe after a cooldown that doubles per re-open (10 min …
+   6 h). URL errors (404, bad content) never count against a route.
+4. **Bounded failover** — attempt budget AND time budget (`max_attempts`, `max_time`). A block,
+   rate limit or dead worker is never retried on the same route; network/5xx get one same-route retry.
+5. **Worker pool** (`app/workers.py`) — workers heartbeat every 20 s (online < 60 s · stale · offline
+   > 120 s), long-poll their own job queue, hold a lease while fetching and post the page back. A missed
+   pickup takes the worker out of rotation until its next heartbeat. Only the worker endpoints are
+   public (Caddy `/scraper-worker/*`, `X-Worker-Token`). Phone setup: [PHONE_WORKER.md](PHONE_WORKER.md).
+6. **Cache** — gzip JSON on disk, pointer + TTL in Redis (the shared Redis is 128 MB LRU; big pages
+   there would evict the engagement once-claims). **Extract** — title, metadata, JSON-LD, price,
+   normalised image URLs.
+7. **Record** — every attempt with its route (`scrape_attempts`), `route_health`, `circuit_breakers`,
+   `workers`, daily usage, Prometheus `/metrics`; `/v1/dashboard` feeds the Studio's
+   **Overview → Scraper routes** panel (through the admin-gated `/api/sk/scraper-dashboard`).
 
 ## 9. The agents
 
@@ -518,6 +529,13 @@ backend changes; `env_file` changes need `docker compose up -d --force-recreate 
 | Post uses a library scene | own scene still painting (> `ART_SCENE_WAIT_SECS`); Re-direct later |
 | Followers not receiving links | Meta Advanced Access pending (§18) |
 | Studio preview cropped | fixed (4:5 viewer) — hard-refresh |
+
+**Caddyfile changes:** the file is bind-mounted as a single file, and `git checkout` replaces it with a
+new inode — `caddy reload` would re-read the OLD copy. After changing the Caddyfile run
+`docker compose restart caddy` (a second or two of downtime).
+**Scraper API env** (`scraper_api/.env`, git-ignored): `SCRAPER_API_KEYS`, `SCRAPER_WORKER_TOKENS`
+(the laptop/phone worker token), optional proxy `SCRAPER_PROXY_SERVER/USER/PASS`. The affiliate engine
+and the IG backend hold `SCRAPER_API_URL` + `SCRAPER_API_KEY`.
 
 ## 16. Security & compliance
 * Secrets only in git-ignored `.env` files; IG tokens, DB URL and GitHub token encrypted at rest;

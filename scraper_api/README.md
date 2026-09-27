@@ -5,7 +5,16 @@ Runs as the `scraper_api` Docker service — **internal only** (no public port);
 calls `http://scraper_api:8200` with an `X-API-Key`.
 
 ## What it does
-`URL → domain strategy → cache → HTTP (httpx) or browser (Playwright) → classify → bounded retry → extract → cache + log`
+`URL → domain strategy → cache → Strategy Engine picks a route → fetch → classify → record route health / circuit → bounded failover → extract → cache + log`
+
+**Routes:** `direct_http` / `direct_browser` (this server) · `worker_http:<id>` (laptop, phone or any
+machine running `scripts/scrape_worker.py`) · `proxy_http:<id>` / `proxy_browser:<id>`.
+The **Strategy Engine** (`app/routing.py`) ranks eligible routes per request with
+`0.50·success + 0.20·availability + 0.10·latency + 0.10·recent − 0.10·failure` from domain × route
+history; **circuit breakers** (CLOSED → OPEN → HALF_OPEN probe) stop broken routes; failover is bounded
+by attempts AND time. Per-site priors in `strategies/domains.yaml` only seed the first guess.
+**Workers** heartbeat (online / stale / offline), long-poll their own queue with leases, and reach
+the API only through `/scraper-worker/*` (Caddy) with an `X-Worker-Token`.
 
 | Piece | Where |
 |---|---|
@@ -28,7 +37,8 @@ page is only retried on a *different route* (browser instead of HTTP, or another
 ## Endpoints
 `GET /v1/scrape?url=…&render=&extract=html,title,images,metadata,jsonld,price,links&cache_ttl=&timeout=&country=&proxy=`
 · `POST /v1/jobs` · `GET /v1/jobs/{id}` · `GET /v1/health` · `GET /v1/usage` · `GET /v1/domains/{domain}`
-· `GET /v1/stats` · `GET|POST|DELETE /v1/admin/proxies` · `GET /metrics`
+· `GET /v1/stats` · `GET /v1/dashboard` · `GET|POST|DELETE /v1/admin/proxies` · `GET /metrics`
+· workers: `POST /v1/workers/heartbeat` · `POST /v1/workers/jobs/lease` · `POST /v1/workers/jobs/{id}/result`
 
 ## Setup (server)
 `scraper_api/.env` (git-ignored) — see `.env.example`: `SCRAPER_API_KEYS`, optional `SCRAPER_SECRET_KEY`,
