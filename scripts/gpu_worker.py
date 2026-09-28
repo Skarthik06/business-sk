@@ -134,8 +134,10 @@ class Models:
             from diffusers import ZImagePipeline
             t = time.time()
             torch = self.torch
-            # bfloat16 on GPUs that have it (the laptop's RTX); float16 on older ones (Colab's T4)
-            dtype = torch.bfloat16 if (self.dev == "cuda" and torch.cuda.is_bf16_supported()) else torch.float16
+            # bfloat16 on GPUs that have it natively (the laptop's RTX). Older GPUs (Colab's T4) get
+            # float32 — float16 overflows in Z-Image-Turbo and paints a solid black image (tested).
+            native_bf16 = self.dev == "cuda" and torch.cuda.get_device_capability()[0] >= 8
+            dtype = torch.bfloat16 if native_bf16 else torch.float32
             pipe = ZImagePipeline.from_pretrained("unsloth/Z-Image-Turbo-unsloth-bnb-4bit", torch_dtype=dtype)
             try:
                 pipe.to("cuda")
