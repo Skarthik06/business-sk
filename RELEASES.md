@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.9.0** (2026-09-28) — Your device scrapes (phone ↔ laptop) + IPs in Activity/Studio; app 1.3.0
 - **v2.8.0** (2026-09-28) — App 1.2.0 (in-app updates, Business-SK / SK Helper names + icons); remove old workers
 - **v2.7.1** (2026-09-28) — SK Studio Android app (the Studio full-screen) + Helper 1.1.0
 - **v2.7.0** (2026-09-28) — Business-SK Helper Android app (download + QR/code/link pairing)
