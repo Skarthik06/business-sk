@@ -2051,7 +2051,7 @@ function FlipkartGenerate({ say, setQueue }) {
 
 // Per-store generator: pick ONE active market → Amazon-style controls → generate. Product-capable
 // stores (Flipkart scrape / Shopify feed) return REAL product photos; the rest build deal cards.
-function StoreGenerate({ markets, say, queue, setQueue }) {
+function StoreGenerate({ markets, say, queue, setQueue, constraints, plan }) {
   const active = (markets || []).filter((m) => m.active);
   const [sel, setSel] = useState('');
   const mk = active.find((m) => m.id === sel) || null;
@@ -2073,6 +2073,18 @@ function StoreGenerate({ markets, say, queue, setQueue }) {
   const [running, setRunning] = useState(false);
   const [group, setGroup] = useState(null);
   const [slides, setSlides] = useState(null);
+  // your saved constraints are the starting point (goal / audience / caption style)
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || !constraints) return;
+    seeded.current = true;
+    if (constraints.goal) setGoal(constraints.goal);
+    if (constraints.audience != null) setAud(constraints.audience);
+    if (constraints.content_style) setStyle(constraints.content_style);
+  }, [constraints]);
+  // the AI planner's content angle for this store → the caption is built around it
+  const planPick = ((plan && plan.picks) || []).find((x) => x.id === sel);
+  const [useAngle, setUseAngle] = useState(true);
   // posted / cleared in Post to IG → the post left the queue → drop this card too
   useEffect(() => { if (group && queue && !queue.some((x) => x.id === group.id)) { setGroup(null); setSlides(null); } }, [queue, group]);
   const [prev, setPrev] = useState(false);
@@ -2121,7 +2133,7 @@ function StoreGenerate({ markets, say, queue, setQueue }) {
     if (!mk) return say?.('Pick a store first', 'error');
     setRunning(true); setSlides(null); setPushed(false);
     try {
-      const opts = { count, content: style, goal, audience: aud };
+      const opts = { count, content: style, goal, audience: aud, ...(useAngle && planPick?.angle ? { angle: planPick.angle } : {}) };
       if (canProd) { opts.q = q.trim(); opts.brands = brandSel; opts.attrs = attrSel; if (minRating) opts.min_rating = minRating; if (priceMax) opts.price_max = priceMax; }
       const r = await skApi.cuelinksStoreGenerate(mk.id, opts);
       const products = r.items || r.deals || [];
@@ -2158,6 +2170,12 @@ function StoreGenerate({ markets, say, queue, setQueue }) {
             {mk.can_products ? <span className="style-tag" style={{ color: '#3fb950' }}>🖼️ Products</span> : <span className="style-tag" style={{ color: 'var(--muted)' }}>🎟️ Deals</span>}
             <span className="text-xs" style={{ color: 'var(--faint)' }}>{mk.can_products ? (mk.engine === 'flipkart' ? 'Flipkart product scrape' : 'Shopify product feed') : 'Cuelinks deal cards (no product photo)'}</span>
           </div>
+          {planPick?.angle && (
+            <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)', cursor: 'pointer' }}
+              title="From the AI planner (below). The caption is built around this hook — still only real product facts.">
+              <input type="checkbox" checked={useAngle} onChange={(e) => setUseAngle(e.target.checked)} />
+              <span>💡 AI planner angle: <b style={{ color: '#79c0ff' }}>{planPick.angle}</b></span>
+            </label>)}
           {canProd && (
             <>
               <input className="sk-input" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && gen()} placeholder={`Search ${mk.name} — e.g. ${mk.engine === 'flipkart' ? 'air fryer, running shoes' : 'earbuds, face wash, smart watch'}`} />
@@ -2244,7 +2262,7 @@ function CuelinksPanel({ say, queue, setQueue }) {
   const [syncing, setSyncing] = useState(false);
   const [catFilter, setCatFilter] = useState('all');
 
-  const load = () => skApi.cuelinksMarkets(30).then((r) => { setD(r); setC(r.constraints); }).catch(() => setD(null));
+  const load = () => skApi.cuelinksMarkets(30).then((r) => { setD(r); setC(r.constraints); if (r.plan) setPlan((cur) => cur || r.plan); }).catch(() => setD(null));
   useEffect(() => { load(); }, []);
   const syncLive = async () => {
     setSyncing(true);
@@ -2284,7 +2302,7 @@ function CuelinksPanel({ say, queue, setQueue }) {
   return (
     <div className="panel p-4 flex flex-col gap-4">
       {/* Per-store product generator — pick one scrapable store → Amazon-style filters → real products */}
-      {setQueue && <StoreGenerate markets={d.markets} say={say} queue={queue} setQueue={setQueue} />}
+      {setQueue && <StoreGenerate markets={d.markets} say={say} queue={queue} setQueue={setQueue} constraints={d.constraints} plan={plan} />}
       {/* header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>

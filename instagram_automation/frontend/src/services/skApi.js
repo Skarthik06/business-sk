@@ -99,6 +99,8 @@ export default {
   // Unified PER-STORE generator — pick one market → real products (Flipkart/Shopify) or deals, Amazon-style controls
   cuelinksStoreGenerate: (market, opts = {}) => sk.get('/cuelinks/store-generate', { params: {
       market, products_per_run: opts.count || 8,
+      ...(opts.goal && opts.goal !== 'balanced' ? { goal: opts.goal } : {}),   // Max commission / High volume ranking
+      ...(opts.angle ? { angle: opts.angle.slice(0, 120) } : {}),            // the AI planner's content angle
       ...(opts.q ? { q: opts.q } : {}),
       ...(opts.min_rating != null ? { min_rating: opts.min_rating } : {}),
       ...(opts.price_max != null ? { price_max: opts.price_max } : {}),

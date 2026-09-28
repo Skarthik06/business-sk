@@ -1042,6 +1042,7 @@ async def cuelinks_plan(apply: bool = Query(default=False, description="If true,
         m = by_id.get(p["id"], {})
         p["name"] = m.get("name", p["id"]); p["category"] = m.get("category", "")
         p["commission"] = m.get("commission"); p["aov"] = m.get("aov")
+    cm.save_plan({k: plan.get(k) for k in ("picks", "summary", "ai") if k in plan})   # angles feed generation
     return {"ok": True, "constraints": cat["constraints"], **plan,
             "applied_active": applied}
 
@@ -1139,13 +1140,14 @@ def scrape_worker_status() -> dict:
     return scrape_bus.status()
 
 
-async def _build_product_items(picks: list, content: Optional[str], source: str, *, convert: bool = True) -> list:
+async def _build_product_items(picks: list, content: Optional[str], source: str, *, convert: bool = True,
+                               angle: str = "") -> list:
     """Shared PRODUCT pipeline (Flipkart + Shopify + own store): AI compose → flatten product onto
     the pin → (optionally) Cuelinks-monetise the product URL → content item. Products carry a REAL
     image_url. `convert=False` keeps the raw URL (used for the owner's OWN store — direct sale)."""
     from chains.compose import compose_pins
     from performance import cuelinks
-    pins = await compose_pins(picks, [], [], [], count=len(picks), content_style=(content or "auto"))
+    pins = await compose_pins(picks, [], [], [], count=len(picks), content_style=(content or "auto"), angle=angle)
     items = []
     for pin in pins:
         prod = pin.get("product", {}) or {}
@@ -1323,6 +1325,25 @@ async def cuelinks_generate(count: int = Query(default=8, ge=2, le=10,
     return await _build_deal_items(merchants, count, cats, prefer_active=True)
 
 
+def _goal_rank(items: list, goal: Optional[str]) -> list:
+    """The generator's Goal: 'commission' → pricier items first (same store %, bigger payout per sale);
+    'volume' → most-reviewed first (proven sellers); 'balanced' → keep the quality ranking."""
+    import re as _re
+
+    def _num(v) -> float:
+        m = _re.sub(r"[^0-9.]", "", str(v or ""))
+        try:
+            return float(m) if m else 0.0
+        except ValueError:
+            return 0.0
+    g = (goal or "").strip().lower()
+    if g == "commission":
+        return sorted(items, key=lambda p: _num(p.get("price")), reverse=True)
+    if g == "volume":
+        return sorted(items, key=lambda p: (_num(p.get("reviews")), float(p.get("rating") or 0)), reverse=True)
+    return items
+
+
 @app.get("/api/cuelinks/store-generate")
 async def cuelinks_store_generate(
     market: str = Query(..., description="Market id from the catalog, e.g. 'boat', 'flipkart', 'nykaa'."),
@@ -1335,6 +1356,8 @@ async def cuelinks_store_generate(
     brands: Optional[str] = Query(default=None),
     attrs: Optional[str] = Query(default=None),
     categories: Optional[str] = Query(default=None),
+    goal: Optional[str] = Query(default=None, description="balanced | commission | volume"),
+    angle: Optional[str] = Query(default=None, max_length=120, description="The AI planner's content angle for this store."),
 ) -> JSONResponse:
     """UNIFIED PER-STORE GENERATOR — pick ONE market and generate with Amazon-style controls. Routes
     by the market's engine: flipkart → Flipkart product scrape; shopify → the store's public product
@@ -1404,12 +1427,12 @@ async def cuelinks_store_generate(
         new, dups = dedup_store.filter_unseen(pool)
     except Exception:
         new, dups = pool, []
-    picks = new[:products_per_run]
+    picks = _goal_rank(new, goal)[:products_per_run]
     if not picks:
         return JSONResponse(status_code=200, content={"ok": True, "status": "empty", "engine": engine,
                             "market": mk.get("id"), "store": name, "items": [],
                             "note": f"No fresh {name} products (all recently posted, or nothing matched) — try another search."})
-    items = await _build_product_items(picks, content, mk.get("id"))
+    items = await _build_product_items(picks, content, mk.get("id"), angle=(angle or "").strip())
     return JSONResponse(status_code=200, content={
         "ok": len(items) > 0, "status": "done" if items else "empty", "engine": engine,
         "market": mk.get("id"), "store": name, "query": query, "count": len(items), "items": items,
@@ -1417,7 +1440,7 @@ async def cuelinks_store_generate(
         "hashtags": (items[0].get("hashtags") if items else []),
         "cover_title": (items[0].get("cover_title") if items else ""),
         "cover_subtitle": (items[0].get("cover_subtitle") if items else ""),
-        "deduped": len(dups)})
+        "deduped": len(dups), "goal": (goal or "balanced"), "angle": (angle or "")})
 
 
 # ── My Store — the owner's OWN Shopify store as a first-party product source ───────────────────

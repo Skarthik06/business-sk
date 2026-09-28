@@ -256,6 +256,14 @@ def _trends_block(trend_keywords: list[str], trend_signals: Optional[list[dict]]
     return ", ".join((trend_keywords or [])[:MAX_TRENDS]) or "trending, best, popular"
 
 
+def _angle_directive(angle: str) -> str:
+    """The Cuelinks AI planner's content angle for this store → the hook the caption is built around
+    (still grounded ONLY in the real products below — the angle never adds claims)."""
+    a = re.sub(r"\s+", " ", (angle or "")).strip()[:120]
+    return (f"\nContent angle (from the AI planner — build the hook + caption around it, using only the "
+            f"real products' facts): {a}") if a else ""
+
+
 async def compose_pins(
     products:       list[dict],
     trend_keywords: list[str],
@@ -265,6 +273,7 @@ async def compose_pins(
     trend_signals:  Optional[list[dict]] = None,
     content_style:  str = "auto",
     seasonal:       str = "",
+    angle:          str = "",
 ) -> list[dict]:
     """Rank + write `count` pins in ONE structured LLM call. Returns PinContent dicts."""
     if not products:
@@ -299,7 +308,7 @@ async def compose_pins(
         "candidates": _candidates_block(products),
         "trends":     _trends_block(trend_keywords, trend_signals),
         "winners":    _winners_block(rag_context, product_ideas),
-        "style":      _style_directive(content_style),
+        "style":      _style_directive(content_style) + _angle_directive(angle),
     }
 
     log.ai(f"Composing ONE caption for {count} products from {min(len(products), MAX_CANDIDATES)} candidates in ONE structured call...")

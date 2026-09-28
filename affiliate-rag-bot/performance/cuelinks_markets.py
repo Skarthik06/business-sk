@@ -221,6 +221,11 @@ def get_live_markets() -> list[dict]:
     return _read("live_markets", []) or []
 
 
+def save_plan(plan: dict) -> None:
+    """The last AI plan (picks with reason + content angle) — the store generator uses the angle."""
+    _write("last_plan", {**(plan or {}), "at": datetime.now(timezone.utc).isoformat()})
+
+
 def catalog() -> dict:
     """The full panel payload: markets (with active flag), categories, and current constraints —
     one clean JSON shape the frontend renders and the AI planner reasons over. Uses the LIVE
@@ -239,6 +244,7 @@ def catalog() -> dict:
         "markets": markets,
         "categories": cats,
         "constraints": get_constraints(),
+        "plan": _read("last_plan", None),
         "active_count": len(active),
         "total": len(base),
         "live": bool(get_live_markets()),
