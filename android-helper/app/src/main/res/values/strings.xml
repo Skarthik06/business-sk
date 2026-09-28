@@ -1,8 +1,8 @@
 <resources>
-    <string name="app_name">Business-SK Helper</string>
+    <string name="app_name">SK Helper</string>
     <string name="channel_name">Helper status</string>
     <string name="channel_desc">Shows whether the helper is ready and how much it did today</string>
-    <string name="studio_name">SK Studio</string>
+    <string name="studio_name">Business-SK</string>
     <string name="studio_url" translatable="false">https://140-238-247-18.nip.io/</string>
     <!-- Digital Asset Links: the Studio site vouches for this app (served at /.well-known/assetlinks.json),
          so it opens full-screen with no browser bar. -->

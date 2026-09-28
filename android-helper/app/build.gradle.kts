@@ -13,9 +13,11 @@ android {
         applicationId = "com.businesssk.helper"
         minSdk = 26
         targetSdk = 35
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 3
+        versionName = "1.2.0"
         // The Scraper API's public worker endpoint (Caddy /scraper-worker → /v1/workers).
+        // Self-update: release.sh publishes the newest APK + this version file next to it.
+        buildConfigField("String", "UPDATE_INFO_URL", "\"https://140-238-247-18.nip.io/helper/version.json\"")
         buildConfigField("String", "DEFAULT_SERVER", "\"https://140-238-247-18.nip.io/scraper-worker\"")
     }
 

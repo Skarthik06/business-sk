@@ -13,6 +13,8 @@ import com.businesssk.helper.data.SettingsRepo
 import com.businesssk.helper.data.Usage
 import com.businesssk.helper.net.ApiException
 import com.businesssk.helper.net.ServerApi
+import com.businesssk.helper.update.LatestInfo
+import com.businesssk.helper.update.Updater
 import com.businesssk.helper.worker.WorkerService
 import com.businesssk.helper.worker.WorkerState
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -28,6 +30,16 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
+
+sealed interface UpdateState {
+    data object Idle : UpdateState
+    data object Checking : UpdateState
+    data class UpToDate(val latest: String) : UpdateState
+    data class Available(val info: LatestInfo) : UpdateState
+    data class Downloading(val info: LatestInfo, val progress: Float) : UpdateState
+    data class Installing(val info: LatestInfo) : UpdateState
+    data class Failed(val message: String, val info: LatestInfo? = null) : UpdateState
+}
 
 sealed interface PairState {
     data object Idle : PairState
@@ -49,6 +61,51 @@ class HelperViewModel(app: Application) : AndroidViewModel(app) {
     val pair: StateFlow<PairState> = _pair.asStateFlow()
 
     fun resetPair() { _pair.value = PairState.Idle }
+
+    // ── app updates (Settings → App updates) ──────────────────────────────────────────────────
+    private val _update = MutableStateFlow<UpdateState>(UpdateState.Idle)
+    val update: StateFlow<UpdateState> = _update.asStateFlow()
+
+    init { checkForUpdate() }
+
+    fun checkForUpdate() {
+        if (_update.value is UpdateState.Downloading || _update.value is UpdateState.Installing) return
+        _update.value = UpdateState.Checking
+        viewModelScope.launch {
+            _update.value = withContext(Dispatchers.IO) {
+                runCatching { Updater.latest() }.fold(
+                    onSuccess = { if (Updater.isNewer(it)) UpdateState.Available(it) else UpdateState.UpToDate(it.versionName) },
+                    onFailure = { UpdateState.Failed("Couldn't check for updates — check your internet") },
+                )
+            }
+        }
+    }
+
+    /** Download (checksum-verified) → Android installer. The app restarts on the new version. */
+    fun installUpdate(info: LatestInfo) {
+        val ctx = getApplication<Application>()
+        viewModelScope.launch {
+            _update.value = UpdateState.Downloading(info, 0f)
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val apk = Updater.download(ctx, info) { p -> _update.value = UpdateState.Downloading(info, p) }
+                    _update.value = UpdateState.Installing(info)
+                    Updater.install(ctx, apk)
+                }
+            }
+            result.onFailure { e -> _update.value = UpdateState.Failed(e.message ?: "Update failed", info) }
+        }
+    }
+
+    fun updateFailed(message: String) {
+        val info = when (val u = _update.value) {
+            is UpdateState.Installing -> u.info
+            is UpdateState.Downloading -> u.info
+            is UpdateState.Available -> u.info
+            else -> null
+        }
+        _update.value = UpdateState.Failed(message, info)
+    }
 
     /** skhelper://pair?server=<url-encoded>&code=ABCD2345 (the Studio's QR / a tapped link). */
     fun pairFromLink(uri: Uri?) {

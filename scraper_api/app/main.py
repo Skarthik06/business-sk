@@ -10,6 +10,7 @@
   GET  /v1/dashboard       route health, circuits, workers, throughput (the ops dashboard's data)
   POST /v1/workers/heartbeat · /v1/workers/jobs/lease · /v1/workers/jobs/{id}/result · /v1/workers/pair
   POST /v1/admin/pairing · GET /v1/admin/devices · DELETE /v1/admin/devices/{id}   (device pairing)
+  DELETE /v1/admin/workers/{worker_id}   remove a worker from the list (revokes a paired phone)
                            remote workers (laptop / phone / any machine) — X-Worker-Token auth;
                            the ONLY paths exposed publicly (Caddy /scraper-worker/*)
   GET  /metrics            Prometheus (internal network only)
@@ -375,6 +376,19 @@ async def admin_revoke_device(device_id: int, key: Dict[str, Any] = Depends(api_
     if not wid:
         raise HTTPException(404, "device not found or already revoked")
     return {"revoked": device_id, "worker_id": wid}
+
+
+@app.delete("/v1/admin/workers/{worker_id}")
+async def admin_remove_worker(worker_id: str = Path(..., max_length=40), key: Dict[str, Any] = Depends(api_key)):
+    """Remove a worker from the list (e.g. an old phone after re-pairing). A paired phone is also
+    revoked, so it stops working as a route immediately."""
+    if not workers.valid_id(worker_id):
+        raise HTTPException(400, "bad worker id")
+    revoked = await devices.revoke_worker(worker_id)
+    removed = await workers.remove(worker_id)
+    if not (revoked or removed):
+        raise HTTPException(404, "worker not found")
+    return {"removed": worker_id, "revoked_device": revoked}
 
 
 # ── ops dashboard data ─────────────────────────────────────────────────────────────────────────

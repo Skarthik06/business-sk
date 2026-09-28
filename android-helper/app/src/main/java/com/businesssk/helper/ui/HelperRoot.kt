@@ -43,6 +43,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BatteryChargingFull
 import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Link
@@ -105,6 +106,7 @@ import com.businesssk.helper.data.NetworkMode
 import com.businesssk.helper.data.SUPPORTED_SITES
 import com.businesssk.helper.data.Usage
 import com.businesssk.helper.ui.theme.Sk
+import com.businesssk.helper.update.UpdateEvents
 import com.businesssk.helper.worker.Phase
 import com.businesssk.helper.worker.Status
 
@@ -170,7 +172,7 @@ private fun Welcome(next: () -> Unit) {
             contentAlignment = Alignment.Center,
         ) { Icon(Icons.Rounded.RocketLaunch, null, tint = Sk.Gold, modifier = Modifier.size(32.dp)) }
         Spacer(Modifier.height(22.dp))
-        Text("Business-SK Helper", style = MaterialTheme.typography.headlineMedium)
+        Text("SK Helper", style = MaterialTheme.typography.headlineMedium)
         Spacer(Modifier.height(10.dp))
         Text(
             "Your phone fetches Amazon, Flipkart and Shopsy pages for your Studio from its own home / mobile " +
@@ -273,7 +275,7 @@ private fun PermissionsStep(onDone: () -> Unit) {
         ) { requestIgnoreBattery(ctx) }
         PermissionRow(
             Icons.Rounded.RocketLaunch, "Auto-start (iQOO / Vivo)",
-            "i Manager → App manager → Auto-start → turn on Business-SK Helper. Also lock it in Recents.", null,
+            "i Manager → App manager → Auto-start → turn on SK Helper. Also lock it in Recents.", null,
         ) { openAutoStart(ctx) }
         Spacer(Modifier.height(26.dp))
         PrimaryButton("Start helping", onClick = onDone)
@@ -347,8 +349,22 @@ private fun HomeScreen(vm: HelperViewModel, s: HelperSettings) {
         val ctx = LocalContext.current
         Header("Helper", s.deviceName.ifBlank { "This phone" })
         StatusCard(status, s.enabled) { vm.setEnabled(it) }
+        val upd by vm.update.collectAsStateWithLifecycle()
+        (upd as? UpdateState.Available)?.let { a ->
+            Spacer(Modifier.height(12.dp))
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(Sk.Gold.copy(alpha = 0.12f))
+                    .border(1.dp, Sk.Gold.copy(alpha = 0.5f), RoundedCornerShape(14.dp)).padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Rounded.SystemUpdate, null, tint = Sk.Gold)
+                Spacer(Modifier.width(10.dp))
+                Text("Version ${a.info.versionName} is available", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = { vm.installUpdate(a.info) }) { Text("Update", color = Sk.Gold, fontWeight = FontWeight.SemiBold) }
+            }
+        }
         Spacer(Modifier.height(14.dp))
-        PrimaryButton("Open SK Studio", icon = Icons.Rounded.RocketLaunch) {
+        PrimaryButton("Open Business-SK Studio", icon = Icons.Rounded.RocketLaunch) {
             tryStart(ctx, Intent(ctx, com.google.androidbrowserhelper.trusted.LauncherActivity::class.java))
         }
         Spacer(Modifier.height(14.dp))
@@ -475,7 +491,9 @@ private fun LogRow(e: LogEntry) {
 private fun SettingsScreen(vm: HelperViewModel, s: HelperSettings) {
     var confirmUnpair by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
-        Header("Settings", "Rules the helper follows before it takes a job")
+        Header("Settings", "App updates and the rules the helper follows")
+        UpdatesCard(vm)
+        Spacer(Modifier.height(12.dp))
 
         Card {
             Eyebrow("NETWORK")
@@ -548,6 +566,71 @@ private fun SettingsScreen(vm: HelperViewModel, s: HelperSettings) {
             dismissButton = { TextButton(onClick = { confirmUnpair = false }) { Text("Cancel") } },
             containerColor = Sk.Panel2,
         )
+    }
+}
+
+@Composable
+private fun UpdatesCard(vm: HelperViewModel) {
+    val u by vm.update.collectAsStateWithLifecycle()
+    val event by UpdateEvents.last.collectAsStateWithLifecycle()
+    LaunchedEffect(event) { event?.takeIf { it.failed }?.let { vm.updateFailed(it.message) } }
+    Card(border = if (u is UpdateState.Available) Sk.Gold.copy(alpha = 0.55f) else Sk.Border) {
+        Eyebrow("APP UPDATES")
+        Spacer(Modifier.height(8.dp))
+        Row {
+            Stat(BuildConfig.VERSION_NAME, "installed", Modifier.weight(1f))
+            val latest = when (val x = u) {
+                is UpdateState.UpToDate -> x.latest
+                is UpdateState.Available -> x.info.versionName
+                is UpdateState.Downloading -> x.info.versionName
+                is UpdateState.Installing -> x.info.versionName
+                is UpdateState.Failed -> x.info?.versionName ?: "—"
+                else -> "…"
+            }
+            Stat(latest, "latest", Modifier.weight(1f))
+        }
+        Spacer(Modifier.height(12.dp))
+        when (val x = u) {
+            is UpdateState.Available -> {
+                if (x.info.notes.isNotBlank()) {
+                    Text(x.info.notes, style = MaterialTheme.typography.bodySmall, color = Sk.Muted)
+                    Spacer(Modifier.height(10.dp))
+                }
+                PrimaryButton("Update to ${x.info.versionName}", icon = Icons.Rounded.SystemUpdate) { vm.installUpdate(x.info) }
+            }
+            is UpdateState.Downloading -> {
+                Text("Downloading… ${(x.progress * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(progress = { x.progress }, modifier = Modifier.fillMaxWidth().height(6.dp).clip(CircleShape),
+                    color = Sk.Gold, trackColor = Sk.Border)
+            }
+            is UpdateState.Installing -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Sk.Gold)
+                Spacer(Modifier.width(10.dp))
+                Text(event?.message?.takeIf { !it.startsWith("Updated") } ?: "Installing — the app restarts on the new version",
+                    style = MaterialTheme.typography.bodyMedium)
+            }
+            is UpdateState.Failed -> {
+                Notice(x.message, Sk.Danger)
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(onClick = { x.info?.let { vm.installUpdate(it) } ?: vm.checkForUpdate() },
+                    modifier = Modifier.fillMaxWidth()) { Text(if (x.info != null) "Try again" else "Check again") }
+            }
+            is UpdateState.Checking, UpdateState.Idle -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp, color = Sk.Gold)
+                Spacer(Modifier.width(10.dp))
+                Text("Checking for updates…", style = MaterialTheme.typography.bodyMedium, color = Sk.Muted)
+            }
+            is UpdateState.UpToDate -> Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Rounded.CheckCircle, null, tint = Sk.Ok, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("You're on the latest version", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                TextButton(onClick = { vm.checkForUpdate() }) { Text("Check again", color = Sk.Gold) }
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text("The Business-SK Studio icon always shows the live website — only this app needs updating.",
+            style = MaterialTheme.typography.bodySmall, color = Sk.Faint)
     }
 }
 

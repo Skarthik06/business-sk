@@ -676,6 +676,15 @@ def sk_scraper_revoke_device(device_id: int):
     return _scraper_call("DELETE", f"/v1/admin/devices/{int(device_id)}")
 
 
+@app.delete("/api/sk/scraper/workers/{worker_id}")
+def sk_scraper_remove_worker(worker_id: str):
+    """Remove a worker (e.g. an old phone after re-pairing) — a paired phone is also revoked."""
+    import re as _re
+    if not _re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", worker_id or ""):
+        return {"success": False, "error": "bad worker id"}
+    return _scraper_call("DELETE", f"/v1/admin/workers/{worker_id}")
+
+
 class GpuResultReq(BaseModel):
     model_config = {"extra": "forbid"}
     token: str

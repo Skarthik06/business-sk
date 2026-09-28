@@ -113,6 +113,12 @@ async def list_devices() -> list:
             for r in rows]
 
 
+async def revoke_worker(worker_id: str) -> bool:
+    """Revoke the paired device that owns this worker id (if any)."""
+    row = await store.q("select id from devices where worker_id = %s and revoked_at is null", (worker_id,), one=True)
+    return bool(row and await revoke(row["id"]))
+
+
 async def revoke(device_id: int) -> Optional[str]:
     row = await store.q("update devices set revoked_at = now() where id = %s and revoked_at is null returning worker_id",
                         (device_id,), one=True)

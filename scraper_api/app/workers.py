@@ -99,6 +99,15 @@ async def heartbeat(worker_id: str, info: Dict[str, Any]) -> None:
                       (worker_id, rec["kind"], ",".join(caps), json.dumps(rec)))
 
 
+async def remove(worker_id: str) -> bool:
+    """Forget a worker: its live status, queued jobs and stored row. A paired phone's token is
+    revoked by the caller first, so it can't simply come back."""
+    n = await metrics.redis.delete(HB + worker_id, QW + worker_id, UNRESP + worker_id)
+    row = await store.q("delete from workers where worker_id = %s returning worker_id", (worker_id,), one=True)
+    _LAST_DB.pop(worker_id, None)
+    return bool(n or row)
+
+
 async def list_workers() -> List[Dict[str, Any]]:
     out = []
     now = time.time()

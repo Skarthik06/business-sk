@@ -1484,11 +1484,12 @@ function ScraperPanel({ active }) {
   const [pairErr, setPairErr] = useState('');
   const [now, setNow] = useState(Date.now());
   const loadDevices = () => api.skScraperDevices().then((r) => setDevices(r.success ? (r.devices || []) : [])).catch(() => {});
+  const loadDash = () => api.skScraperDashboard()
+    .then((r) => { if (r.success) { setD(r); setErr(''); } else setErr(r.error || 'unavailable'); })
+    .catch(() => setErr('unavailable'));
   useEffect(() => {
     if (!active) return undefined;
-    const load = () => api.skScraperDashboard()
-      .then((r) => { if (r.success) { setD(r); setErr(''); } else setErr(r.error || 'unavailable'); })
-      .catch(() => setErr('unavailable'));
+    const load = loadDash;
     load(); loadDevices();
     const t = setInterval(() => { load(); loadDevices(); }, 30000);
     return () => clearInterval(t);
@@ -1507,10 +1508,13 @@ function ScraperPanel({ active }) {
       setNow(Date.now());
     } catch { setPairErr('Could not create a pairing code'); }
   };
-  const revoke = async (dev) => {
-    if (!window.confirm(`Revoke ${dev.name || dev.worker_id}? The phone stops working as a route immediately.`)) return;
-    await api.skScraperRevokeDevice(dev.id).catch(() => {});
-    loadDevices();
+  // Remove a worker (e.g. the old entry after re-pairing a phone). A paired phone is revoked too,
+  // so it can't keep working as a route; pairing again gives it a fresh entry.
+  const removeWorker = async (wid, label) => {
+    if (!window.confirm(`Remove ${label || wid}? It stops working as a route immediately — pair it again any time.`)) return;
+    const r = await api.skScraperRemoveWorker(wid).catch(() => null);
+    if (r && !r.success) window.alert(r.error || 'Could not remove it');
+    loadDash(); loadDevices();
   };
   const secsLeft = pairing ? Math.max(0, Math.round((pairing.expiresAt - now) / 1000)) : 0;
   const paired = pairing && devices.filter((x) => !x.revoked_at).length > 0 && devices.length > pairing.known;
@@ -1522,7 +1526,7 @@ function ScraperPanel({ active }) {
       <div className="flex items-center mb-3">
         <div className="eyebrow">Scraper routes</div>
         <span className="flex-1" />
-        <a className="btn btn-sm btn-ghost" href="/helper/sk-helper.apk" style={{ marginRight: 8 }} title="Download the Business-SK Helper app (Android APK)">
+        <a className="btn btn-sm btn-ghost" href="/helper/sk-helper.apk" style={{ marginRight: 8 }} title="Download the Business-SK app (Android APK)">
           <Icon name="ext" size={12} /> Get the Android app
         </a>
         <button className="btn btn-sm" onClick={startPairing} title="Pair a phone running the Business-SK Helper app">
@@ -1542,14 +1546,14 @@ function ScraperPanel({ active }) {
               <p className="text-sm" style={{ color: 'var(--muted)' }}>This code expired.</p>
               <button className="btn btn-sm mt-3" onClick={startPairing}>New code</button>
             </> : <>
-              <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>Open <b>Business-SK Helper</b> on your phone → <b>Scan QR</b>, or type the code.</p>
+              <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>Open <b>SK Helper</b> on your phone → <b>Scan QR</b>, or type the code.</p>
               {pairing.qr && <div style={{ background: '#fff', borderRadius: 12, padding: 8, width: 240, margin: '0 auto' }}
                                   dangerouslySetInnerHTML={{ __html: pairing.qr.replace('<svg', '<svg width="224" height="224"') }} />}
               <div className="font-mono mt-3" style={{ fontSize: 28, letterSpacing: '.12em', fontWeight: 700 }}>{pairing.code}</div>
               <p className="text-xs mt-2" style={{ color: 'var(--faint)' }}>One-time code · expires in {Math.floor(secsLeft / 60)}:{String(secsLeft % 60).padStart(2, '0')}</p>
               {/* Studio open ON the phone: a QR can't scan itself — this opens the app and pairs directly */}
               {pairing.link && <a className="btn btn-sm mt-3" href={pairing.link} style={{ justifyContent: 'center' }}>📱 On this phone? Open in Helper app</a>}
-              <p className="text-xs mt-3" style={{ color: 'var(--faint)' }}>No app yet? <a href="/helper/sk-helper.apk" style={{ color: 'var(--accent)' }}>Download Business-SK Helper (Android)</a></p>
+              <p className="text-xs mt-3" style={{ color: 'var(--faint)' }}>No app yet? <a href="/helper/sk-helper.apk" style={{ color: 'var(--accent)' }}>Download the Business-SK app (Android)</a></p>
               <button className="btn btn-sm btn-ghost mt-2" onClick={() => setPairing(null)}>Cancel</button>
             </>}
           </div>
@@ -1575,6 +1579,7 @@ function ScraperPanel({ active }) {
                     <span className="text-xs" style={{ color: 'var(--faint)' }}>{w.kind}</span>
                     <span className="flex-1" />
                     <span className="text-xs font-mono" style={{ color: 'var(--faint)' }}>{w.status === 'paused' ? 'paused' : w.state} · {w.age_s}s ago</span>
+                    {w.state !== 'online' && <button className="btn btn-sm btn-ghost" onClick={() => removeWorker(w.worker_id)} title="Remove this worker from the list (a paired phone is unpaired)" style={{ color: 'var(--danger)', padding: '2px 8px' }}><Icon name="x" size={11} /> Remove</button>}
                   </div>
                   {w.kind === 'phone' && (
                     <div className="text-xs font-mono" style={{ color: 'var(--faint)', paddingLeft: 17 }}>
@@ -1592,7 +1597,7 @@ function ScraperPanel({ active }) {
                   <span>📱</span><span>{x.name}</span>
                   <span className="font-mono" style={{ color: 'var(--faint)' }}>{x.worker_id}</span>
                   <span className="flex-1" />
-                  <button className="btn btn-sm btn-ghost" onClick={() => revoke(x)} title="Stop this phone from working as a route">Revoke</button>
+                  <button className="btn btn-sm btn-ghost" onClick={() => removeWorker(x.worker_id, x.name + ' (' + x.worker_id + ')')} title="Unpair this phone and remove it from Workers" style={{ color: 'var(--danger)' }}><Icon name="x" size={11} /> Remove</button>
                 </div>))}
             </>}
             <div className="text-xs mt-3 mb-2" style={{ color: 'var(--muted)' }}>Open circuits</div>

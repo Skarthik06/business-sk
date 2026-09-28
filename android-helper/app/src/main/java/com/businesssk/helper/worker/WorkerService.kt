@@ -63,7 +63,7 @@ class WorkerService : LifecycleService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
         val type = if (Build.VERSION.SDK_INT >= 34) ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE else 0
-        ServiceCompat.startForeground(this, Notifications.ID, Notifications.build(this, "Business-SK Helper", "Starting…"), type)
+        ServiceCompat.startForeground(this, Notifications.ID, Notifications.build(this, "SK Helper", "Starting…"), type)
         if (intent?.action == ACTION_STOP) {
             lifecycleScope.launch {
                 repo.setEnabled(false)
@@ -208,7 +208,7 @@ class WorkerService : LifecycleService() {
             Phase.WORKING -> "Working"
             Phase.PAUSED -> "Paused"
             Phase.OFFLINE -> "Offline"
-            else -> "Business-SK Helper"
+            else -> "SK Helper"
         }
         Notifications.update(this, title, detail)
     }
