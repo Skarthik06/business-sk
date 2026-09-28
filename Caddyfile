@@ -14,6 +14,16 @@
 		reverse_proxy scraper_api:8200
 	}
 
+	# Business-SK Helper (Android) download — the APK is copied to ./helper-dist on the server
+	# (built from android-helper/, never committed).
+	handle_path /helper/* {
+		root * /srv/helper
+		@apk path *.apk
+		header @apk Content-Type application/vnd.android.package-archive
+		header Cache-Control no-cache
+		file_server
+	}
+
 	handle {
 		reverse_proxy frontend:3000
 	}

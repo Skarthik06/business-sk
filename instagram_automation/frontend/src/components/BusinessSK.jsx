@@ -1503,7 +1503,7 @@ function ScraperPanel({ active }) {
     try {
       const r = await api.skScraperPairing();
       if (!r.success) { setPairErr(r.error || 'Could not create a pairing code'); return; }
-      setPairing({ code: r.code, qr: r.qr_svg, expiresAt: Date.now() + (r.expires_in || 600) * 1000, known: devices.length });
+      setPairing({ code: r.code, qr: r.qr_svg, link: r.pair_url || '', expiresAt: Date.now() + (r.expires_in || 600) * 1000, known: devices.length });
       setNow(Date.now());
     } catch { setPairErr('Could not create a pairing code'); }
   };
@@ -1522,6 +1522,9 @@ function ScraperPanel({ active }) {
       <div className="flex items-center mb-3">
         <div className="eyebrow">Scraper routes</div>
         <span className="flex-1" />
+        <a className="btn btn-sm btn-ghost" href="/helper/sk-helper.apk" style={{ marginRight: 8 }} title="Download the Business-SK Helper app (Android APK)">
+          <Icon name="ext" size={12} /> Get the Android app
+        </a>
         <button className="btn btn-sm" onClick={startPairing} title="Pair a phone running the Business-SK Helper app">
           <Icon name="bolt" size={12} /> Pair a phone
         </button>
@@ -1544,7 +1547,10 @@ function ScraperPanel({ active }) {
                                   dangerouslySetInnerHTML={{ __html: pairing.qr.replace('<svg', '<svg width="224" height="224"') }} />}
               <div className="font-mono mt-3" style={{ fontSize: 28, letterSpacing: '.12em', fontWeight: 700 }}>{pairing.code}</div>
               <p className="text-xs mt-2" style={{ color: 'var(--faint)' }}>One-time code · expires in {Math.floor(secsLeft / 60)}:{String(secsLeft % 60).padStart(2, '0')}</p>
-              <button className="btn btn-sm btn-ghost mt-3" onClick={() => setPairing(null)}>Cancel</button>
+              {/* Studio open ON the phone: a QR can't scan itself — this opens the app and pairs directly */}
+              {pairing.link && <a className="btn btn-sm mt-3" href={pairing.link} style={{ justifyContent: 'center' }}>📱 On this phone? Open in Helper app</a>}
+              <p className="text-xs mt-3" style={{ color: 'var(--faint)' }}>No app yet? <a href="/helper/sk-helper.apk" style={{ color: 'var(--accent)' }}>Download Business-SK Helper (Android)</a></p>
+              <button className="btn btn-sm btn-ghost mt-2" onClick={() => setPairing(null)}>Cancel</button>
             </>}
           </div>
         </div>

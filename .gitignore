@@ -67,3 +67,8 @@ desktop.ini
 
 # scraper_api test scratch
 scraper_api/tests/_data/
+
+# Android helper app: local build state + the served APK (never committed)
+android-helper/.gradle/
+android-helper/local.properties
+helper-dist/
