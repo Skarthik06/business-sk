@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.7.0** (2026-09-28) — Business-SK Helper Android app (download + QR/code/link pairing)
 - **v2.6.3** (2026-09-28) — Flipkart products again: new price layout + no false 'Access Denied' challenge
 - **v2.6.2** (2026-09-28) — Affiliate: posted/cleared posts leave the panels; Flipkart products work again (Scraper API false challenge)
 - **v2.6.1** (2026-09-27) — Security: the affiliate API (/sk-api) now requires the Studio admin session (verified via the IG backend); service calls use an internal key; hub/storefront/health/worker endpoints stay open
