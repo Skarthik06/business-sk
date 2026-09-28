@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.13.1** (2026-09-28) — Phone cut-outs report failures + fetch the ML Kit model; app 1.5.1
 - **v2.13.0** (2026-09-28) — Device-aware rendering: phone → Colab, laptop → laptop GPU, with Studio notices
 - **v2.12.0** (2026-09-28) — Render with Colab when the laptop GPU is off
 - **v2.11.0** (2026-09-28) — Phone cut-outs (ML Kit) when the laptop GPU is off; QR with any camera; Studio app-update card; app 1.5.0
