@@ -40,6 +40,17 @@ def test_classify_matrix():
     assert classify(None, "", "", s, error="timeout")[0] == Outcome.NETWORK_ERROR
 
 
+def test_flipkart_results_page_is_not_a_challenge():
+    fk = S.for_host("www.flipkart.com")
+    page = ('<html><head><title>Earbuds- Buy Products Online | Flipkart.com</title></head><body>'
+            '<script>window.__INITIAL_STATE__={"statusCodesConfig":{"529":{"title":"Access Denied"}}};</script>'
+            + "x" * fk.min_bytes + "</body></html>")
+    assert classify(200, page, "text/html", fk)[0] == Outcome.SUCCESS
+    block = "<HTML><HEAD><TITLE>Access Denied</TITLE></HEAD><BODY>You don't have permission</BODY></HTML>"
+    assert classify(403, block, "text/html", fk)[0] == Outcome.CHALLENGE
+    assert classify(200, block + "x" * fk.min_bytes, "text/html", fk)[0] == Outcome.CHALLENGE
+
+
 def test_backoff_bounds_and_retry_after():
     for a in range(1, 8):
         assert 0 <= backoff(a) <= 20

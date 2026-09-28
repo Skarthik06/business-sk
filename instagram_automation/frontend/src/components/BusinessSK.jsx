@@ -39,6 +39,7 @@ const TAB_KICKER = {
 };
 const LS_FAV = 'sk_favorites';
 const LS_QUEUE = 'sk_queue';
+const OTHER_PANEL_POST = /^(clstore-|mystore|flipkart-)/;   // queue ids staged by the store panels, not Find products
 const CAPTION_STYLES = ['auto', 'DEAL_DROP', 'STORY', 'LISTICLE', 'PROBLEM_SOLUTION', 'QUESTION',
   'TRANSFORMATION', 'GIFT_GUIDE', 'BUDGET', 'PREMIUM', 'VIRAL_FIND'];
 const GOALS = [
@@ -99,11 +100,11 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
       </div>
 
       <div style={show('overview')}><OverviewPanel active={tab === 'overview'} health={health} stats={stats} accounts={accounts} go={onNavigate} /></div>
-      <div style={show('generate')}><GenerateTab {...shared} setQueue={setQueue} goPost={() => onNavigate?.('sk-post')} /></div>
+      <div style={show('generate')}><GenerateTab {...shared} queue={queue} setQueue={setQueue} goPost={() => onNavigate?.('sk-post')} /></div>
       <div style={show('winners')}><WinnersPanel active={tab === 'winners'} say={say} /></div>
       <div style={show('trends')}><TrendsPanel active={tab === 'trends'} cats={cats} /></div>
       <div style={show('intel')}><IntelligencePanel active={tab === 'intel'} /></div>
-      <div style={show('attribution')}><AttributionPanel active={tab === 'attribution'} say={say} setQueue={setQueue} /></div>
+      <div style={show('attribution')}><AttributionPanel active={tab === 'attribution'} say={say} queue={queue} setQueue={setQueue} /></div>
       <div style={show('revenue')}><RevenuePanel active={tab === 'revenue'} say={say} /></div>
       <div style={show('calendar')}><CalendarPanel active={tab === 'calendar'} say={say} /></div>
       <div style={show('agents')}><AgentsPanel active={tab === 'agents'} say={say} /></div>
@@ -117,7 +118,7 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
 }
 
 // ══════════════════════════════════ AFFILIATE (find products) ═════════════════
-function GenerateTab({ cats, say, setQueue, goPost }) {
+function GenerateTab({ cats, say, queue, setQueue, goPost }) {
   const [counts, setCounts] = useState({ home: 3 });     // {category: n} — products PER POST (IG carousel, 1-10)
   const [subs, setSubs] = useState({});                  // {category: [subcategory,...]} — multi-select; each = 1 post
   const [tax, setTax] = useState(null);
@@ -275,7 +276,8 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
     }
     setGroups(out);
     const nonEmpty = out.filter((g) => g.products.length);
-    setQueue(nonEmpty);                                  // AUTO-reflect into Post to IG (no manual send)
+    // AUTO-reflect into Post to IG: replace the previous Find-products posts, keep other panels' posts
+    setQueue((prev) => [...(prev || []).filter((x) => OTHER_PANEL_POST.test(String(x.id))), ...nonEmpty]);
     const total = out.reduce((n, g) => n + g.products.length, 0);
     const blocked = errs.some((e) => /blocked|Download is starting|scrape_amazon|bot-wall/i.test(e));
     say(total
@@ -285,9 +287,14 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
     setRunning(false);
   };
 
-  const allItems = (groups || []).flatMap((g) => g.products.map((p) => ({ ...p, category: g.category })));
+  // The Post-to-IG queue is the source of truth: a post that was published, discarded or cleared
+  // there is gone from the queue, so it disappears from this Review too.
+  const queued = Object.fromEntries((queue || []).map((g) => [g.id, g]));
+  const live = (groups || []).map((g) => queued[g.id]).filter((g) => g && (g.products || []).length);
+  const found = (groups || []).some((g) => g.products.length);
+  const allItems = live.flatMap((g) => g.products.map((p) => ({ ...p, category: g.category })));
   const total = allItems.length;
-  const readyPosts = (groups || []).filter((g) => g.products.length).length;
+  const readyPosts = live.length;
 
   return (
     <>
@@ -458,7 +465,7 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
               <button className="btn btn-sm btn-ghost" onClick={() => downloadCSV(allItems)}><Icon name="ext" size={12} /> CSV</button>
             </>}
           </div>
-          <p className="text-xs mb-4" style={{ color: 'var(--faint)' }}>These stay here after you Post to IG — hit <b>Refresh</b> for fresh picks (same filters), or scroll up and change selections to generate new.</p>
+          <p className="text-xs mb-4" style={{ color: 'var(--faint)' }}>Posts leave this list once they are posted, discarded or cleared in Post to IG — hit <b>Refresh</b> for fresh picks (same filters), or scroll up and change selections to generate new.</p>
           {combo && (
             <div className="panel p-4 mb-5" style={{ borderColor: 'var(--accent)' }}>
               <div className="flex items-center gap-2 mb-2"><span className="prog-badge">🎁 {combo.title}</span><span className="text-xs" style={{ color: 'var(--muted)' }}>{combo.count} products · combined ₹{Number(combo.combined_price).toLocaleString()}</span></div>
@@ -473,8 +480,8 @@ function GenerateTab({ cats, say, setQueue, goPost }) {
               </div>
             </div>
           )}
-          {total === 0 ? <Empty text="No new products (deduped). Try other subcategories or lower the quality filters." /> : (
-            (groups.filter((g) => g.products.length)).map((g) => (
+          {total === 0 ? <Empty text={found ? 'All posts from this search were posted or cleared. Hit Refresh or Find products for fresh picks.' : 'No new products (deduped). Try other subcategories or lower the quality filters.'} /> : (
+            live.map((g) => (
               <div key={g.id} className="mb-6">
                 <div className="group-head"><span className="chip-sk on" style={{ textTransform: 'capitalize' }}>{g.label}</span><span className="text-xs" style={{ color: 'var(--faint)' }}>{g.products.length} products · 1 post · 1 caption</span>{g.content_style && g.content_style !== 'UNKNOWN' && <span className="style-tag">{g.content_style.replace(/_/g, ' ').toLowerCase()}</span>}{g.products[0]?.content_tokens?.total ? <span className="style-tag" title={`AI used ${g.products[0].content_tokens.total} tokens (${g.products[0].content_tokens.input}→${g.products[0].content_tokens.output}) to write this post`}>🧠 {g.products[0].content_tokens.total} tok</span> : null}{(g.warnings || []).length > 0 && <span className="warn-tag" title={g.warnings.join('\n')}>⚠ {g.warnings.length}</span>}{g.pushed && <span className="style-tag" style={{ color: '#3fb950' }}>🏪 in your store</span>}<span className="flex-1" /><button className="btn btn-sm btn-ghost" onClick={() => pushGroupToStore(g)} disabled={pushGid === g.id} title="Create these products in your Shopify store; this post will then link to your store page">{pushGid === g.id ? <Spinner size={12} /> : <Icon name="ext" size={12} />} Push to my store</button><button className="btn btn-sm btn-ghost" onClick={() => discardGroup(g.id)} title="Discard this whole post — it won’t be posted or added to the store" style={{ color: 'var(--danger)' }}><Icon name="x" size={12} /> Discard post</button></div>
                 {g.caption && (
@@ -1953,10 +1960,14 @@ function FlipkartGenerate({ say, setQueue }) {
 
 // Per-store generator: pick ONE active market → Amazon-style controls → generate. Product-capable
 // stores (Flipkart scrape / Shopify feed) return REAL product photos; the rest build deal cards.
-function StoreGenerate({ markets, say, setQueue }) {
+function StoreGenerate({ markets, say, queue, setQueue }) {
   const active = (markets || []).filter((m) => m.active);
   const [sel, setSel] = useState('');
   const mk = active.find((m) => m.id === sel) || null;
+  // always have a store open (its search + AI filters visible) — the first active one by default,
+  // and again after "Plan & apply" swaps the active stores
+  const activeIds = active.map((m) => m.id).join(',');
+  useEffect(() => { if (!mk && active.length) setSel(active[0].id); }, [activeIds]); // eslint-disable-line react-hooks/exhaustive-deps
   const canProd = !!(mk && mk.can_products);
   const [q, setQ] = useState('');
   const [count, setCount] = useState(8);
@@ -1971,6 +1982,8 @@ function StoreGenerate({ markets, say, setQueue }) {
   const [running, setRunning] = useState(false);
   const [group, setGroup] = useState(null);
   const [slides, setSlides] = useState(null);
+  // posted / cleared in Post to IG → the post left the queue → drop this card too
+  useEffect(() => { if (group && queue && !queue.some((x) => x.id === group.id)) { setGroup(null); setSlides(null); } }, [queue, group]);
   const [prev, setPrev] = useState(false);
 
   useEffect(() => { setQ(''); setDims([]); setPicks({}); setGroup(null); setSlides(null); setPushed(false); }, [sel]);
@@ -2131,7 +2144,7 @@ function StoreGenerate({ markets, say, setQueue }) {
   );
 }
 
-function CuelinksPanel({ say, setQueue }) {
+function CuelinksPanel({ say, queue, setQueue }) {
   const [d, setD] = useState(null);            // catalogue payload {markets, categories, constraints, earnings…}
   const [c, setC] = useState(null);            // local editable constraints
   const [plan, setPlan] = useState(null);      // AI plan result
@@ -2180,7 +2193,7 @@ function CuelinksPanel({ say, setQueue }) {
   return (
     <div className="panel p-4 flex flex-col gap-4">
       {/* Per-store product generator — pick one scrapable store → Amazon-style filters → real products */}
-      {setQueue && <StoreGenerate markets={d.markets} say={say} setQueue={setQueue} />}
+      {setQueue && <StoreGenerate markets={d.markets} say={say} queue={queue} setQueue={setQueue} />}
       {/* header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
@@ -2286,11 +2299,11 @@ function CuelinksPanel({ say, setQueue }) {
   );
 }
 
-function AttributionPanel({ active, say, setQueue }) {
+function AttributionPanel({ active, say, queue, setQueue }) {
   return (
     <div className="mb-24 flex flex-col gap-4">
-      <MyShopifyPanel say={say} setQueue={setQueue} />
-      <CuelinksPanel say={say} setQueue={setQueue} />
+      <MyShopifyPanel say={say} queue={queue} setQueue={setQueue} />
+      <CuelinksPanel say={say} queue={queue} setQueue={setQueue} />
       <NetworksSection say={say} />
     </div>
   );

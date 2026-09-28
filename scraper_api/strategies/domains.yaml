@@ -51,7 +51,10 @@ domains:
     challenge_markers:
       - "Please verify you are a human"
       - "Are you a human?"
-      - "Access Denied"
+      # the Akamai block page's TITLE only — a normal results page carries "Access Denied" inside
+      # its own error-page config JSON, so the bare phrase would reject every good page
+      - "<TITLE>Access Denied</TITLE>"
+      - "<title>Access Denied</title>"
   shopsy.in:
     mode: auto
     timeout: 30

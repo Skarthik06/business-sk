@@ -10,7 +10,7 @@ const STYLES = ['auto', 'DEAL_DROP', 'LISTICLE', 'STORY', 'PREMIUM', 'BUDGET', '
 
 // "My Store" — the owner's OWN Shopify store as a first-party product source. Products come straight
 // from their catalogue (Admin API), links stay raw (direct sale). Same render → Post-to-IG pipeline.
-export default function MyShopifyPanel({ say, setQueue }) {
+export default function MyShopifyPanel({ say, queue, setQueue }) {
   const [st, setSt] = useState(null);            // connection status
   const [cols, setCols] = useState([]);          // collections
   const [col, setCol] = useState('');
@@ -23,6 +23,8 @@ export default function MyShopifyPanel({ say, setQueue }) {
   const [running, setRunning] = useState(false);
   const [group, setGroup] = useState(null);
   const [slides, setSlides] = useState(null);
+  // posted / cleared in Post to IG → the post left the queue → drop this card too
+  useEffect(() => { if (group && queue && !queue.some((x) => x.id === group.id)) { setGroup(null); setSlides(null); } }, [queue, group]);
   const [prev, setPrev] = useState(false);
 
   const load = () => skApi.myStoreStatus().then((r) => { setSt(r); if (r.connected) skApi.myStoreCollections().then((c) => setCols(c.collections || [])).catch(() => {}); }).catch(() => setSt({ ok: false, connected: false }));
