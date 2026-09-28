@@ -783,8 +783,9 @@ def _device_worker(token: str) -> str | None:
 
 class DeviceResultReq(BaseModel):
     job_id: str
-    b64: str
+    b64: str = ""
     meta: dict | None = None
+    error: str | None = None                   # the phone couldn't do it → released for another GPU
 
 
 @app.get("/api/gpu/device/jobs")
@@ -807,6 +808,9 @@ def gpu_device_result(body: DeviceResultReq, x_worker_token: str = Header("", al
         raise HTTPException(401, "bad device token")
     if not str(body.job_id).startswith("cut_"):
         raise HTTPException(400, "phones only do cut-outs")
+    if body.error:
+        print(f"[phone cut-out] {wid} could not do {body.job_id}: {body.error[:200]}", flush=True)
+        return {"ok": scene_store.release_job(body.job_id, f"{wid}: {body.error}")}
     res = scene_store.submit(body.job_id, body.b64, {**(body.meta or {}), "by": wid})
     if not res.get("ok"):
         raise HTTPException(400, res.get("error", "rejected"))

@@ -475,6 +475,18 @@ def take_jobs(n: int = 4, info: Optional[Dict[str, Any]] = None, heartbeat: bool
     return out
 
 
+def release_job(job_id: str, error: str = "") -> bool:
+    """A worker couldn't do this job: free it at once (another GPU / a retry takes it) and keep why."""
+    path = _jpath(str(job_id))
+    with _LOCK:
+        job = _read_job(path) if path and path.exists() else None
+        if not job:
+            return False
+        job.update(lease=0, error=str(error)[:200], by="")
+        _write_job(job)
+    return True
+
+
 def _verify_image(raw: bytes, *, want_alpha: bool):
     from PIL import Image
     im = Image.open(io.BytesIO(raw))

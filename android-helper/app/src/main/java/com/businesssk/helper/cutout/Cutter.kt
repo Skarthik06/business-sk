@@ -1,6 +1,8 @@
 package com.businesssk.helper.cutout
 
 import android.content.Context
+import com.google.android.gms.common.moduleinstall.ModuleInstall
+import com.google.android.gms.common.moduleinstall.ModuleInstallRequest
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.Base64
@@ -67,6 +69,15 @@ class StudioCutApi(server: String, private val token: String) {
         return body.length.toLong()
     }
 
+    /** Tell the Studio this phone couldn't do the job → it's released for another GPU at once. */
+    fun fail(jobId: String, reason: String) {
+        val body = buildJsonObject { put("job_id", jobId); put("error", reason.take(200)) }.toString()
+        val req = Request.Builder().url("$base/api/gpu/device/result")
+            .header("X-Worker-Token", token).header("User-Agent", "SK-Helper-Android")
+            .post(body.toRequestBody("application/json".toMediaType())).build()
+        client.newCall(req).execute().close()
+    }
+
     companion object {
         private val json = Json { ignoreUnknownKeys = true }
         private val client = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS)
@@ -98,7 +109,17 @@ object Cutter {
         SubjectSegmentation.getClient(SubjectSegmenterOptions.Builder().enableForegroundBitmap().build())
     }
 
-    suspend fun cut(url: String): Result {
+    /** ML Kit's cut-out model comes from Google Play services. If it isn't on the phone yet, ask
+     *  Play to download it now (instead of failing silently) and report that clearly. */
+    suspend fun ensureModel(ctx: Context) {
+        val mi = ModuleInstall.getClient(ctx)
+        if (mi.areModulesAvailable(segmenter).await().areModulesAvailable()) return
+        mi.installModules(ModuleInstallRequest.newBuilder().addApi(segmenter).build())
+        throw IOException("Google Play is downloading the cut-out model — this phone will start in a few minutes")
+    }
+
+    suspend fun cut(ctx: Context, url: String): Result {
+        ensureModel(ctx)
         val t0 = System.currentTimeMillis()
         val u = url.toHttpUrlOrNull() ?: throw IOException("bad image URL")
         if (u.scheme != "https" && u.scheme != "http") throw IOException("bad image URL")

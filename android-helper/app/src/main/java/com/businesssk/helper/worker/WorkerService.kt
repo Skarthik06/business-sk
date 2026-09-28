@@ -177,15 +177,17 @@ class WorkerService : LifecycleService() {
         show(Phase.WORKING, "Cutting out a product", host)
         active.incrementAndGet()
         return try {
-            val r = Cutter.cut(url)
+            val r = Cutter.cut(applicationContext, url)
             val sent = api.result(jobId, r.png, r.facts)
             repo.addUsage(r.downloaded + sent, 0)
             ActivityLog.add(LogEntry(System.currentTimeMillis(), "✂️ Cut-out · ML Kit", host, 200, r.downloaded + sent,
                 r.ms, true, "${r.facts.subject} · ${r.png.size / 1024} KB", WorkerState.ip.value))
             true
         } catch (e: Exception) {
+            val why = e.message?.take(160) ?: e.javaClass.simpleName
+            runCatching { api.fail(jobId, why) }            // released → another GPU takes it right away
             ActivityLog.add(LogEntry(System.currentTimeMillis(), "✂️ Cut-out · ML Kit", host, null, 0, 0, false,
-                e.message?.take(80) ?: "failed", WorkerState.ip.value))
+                why.take(80), WorkerState.ip.value))
             false
         } finally {
             active.decrementAndGet()
