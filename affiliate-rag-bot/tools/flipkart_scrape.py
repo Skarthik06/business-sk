@@ -79,10 +79,19 @@ def _img(u: str) -> str:
 
 
 def _price(pricing: dict, names: set) -> int | None:
-    for p in (pricing or {}).get("prices", []) or []:
+    prices = (pricing or {}).get("prices", []) or []
+    for p in prices:
         if p.get("name") in names or p.get("priceType") in names:
             try:
                 return int(round(float(p.get("decimalValue"))))
+            except Exception:
+                pass
+    # current layout (2026-09): unnamed [{"strikeOff": true, "value": MRP}, {"strikeOff": false, "value": price}]
+    want_strike = "MRP" in names
+    for p in prices:
+        if "strikeOff" in p and bool(p.get("strikeOff")) == want_strike:
+            try:
+                return int(round(float(p.get("value") if p.get("value") is not None else p.get("decimalValue"))))
             except Exception:
                 pass
     return None
@@ -95,7 +104,10 @@ def _discount(pricing: dict) -> int | None:
                 return int(p["discount"])
             except Exception:
                 pass
-    return None
+    try:                                                   # current layout: a page-level percentage
+        return int((pricing or {}).get("totalDiscount")) or None
+    except Exception:
+        return None
 
 
 def _parse(html: str) -> list[dict]:
