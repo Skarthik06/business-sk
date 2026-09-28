@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.14.1** (2026-09-28) — Sidebar: Business-SK first, Business-JK collapsed; honest rating filter
 - **v2.14.0** (2026-09-28) — Cuelinks flow end to end: planner angle in captions, Goal ranking, constraints as defaults
 - **v2.13.1** (2026-09-28) — Phone cut-outs report failures + fetch the ML Kit model; app 1.5.1
 - **v2.13.0** (2026-09-28) — Device-aware rendering: phone → Colab, laptop → laptop GPU, with Studio notices
