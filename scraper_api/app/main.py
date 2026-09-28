@@ -135,9 +135,13 @@ def _fields(extract: str) -> list:
 async def scrape(url: str = Query(..., max_length=config.MAX_URL_LEN), render: bool = False,
                  extract: str = "html,title,images,metadata,jsonld,price", cache_ttl: Optional[int] = None,
                  timeout: Optional[int] = Query(None, ge=3, le=120), country: Optional[str] = None,
-                 proxy: Optional[bool] = None, key: Dict[str, Any] = Depends(api_key)):
+                 proxy: Optional[bool] = None, prefer: str = Query("", max_length=20, pattern=r"^[a-z]*$"),
+                 key: Dict[str, Any] = Depends(api_key)):
+    """`prefer` = a worker kind (phone | laptop): the device the user is working on fetches first
+    (when it's online and allowed for the site); the usual ranking is the fallback."""
     return await engine.scrape(url, api_key_id=key["id"], render=render, fields=_fields(extract),
-                               cache_ttl=cache_ttl, timeout=timeout, country=country, use_proxy=proxy)
+                               cache_ttl=cache_ttl, timeout=timeout, country=country, use_proxy=proxy,
+                               prefer=prefer or None)
 
 
 class JobReq(BaseModel):
@@ -307,37 +311,46 @@ class ResultReq(BaseModel):
     duration_ms: Optional[int] = None
 
 
-async def _beat(ident: Dict[str, Any], body: HeartbeatReq) -> None:
+def _client_ip(request: Request) -> str:
+    """The worker's PUBLIC IP as the server sees it (Caddy puts it in X-Forwarded-For)."""
+    fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    return (fwd or (request.client.host if request.client else ""))[:64]
+
+
+async def _beat(ident: Dict[str, Any], body: HeartbeatReq, ip: str = "") -> None:
     if not workers.valid_id(body.worker_id):
         raise HTTPException(400, "worker_id: letters, digits, . _ - (max 40)")
     _same_worker(ident, body.worker_id)
-    await workers.heartbeat(body.worker_id, body.model_dump())
+    await workers.heartbeat(body.worker_id, {**body.model_dump(), "ip": ip})
     if ident.get("kind") == "device":
         await devices.touch(ident["device_id"])
 
 
 @app.post("/v1/workers/heartbeat")
-async def worker_heartbeat(body: HeartbeatReq, ident: Dict[str, Any] = Depends(worker_auth)):
-    await _beat(ident, body)
-    return {"ok": True, "online_secs": workers.ONLINE_SECS}
+async def worker_heartbeat(body: HeartbeatReq, request: Request, ident: Dict[str, Any] = Depends(worker_auth)):
+    ip = _client_ip(request)
+    await _beat(ident, body, ip)
+    return {"ok": True, "online_secs": workers.ONLINE_SECS, "ip": ip}
 
 
 @app.post("/v1/workers/jobs/lease")
-async def worker_lease(body: LeaseReq, ident: Dict[str, Any] = Depends(worker_auth)):
-    await _beat(ident, body)
+async def worker_lease(body: LeaseReq, request: Request, ident: Dict[str, Any] = Depends(worker_auth)):
+    await _beat(ident, body, _client_ip(request))
     if body.status == "paused":
         return {"jobs": []}
     return {"jobs": await workers.lease(body.worker_id, body.max, body.wait)}
 
 
 @app.post("/v1/workers/jobs/{attempt_id}/result")
-async def worker_result(body: ResultReq, attempt_id: str = Path(..., max_length=80, pattern=r"^[A-Za-z0-9_]+$"),
+async def worker_result(body: ResultReq, request: Request,
+                        attempt_id: str = Path(..., max_length=80, pattern=r"^[A-Za-z0-9_]+$"),
                         ident: Dict[str, Any] = Depends(worker_auth)):
     _same_worker(ident, body.worker_id)
-    res = await workers.submit(body.worker_id, attempt_id, body.model_dump())
+    ip = _client_ip(request)
+    res = await workers.submit(body.worker_id, attempt_id, {**body.model_dump(), "ip": ip})
     if not res.get("ok"):
         raise HTTPException(409, res.get("error", "rejected"))
-    return res
+    return {**res, "ip": ip}                               # the phone shows which IP fetched it
 
 
 class PairReq(BaseModel):
@@ -410,7 +423,8 @@ async def dashboard(key: Dict[str, Any] = Depends(api_key)):
         "workers": [{k: w.get(k) for k in ("worker_id", "kind", "state", "status", "age_s", "capabilities",
                                            "active_jobs", "cpu_percent", "memory_percent", "version",
                                            "battery_percent", "charging", "network", "data_today_mb",
-                                           "jobs_today", "allowed_domains", "paused_reason")} for w in ws],
+                                           "jobs_today", "allowed_domains", "paused_reason", "ip")} for w in ws],
+        "recent": await store.recent_attempts(20),
         "proxies": [p.public() for p in proxies.proxies.values()],
         **routing.book.snapshot(),
         "weights": routing.weights(),

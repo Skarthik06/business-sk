@@ -375,6 +375,9 @@ private fun HomeScreen(vm: HelperViewModel, s: HelperSettings) {
             Spacer(Modifier.height(6.dp))
             Text(Uri.parse(s.server).host ?: s.server, style = MaterialTheme.typography.titleMedium)
             Text(s.workerId, style = MaterialTheme.typography.bodySmall, color = Sk.Faint, fontFamily = FontFamily.Monospace)
+            val ip by vm.publicIp.collectAsStateWithLifecycle()
+            if (ip.isNotBlank()) Text("📱 Mobile · public IP $ip", style = MaterialTheme.typography.bodySmall,
+                color = Sk.Muted, fontFamily = FontFamily.Monospace)
             Spacer(Modifier.height(10.dp))
             Text(
                 "Sites: " + SUPPORTED_SITES.filter { it.domain in s.allowed }.joinToString { it.label }.ifBlank { "none" },
@@ -446,7 +449,7 @@ private fun ActivityScreen(vm: HelperViewModel) {
     val entries by vm.activity.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
         Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) { Header("Activity", "The last ${entries.size} fetches (kept on this phone)") }
+            Box(Modifier.weight(1f)) { Header("Activity", "Pages this phone fetched — runs from the phone's Studio go here") }
             if (entries.isNotEmpty()) TextButton(onClick = { vm.clearActivity() }) { Text("Clear", color = Sk.Muted) }
         }
         if (entries.isEmpty()) {
@@ -471,6 +474,8 @@ private fun LogRow(e: LogEntry) {
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(e.host, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+            Text("📱 Mobile" + if (e.ip.isNotBlank()) " · IP ${e.ip}" else "", style = MaterialTheme.typography.bodySmall,
+                color = Sk.Gold, fontFamily = FontFamily.Monospace)
             Text(
                 listOfNotNull(e.path.takeIf { it.isNotBlank() }, e.note.takeIf { it.isNotBlank() }).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall, color = Sk.Muted, maxLines = 1, overflow = TextOverflow.Ellipsis,

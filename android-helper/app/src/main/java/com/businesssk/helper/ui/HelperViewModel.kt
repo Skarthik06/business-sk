@@ -56,6 +56,7 @@ class HelperViewModel(app: Application) : AndroidViewModel(app) {
         Usage(LocalDate.now().toString(), 0, 0, 0))
     val status = WorkerState.status
     val activity = ActivityLog.entries
+    val publicIp = WorkerState.ip
 
     private val _pair = MutableStateFlow<PairState>(PairState.Idle)
     val pair: StateFlow<PairState> = _pair.asStateFlow()

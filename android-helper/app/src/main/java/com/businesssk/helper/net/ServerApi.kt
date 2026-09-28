@@ -25,6 +25,9 @@ data class Job(val attempt_id: String, val url: String, val mode: String = "http
 data class LeaseResponse(val jobs: List<Job> = emptyList())
 
 @Serializable
+data class IpResponse(val ip: String = "")
+
+@Serializable
 data class Beat(
     val worker_id: String,
     val status: String,                       // healthy | paused
@@ -93,18 +96,20 @@ class ServerApi(base: String, private val token: String?) {
         return json.decodeFromString(PairResponse.serializer(), post("/pair", body))
     }
 
-    fun heartbeat(beat: Beat) {
-        post("/heartbeat", json.encodeToString(Beat.serializer(), beat))
-    }
+    /** Returns this phone's public IP as the server sees it. */
+    fun heartbeat(beat: Beat): String =
+        runCatching { json.decodeFromString(IpResponse.serializer(), post("/heartbeat", json.encodeToString(Beat.serializer(), beat))).ip }
+            .getOrDefault("")
 
     fun lease(beat: Beat): List<Job> =
         json.decodeFromString(LeaseResponse.serializer(), post("/jobs/lease", json.encodeToString(Beat.serializer(), beat))).jobs
 
-    /** Returns the number of bytes uploaded (counted against the daily data limit). */
-    fun result(attemptId: String, result: JobResult): Long {
+    /** Bytes uploaded (counted against the daily data limit) + the public IP the server saw. */
+    fun result(attemptId: String, result: JobResult): Pair<Long, String> {
         val body = json.encodeToString(JobResult.serializer(), result)
-        post("/jobs/$attemptId/result", body)
-        return body.length.toLong()
+        val answer = post("/jobs/$attemptId/result", body)
+        val ip = runCatching { json.decodeFromString(IpResponse.serializer(), answer).ip }.getOrDefault("")
+        return body.length.toLong() to ip
     }
 
     private fun jsonString(s: String) = JsonPrimitive(s).toString()     // quoted + escaped

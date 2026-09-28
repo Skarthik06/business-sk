@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import contextvars
 import time
 import urllib.parse
 import urllib.request
@@ -53,11 +54,33 @@ def residential_ready() -> bool:
     return bool(health().get("residential_ready"))
 
 
+# Which device the user is working on (the Studio sends X-SK-Device: phone | laptop). The Scraper
+# API then lets THAT device fetch first — run Find products on the phone → the phone scrapes.
+# A context var per request, plus the last hint (≤ 10 min) for work that runs on other threads.
+_DEVICE: contextvars.ContextVar = contextvars.ContextVar("sk_device", default="")
+_LAST_DEVICE = {"device": "", "at": 0.0}
+
+
+def set_device(d: str) -> None:
+    d = (d or "").strip().lower()
+    if d not in ("phone", "laptop"):
+        return
+    _DEVICE.set(d)
+    _LAST_DEVICE.update(device=d, at=time.time())
+
+
+def device() -> str:
+    return _DEVICE.get() or (_LAST_DEVICE["device"] if time.time() - _LAST_DEVICE["at"] < 600 else "")
+
+
 def scrape_html(url: str, timeout: int = 45) -> dict:
     """{"ok", "html", "outcome", "reason", "cached"} for one page. Never raises."""
     if not available():
         return {"ok": False, "outcome": "UNAVAILABLE", "reason": "scraper API not configured"}
-    q = urllib.parse.urlencode({"url": url, "extract": "html", "timeout": min(120, max(3, timeout))})
+    params = {"url": url, "extract": "html", "timeout": min(120, max(3, timeout))}
+    if device():
+        params["prefer"] = device()
+    q = urllib.parse.urlencode(params)
     try:
         r = _get("/v1/scrape?" + q, 150)            # the engine may fail over across routes (≤ max_time)
     except Exception as e:                                 # noqa: BLE001

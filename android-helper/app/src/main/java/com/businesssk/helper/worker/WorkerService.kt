@@ -103,7 +103,7 @@ class WorkerService : LifecycleService() {
             val decision = Policy.evaluate(s, device, usage.bytes)
             try {
                 if (!decision.ok) {
-                    api.heartbeat(beat(s, usage, device, decision.reason))
+                    WorkerState.setIp(api.heartbeat(beat(s, usage, device, decision.reason)))
                     show(Phase.PAUSED, decision.reason ?: "Paused")
                     delay(20_000)
                     continue
@@ -136,7 +136,7 @@ class WorkerService : LifecycleService() {
                 val usage = repo.usageNow()
                 val device = Policy.device(this)
                 val paused = Policy.evaluate(s, device, usage.bytes).reason
-                ServerApi(s.server, token).heartbeat(beat(s, usage, device, paused))
+                WorkerState.setIp(ServerApi(s.server, token).heartbeat(beat(s, usage, device, paused)))
             }
         }
     }
@@ -171,16 +171,18 @@ class WorkerService : LifecycleService() {
         try {
             val page = fetcher.fetch(job.url, job.timeout)
             val payload = if (page.body.isNotEmpty()) Base64.encodeToString(gzip(page.body), Base64.NO_WRAP) else ""
-            val sent = api.result(job.attempt_id, JobResult(
+            val (sent, ip) = api.result(job.attempt_id, JobResult(
                 worker_id = s.workerId, status_code = page.status, content_type = page.contentType,
                 final_url = page.finalUrl, html = payload, gz = true, error = page.error, duration_ms = page.ms,
             ))
+            WorkerState.setIp(ip)
             repo.addUsage(fetcher.networkBytes.get() + sent, 1)
             val ok = page.status == 200 && page.error == null
             ActivityLog.add(LogEntry(
                 at = System.currentTimeMillis(), host = host, path = url?.encodedPath?.take(60) ?: "",
                 status = page.status, bytes = fetcher.networkBytes.get(), ms = page.ms, ok = ok,
                 note = page.error ?: if (page.body.size < 20_000 && page.status == 200) "short page" else "",
+                ip = ip.ifBlank { WorkerState.ip.value },
             ))
         } catch (e: Exception) {
             repo.addUsage(fetcher.networkBytes.get(), 0)

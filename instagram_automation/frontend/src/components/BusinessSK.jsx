@@ -1576,7 +1576,8 @@ function ScraperPanel({ active }) {
                   <div className="flex items-center gap-2 text-sm">
                     <span style={{ width: 9, height: 9, borderRadius: '50%', background: w.status === 'paused' ? 'var(--amber)' : dot(w.state) }} />
                     <span className="font-mono">{w.worker_id}</span>
-                    <span className="text-xs" style={{ color: 'var(--faint)' }}>{w.kind}</span>
+                    <span className="text-xs" style={{ color: 'var(--faint)' }}>{w.kind === 'phone' ? '📱 mobile' : w.kind === 'laptop' ? '💻 laptop' : w.kind}</span>
+                    {w.ip && <span className="text-xs font-mono" style={{ color: 'var(--faint)' }} title="Public IP this device fetches from">IP {w.ip}</span>}
                     <span className="flex-1" />
                     <span className="text-xs font-mono" style={{ color: 'var(--faint)' }}>{w.status === 'paused' ? 'paused' : w.state} · {w.age_s}s ago</span>
                     {w.state !== 'online' && <button className="btn btn-sm btn-ghost" onClick={() => removeWorker(w.worker_id)} title="Remove this worker from the list (a paired phone is unpaired)" style={{ color: 'var(--danger)', padding: '2px 8px' }}><Icon name="x" size={11} /> Remove</button>}
@@ -1623,6 +1624,28 @@ function ScraperPanel({ active }) {
                 </div>))}</div>}
           </div>
         </div>
+        {/* who fetched each page — the phone when you work on the phone, the laptop on the laptop */}
+        <div className="text-xs mt-4 mb-2" style={{ color: 'var(--muted)' }}>Recent fetches</div>
+        {(d.recent || []).length === 0
+          ? <p className="text-sm" style={{ color: 'var(--muted)' }}>Nothing fetched yet.</p>
+          : <div style={{ maxHeight: 260, overflowY: 'auto' }}>{d.recent.map((a, i) => {
+            const wid = a.worker || '';
+            const isWorker = (a.route || '').startsWith('worker');
+            const dev = devices.find((x) => x.worker_id === wid);
+            const who = !isWorker ? '☁️ Server' : wid.startsWith('phone') ? `📱 Mobile${dev?.name ? ' · ' + dev.name : ''}` : wid.startsWith('laptop') ? '💻 Laptop' : wid;
+            const ok = a.outcome === 'SUCCESS';
+            return (
+              <div key={i} className="flex items-center gap-2 text-xs mb-1.5">
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: ok ? '#3fb950' : 'var(--danger)', flex: 'none' }} />
+                <span style={{ minWidth: 150 }}>{who}</span>
+                <span className="font-mono" style={{ color: 'var(--faint)', minWidth: 118 }}>{a.worker_ip ? 'IP ' + a.worker_ip : (isWorker ? '' : 'server IP')}</span>
+                <span className="font-mono">{a.domain}</span>
+                <span className="flex-1" />
+                <span className="font-mono" style={{ color: 'var(--faint)' }}>
+                  {a.status_code || '—'} · {a.response_bytes ? (a.response_bytes / 1e6).toFixed(1) + ' MB' : '0 MB'} · {new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>);
+          })}</div>}
       </>}
     </div>
   );

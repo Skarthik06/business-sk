@@ -47,6 +47,7 @@ create table if not exists circuit_breakers (
   open_until double precision, opens int not null default 0, reason text,
   updated_at timestamptz not null default now(), primary key (domain, route));
 alter table scrape_attempts add column if not exists route text;
+alter table scrape_attempts add column if not exists worker_ip text;
 create table if not exists devices (
   id serial primary key, worker_id text unique not null, name text, model text,
   token_hash text unique not null, created_at timestamptz not null default now(),
@@ -124,7 +125,7 @@ async def job_get(job_id: str) -> Optional[Dict[str, Any]]:
 
 async def attempt_log(row: Dict[str, Any]) -> None:
     cols = ("request_id", "job_id", "api_key_id", "domain", "attempt", "worker", "mode", "route", "proxy_id",
-            "status_code", "outcome", "error", "duration_ms", "response_bytes", "cache_hit")
+            "status_code", "outcome", "error", "duration_ms", "response_bytes", "cache_hit", "worker_ip")
     await q(f"insert into scrape_attempts ({', '.join(cols)}) values ({', '.join(['%s'] * len(cols))})",
             tuple(row.get(c) for c in cols))
 
@@ -166,6 +167,14 @@ async def dashboard_numbers() -> Dict[str, Any]:
         from scrape_attempts where created_at > now() - interval '24 hours' and not cache_hit
         group by 1 order by 2 desc""") or []
     return {**r, "by_route": by_route}
+
+
+async def recent_attempts(limit: int = 20) -> List[Dict[str, Any]]:
+    """The latest real fetches (no cache hits) — who fetched what, from which IP."""
+    rows = await q("""select created_at, domain, route, worker, worker_ip, status_code, outcome,
+                             response_bytes, duration_ms
+                      from scrape_attempts where not cache_hit order by id desc limit %s""", (limit,)) or []
+    return [{**r, "created_at": r["created_at"].isoformat()} for r in rows]
 
 
 async def prune_attempts(days: int = 30) -> None:

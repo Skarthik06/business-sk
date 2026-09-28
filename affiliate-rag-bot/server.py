@@ -232,6 +232,14 @@ import admin_gate  # noqa: E402
 
 
 @app.middleware("http")
+async def _device_hint(request, call_next):
+    """The Studio says which device you're on (phone | laptop) → that device scrapes first."""
+    from tools import scraper_client
+    scraper_client.set_device(request.headers.get("x-sk-device", ""))
+    return await call_next(request)
+
+
+@app.middleware("http")
 async def _admin_gate(request, call_next):
     """Same Studio admin session as the IG backend's /api (see admin_gate.py). Open: /hub,
     /api/hub, /api/health and the token-authenticated scrape-worker endpoints."""

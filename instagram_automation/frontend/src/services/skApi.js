@@ -7,9 +7,14 @@ import { TOKEN_KEY, REFRESH_KEY } from './api';
 const sk = axios.create({ baseURL: '/sk-api/api', timeout: 0 });
 const data = (r) => r.data;
 
+// Which device you're working on: the Scraper API lets THAT device fetch the shopping pages
+// (Find products on the phone → the phone scrapes; on the laptop → the laptop).
+const DEVICE = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') ? 'phone' : 'laptop';
+
 sk.interceptors.request.use((config) => {
   const t = localStorage.getItem(TOKEN_KEY);
   if (t) config.headers.Authorization = `Bearer ${t}`;
+  config.headers['X-SK-Device'] = DEVICE;
   return config;
 });
 

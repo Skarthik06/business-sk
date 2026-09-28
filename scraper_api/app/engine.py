@@ -107,10 +107,18 @@ async def execute(route: Route, url: str, timeout: int, s: Strategy, attempt_id:
                                   and int(raw.get("status") or 0) < 500, int((time.monotonic() - t0) * 1000))
 
 
+def prefer_kind(ranked: List[tuple], prefer: Optional[str]) -> List[tuple]:
+    """Put the preferred device kind's worker routes first (the phone when you work on the phone,
+    the laptop on the laptop); everything else keeps its score order as the fallback."""
+    if not prefer:
+        return ranked
+    return sorted(ranked, key=lambda sr: 0 if (sr[1].kind == "worker" and (sr[1].ref or {}).get("kind") == prefer) else 1)
+
+
 async def scrape(url: str, *, api_key_id: int, render: bool = False, fields: Optional[List[str]] = None,
                  cache_ttl: Optional[int] = None, timeout: Optional[int] = None, country: Optional[str] = None,
                  use_proxy: Optional[bool] = None, job_id: Optional[str] = None,
-                 request_id: Optional[str] = None) -> Dict[str, Any]:
+                 request_id: Optional[str] = None, prefer: Optional[str] = None) -> Dict[str, Any]:
     t_start = time.monotonic()
     rid = request_id or new_request_id()
     fields = [f.strip().lower() for f in (fields or ["html", "title", "images", "metadata", "jsonld", "price"])]
@@ -157,7 +165,7 @@ async def scrape(url: str, *, api_key_id: int, render: bool = False, fields: Opt
             if remaining < 3:
                 last["reason"] = (last["reason"] + " · time budget exhausted") if tried else "time budget exhausted"
                 break
-            ranked = routing.book.rank(s.domain, routes, priors, exclude)
+            ranked = prefer_kind(routing.book.rank(s.domain, routes, priors, exclude), prefer)
             if not ranked:
                 if not tried:
                     avail = ", ".join(r.id for r in routes) or "none"
@@ -189,7 +197,9 @@ async def scrape(url: str, *, api_key_id: int, render: bool = False, fields: Opt
                                      "proxy_id": route.ref.id if route.kind == "proxy" else None,
                                      "status_code": raw.get("status"), "outcome": outcome.value,
                                      "error": reason if outcome != Outcome.SUCCESS else None, "duration_ms": ms,
-                                     "response_bytes": nbytes, "cache_hit": False})
+                                     "response_bytes": nbytes, "cache_hit": False,
+                                     "worker_ip": raw.get("worker_ip") or ((route.ref or {}).get("ip")
+                                                                           if route.kind == "worker" else None)})
             await store.usage_add(api_key_id, bandwidth=nbytes, browser=(route.mode == "browser"))
             last = {"outcome": outcome, "reason": reason, "raw": raw, "route": route}
             if outcome == Outcome.SUCCESS or outcome in PERMANENT:

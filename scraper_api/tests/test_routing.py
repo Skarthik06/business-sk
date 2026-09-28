@@ -122,3 +122,14 @@ def test_weights_configurable(monkeypatch):
     monkeypatch.setenv("SCRAPER_ROUTE_WEIGHTS", '{"success": 1.0, "availability": 0}')
     w = routing.weights()
     assert w["success"] == 1.0 and w["availability"] == 0 and w["latency"] == 0.10
+
+
+def test_prefer_kind_puts_that_device_first():
+    from app.engine import prefer_kind
+    laptop = Route("worker_http:laptop-1", "worker", "http", 1.0, {"worker_id": "laptop-1", "kind": "laptop"})
+    phone = Route("worker_http:phone-1", "worker", "http", 1.0, {"worker_id": "phone-1", "kind": "phone"})
+    direct = Route("direct_http", "direct", "http")
+    ranked = [(0.9, laptop), (0.7, direct), (0.6, phone)]
+    assert [r.id for _, r in prefer_kind(ranked, "phone")] == ["worker_http:phone-1", "worker_http:laptop-1", "direct_http"]
+    assert [r.id for _, r in prefer_kind(ranked, "laptop")] == ["worker_http:laptop-1", "direct_http", "worker_http:phone-1"]
+    assert prefer_kind(ranked, None) == ranked

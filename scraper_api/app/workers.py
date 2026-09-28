@@ -78,7 +78,8 @@ async def heartbeat(worker_id: str, info: Dict[str, Any]) -> None:
            "kind": str(info.get("kind") or "remote")[:20], "version": str(info.get("version") or "")[:20]}
     # phone / device telemetry (all optional)
     for k, cast, lim in (("battery_percent", float, None), ("data_today_mb", float, None), ("jobs_today", int, None),
-                         ("charging", bool, None), ("network", str, 20), ("paused_reason", str, 80)):
+                         ("charging", bool, None), ("network", str, 20), ("paused_reason", str, 80),
+                         ("ip", str, 64)):
         v = info.get(k)
         if v is not None:
             try:
@@ -190,7 +191,8 @@ async def submit(worker_id: str, attempt_id: str, body: Dict[str, Any]) -> Dict[
         html = html[: config.MAX_BYTES]
     res = {"status": body.get("status_code"), "html": html, "final_url": body.get("final_url") or "",
            "content_type": body.get("content_type") or "text/html", "headers": {},
-           "error": (str(body.get("error"))[:200] if body.get("error") else None)}
+           "error": (str(body.get("error"))[:200] if body.get("error") else None),
+           "worker_ip": str(body.get("ip") or "")[:64]}
     await metrics.redis.rpush(RESULT + attempt_id, json.dumps(res))
     await metrics.redis.expire(RESULT + attempt_id, 120)
     await metrics.redis.delete(LEASE + attempt_id)

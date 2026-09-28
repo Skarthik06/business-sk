@@ -19,6 +19,7 @@ data class LogEntry(
     val ms: Long = 0,
     val ok: Boolean = false,
     val note: String = "",
+    val ip: String = "",                     // the public IP this phone fetched from (as the server saw it)
 )
 
 /** The last 100 fetches (kept on the phone only), newest first. */

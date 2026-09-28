@@ -16,4 +16,9 @@ object WorkerState {
     fun set(phase: Phase, detail: String = "", host: String? = null) {
         _status.value = Status(phase, detail, host)
     }
+
+    /** This phone's public IP as the server last saw it (heartbeat / job result). */
+    private val _ip = MutableStateFlow("")
+    val ip: StateFlow<String> = _ip.asStateFlow()
+    fun setIp(v: String) { if (v.isNotBlank()) _ip.value = v }
 }
