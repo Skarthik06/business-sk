@@ -65,6 +65,8 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -444,20 +446,24 @@ private fun UsageCard(u: Usage, capMb: Int) {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ActivityScreen(vm: HelperViewModel) {
     val entries by vm.activity.collectAsStateWithLifecycle()
+    val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize().padding(horizontal = 18.dp)) {
         Row(Modifier.padding(top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f)) { Header("Activity", "Pages this phone fetched — runs from the phone's Studio go here") }
             if (entries.isNotEmpty()) TextButton(onClick = { vm.clearActivity() }) { Text("Clear", color = Sk.Muted) }
         }
-        if (entries.isEmpty()) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("Nothing fetched yet.", color = Sk.Faint)
-            }
-        } else {
-            LazyColumn(contentPadding = PaddingValues(bottom = 18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // pull down to refresh (works on an empty list too — it's a scrollable list either way)
+        PullToRefreshBox(isRefreshing = refreshing, onRefresh = { vm.refreshActivity() }, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 18.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (entries.isEmpty()) item {
+                    Text("Nothing fetched yet — pull down to refresh.", color = Sk.Faint,
+                        modifier = Modifier.fillMaxWidth().padding(top = 60.dp))
+                }
                 items(entries, key = { it.at.toString() + it.path }) { LogRow(it) }
             }
         }

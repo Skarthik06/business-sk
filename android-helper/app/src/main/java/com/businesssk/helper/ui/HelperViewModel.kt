@@ -177,6 +177,17 @@ class HelperViewModel(app: Application) : AndroidViewModel(app) {
     fun setAllowed(domain: String, on: Boolean) = viewModelScope.launch { repo.setAllowed(domain, on) }
     fun clearActivity() = ActivityLog.clear()
 
+    // pull-to-refresh on Activity: re-read the log and check for an app update
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+    fun refreshActivity() = viewModelScope.launch {
+        _refreshing.value = true
+        withContext(Dispatchers.IO) { ActivityLog.init(getApplication()) }
+        checkForUpdate()
+        kotlinx.coroutines.delay(600)
+        _refreshing.value = false
+    }
+
     fun unpair() = viewModelScope.launch {
         WorkerService.stop(getApplication())
         repo.unpair()
