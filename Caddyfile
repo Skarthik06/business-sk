@@ -14,6 +14,13 @@
 		reverse_proxy scraper_api:8200
 	}
 
+	# Digital Asset Links: this site vouches for the Android app (package com.businesssk.helper,
+	# signing-cert SHA-256 below), so its "SK Studio" icon opens the Studio full-screen (TWA).
+	handle /.well-known/assetlinks.json {
+		header Content-Type application/json
+		respond `[{"relation":["delegate_permission/common.handle_all_urls"],"target":{"namespace":"android_app","package_name":"com.businesssk.helper","sha256_cert_fingerprints":["C3:E1:8E:F2:D9:FB:43:0F:92:C2:67:79:76:39:7A:A5:12:68:83:33:C1:0A:4F:29:48:FB:58:FF:D9:D6:9F:D1"]}}]` 200
+	}
+
 	# Business-SK Helper (Android) download — the APK is copied to ./helper-dist on the server
 	# (built from android-helper/, never committed).
 	handle_path /helper/* {

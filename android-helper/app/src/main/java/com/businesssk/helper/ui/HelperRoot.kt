@@ -344,8 +344,13 @@ private fun HomeScreen(vm: HelperViewModel, s: HelperSettings) {
     val status by vm.status.collectAsStateWithLifecycle()
     val usage by vm.usage.collectAsStateWithLifecycle()
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
+        val ctx = LocalContext.current
         Header("Helper", s.deviceName.ifBlank { "This phone" })
         StatusCard(status, s.enabled) { vm.setEnabled(it) }
+        Spacer(Modifier.height(14.dp))
+        PrimaryButton("Open SK Studio", icon = Icons.Rounded.RocketLaunch) {
+            tryStart(ctx, Intent(ctx, com.google.androidbrowserhelper.trusted.LauncherActivity::class.java))
+        }
         Spacer(Modifier.height(14.dp))
         UsageCard(usage, s.dataCapMb)
         Spacer(Modifier.height(14.dp))

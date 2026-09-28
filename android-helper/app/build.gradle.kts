@@ -13,8 +13,8 @@ android {
         applicationId = "com.businesssk.helper"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
         // The Scraper API's public worker endpoint (Caddy /scraper-worker → /v1/workers).
         buildConfigField("String", "DEFAULT_SERVER", "\"https://140-238-247-18.nip.io/scraper-worker\"")
     }
@@ -66,6 +66,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+    // SK Studio launcher: Trusted Web Activity (the Studio full-screen in Chrome's engine)
+    implementation("com.google.androidbrowserhelper:androidbrowserhelper:2.5.0")
     // Google code scanner: QR scanning through Play services — no camera permission needed.
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
 }

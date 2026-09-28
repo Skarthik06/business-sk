@@ -24,6 +24,10 @@
         android:theme="@style/Theme.Helper"
         tools:targetApi="35">
 
+        <meta-data
+            android:name="asset_statements"
+            android:resource="@string/asset_statements" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -39,6 +43,31 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="skhelper" android:host="pair" />
+            </intent-filter>
+        </activity>
+
+        <!-- SK Studio: the whole Studio website as a full-screen app (Trusted Web Activity). It runs in
+             Chrome's engine, so Google sign-in works and the Chrome login is shared. -->
+        <activity
+            android:name="com.google.androidbrowserhelper.trusted.LauncherActivity"
+            android:exported="true"
+            android:icon="@mipmap/ic_studio"
+            android:roundIcon="@mipmap/ic_studio"
+            android:label="@string/studio_name"
+            android:taskAffinity="com.businesssk.helper.studio"
+            android:theme="@style/Theme.Helper">
+            <meta-data
+                android:name="android.support.customtabs.trusted.DEFAULT_URL"
+                android:value="@string/studio_url" />
+            <meta-data
+                android:name="android.support.customtabs.trusted.STATUS_BAR_COLOR"
+                android:resource="@color/bg" />
+            <meta-data
+                android:name="android.support.customtabs.trusted.NAVIGATION_BAR_COLOR"
+                android:resource="@color/bg" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
 
