@@ -4,6 +4,50 @@ import { Field, Icon, Spinner, cx } from './ui';
 
 const BLANK = { label: '', handle: '', niche: 'quotes', ig_business_id: '', ig_access_token: '', is_active: true };
 
+// Opened from the Business-SK Android app, the launch URL carries the installed version
+// (?skapp=1.4.0&skappc=5). Remember it: the SPA drops the query once it navigates.
+const APP_KEY = 'sk_android_app';
+try {
+  const q = new URLSearchParams(window.location.search);
+  if (q.get('skapp')) localStorage.setItem(APP_KEY, JSON.stringify({ name: q.get('skapp'), code: Number(q.get('skappc') || 0) }));
+} catch { /* storage blocked — the card just shows the download link */ }
+const installedApp = () => { try { return JSON.parse(localStorage.getItem(APP_KEY) || 'null'); } catch { return null; } };
+
+function AndroidAppCard() {
+  const [latest, setLatest] = useState(null);
+  const [err, setErr] = useState(false);
+  const inApp = /Android/i.test(navigator.userAgent || '') && installedApp();
+  const mine = installedApp();
+  const check = () => {
+    setErr(false);
+    fetch('/helper/version.json', { cache: 'no-store' }).then((r) => r.json()).then(setLatest).catch(() => setErr(true));
+  };
+  useEffect(check, []);
+  const newer = latest && mine && latest.versionCode > (mine.code || 0);
+  return (
+    <div className="panel p-5 mb-8">
+      <div className="flex items-center gap-2 mb-3">
+        <Icon name="spark" size={16} style={{ color: 'var(--accent)' }} />
+        <span className="eyebrow" style={{ color: 'var(--accent)' }}>Android app · Business-SK + SK Helper</span>
+      </div>
+      <div className="grid grid-cols-2 gap-4 mb-4">
+        <div><div className="font-display text-2xl">{inApp ? mine.name : '—'}</div><div className="text-xs" style={{ color: 'var(--faint)' }}>{inApp ? 'installed on this phone' : 'open from the app to see'}</div></div>
+        <div><div className="font-display text-2xl">{latest ? latest.versionName : (err ? '?' : '…')}</div><div className="text-xs" style={{ color: 'var(--faint)' }}>latest</div></div>
+      </div>
+      {latest?.notes && <p className="text-xs mb-4" style={{ color: 'var(--muted)' }}>{latest.notes}</p>}
+      {inApp ? (newer
+        // SK Helper does the install (one APK = both icons): download, checksum, Android installer
+        ? <a className="btn btn-accent" href="skhelper://update" style={{ display: 'inline-flex' }}><Icon name="check" size={15} /> Update to {latest.versionName}</a>
+        : <div className="flex items-center gap-3 text-sm"><Icon name="check" size={15} style={{ color: 'var(--ok)' }} /> You're on the latest version
+            <button className="btn btn-ghost btn-sm" onClick={check}>Check again</button></div>)
+        : <div className="flex flex-wrap items-center gap-3 text-sm">
+            <a className="btn btn-accent btn-sm" href="/helper/sk-helper.apk"><Icon name="plus" size={14} /> Download the app</a>
+            <span style={{ color: 'var(--muted)' }}>On the phone: SK Helper → Settings → App updates.</span>
+          </div>}
+    </div>
+  );
+}
+
 function AccountForm({ initial, onSave, onCancel, saving }) {
   const [f, setF] = useState(initial || BLANK);
   const editing = Boolean(initial?.id);
@@ -110,6 +154,8 @@ export default function Settings({ accounts, settings, reload, notify }) {
       <p className="text-sm mb-8" style={{ color: 'var(--muted)' }}>
         Accounts and the News key live in the local <span className="font-mono">rags</span> store. The OpenAI key stays in <span className="font-mono">.env</span>.
       </p>
+
+      <AndroidAppCard />
 
       {/* ACCOUNTS */}
       <div className="flex items-center justify-between mb-4">

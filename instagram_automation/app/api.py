@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -85,7 +85,7 @@ async def admin_gate(request, call_next):
     # Meta webhooks carry no admin auth — they're verified by challenge + signature.
     if (request.method == "OPTIONS" or not path.startswith("/api/")
             or path in _OPEN_PATHS or path.startswith("/api/webhooks/")
-            or path.startswith("/api/gpu/worker/")):
+            or path.startswith("/api/gpu/worker/") or path.startswith("/api/gpu/device/")):
         return await call_next(request)
     if not _auth.verify(_auth.token_from_header(request.headers.get("authorization"))):
         return JSONResponse(status_code=401,
@@ -708,6 +708,70 @@ def gpu_worker_result(body: GpuResultReq):
     if not scene_store.worker_token_ok(body.token):
         raise HTTPException(401, "bad worker token")
     res = scene_store.submit(body.job_id, body.b64, body.meta)
+    if not res.get("ok"):
+        raise HTTPException(400, res.get("error", "rejected"))
+    return res
+
+
+# ── phones as cut-out workers (SK Helper + ML Kit), authenticated with the phone's OWN token ──
+_DEVICE_TOKENS: dict = {}                      # sha256(token) → (worker_id | None, expires)
+
+
+def _device_worker(token: str) -> str | None:
+    """The paired phone this token belongs to (asked from the Scraper API, cached 60 s)."""
+    import hashlib as _hl
+    import json as _json
+    import os as _os
+    import time as _time
+    import urllib.request as _ur
+    token = (token or "").strip()
+    if not token.startswith("skw_") or len(token) > 200:
+        return None
+    k = _hl.sha256(token.encode()).hexdigest()
+    hit = _DEVICE_TOKENS.get(k)
+    if hit and hit[1] > _time.time():
+        return hit[0]
+    wid = None
+    base = (_os.getenv("SCRAPER_API_URL") or "").strip().rstrip("/")
+    if base:
+        try:
+            req = _ur.Request(base + "/v1/workers/whoami", data=b"{}", method="POST",
+                              headers={"X-Worker-Token": token, "Content-Type": "application/json"})
+            with _ur.urlopen(req, timeout=5) as r:
+                d = _json.loads(r.read().decode("utf-8") or "{}")
+            wid = d.get("worker_id") if d.get("kind") == "device" else None
+        except Exception:
+            wid = None
+    _DEVICE_TOKENS[k] = (wid, _time.time() + (60 if wid else 10))
+    return wid
+
+
+class DeviceResultReq(BaseModel):
+    job_id: str
+    b64: str
+    meta: dict | None = None
+
+
+@app.get("/api/gpu/device/jobs")
+def gpu_device_jobs(n: int = 2, ver: str = "", x_worker_token: str = Header("", alias="X-Worker-Token")):
+    """A paired phone asks for cut-out jobs (given only while the laptop GPU is offline)."""
+    from app.services import scene_store
+    wid = _device_worker(x_worker_token)
+    if not wid:
+        raise HTTPException(401, "bad device token")
+    jobs = scene_store.take_cutout_jobs(n, {"worker": wid, "ver": ver})
+    return {"jobs": jobs, "laptop_gpu": scene_store.worker_online()}   # laptop on → the phone polls less
+
+
+@app.post("/api/gpu/device/result")
+def gpu_device_result(body: DeviceResultReq, x_worker_token: str = Header("", alias="X-Worker-Token")):
+    from app.services import scene_store
+    wid = _device_worker(x_worker_token)
+    if not wid:
+        raise HTTPException(401, "bad device token")
+    if not str(body.job_id).startswith("cut_"):
+        raise HTTPException(400, "phones only do cut-outs")
+    res = scene_store.submit(body.job_id, body.b64, {**(body.meta or {}), "by": wid})
     if not res.get("ok"):
         raise HTTPException(400, res.get("error", "rejected"))
     return res

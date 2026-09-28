@@ -13,10 +13,12 @@ android {
         applicationId = "com.businesssk.helper"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.3.0"
+        versionCode = 6
+        versionName = "1.5.0"
         // The Scraper API's public worker endpoint (Caddy /scraper-worker → /v1/workers).
         // Self-update: release.sh publishes the newest APK + this version file next to it.
+        // The Studio icon opens this URL; the version lets Studio → Settings show "installed x.y.z".
+        resValue("string", "studio_url", "https://140-238-247-18.nip.io/?skapp=${versionName}&skappc=${versionCode}")
         buildConfigField("String", "UPDATE_INFO_URL", "\"https://140-238-247-18.nip.io/helper/version.json\"")
         buildConfigField("String", "DEFAULT_SERVER", "\"https://140-238-247-18.nip.io/scraper-worker\"")
     }
@@ -72,4 +74,6 @@ dependencies {
     implementation("com.google.androidbrowserhelper:androidbrowserhelper:2.5.0")
     // Google code scanner: QR scanning through Play services — no camera permission needed.
     implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
+    // Product cut-outs on the phone (on-device, via Play services — no model in the APK)
+    implementation("com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1")
 }

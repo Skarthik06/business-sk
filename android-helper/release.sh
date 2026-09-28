@@ -43,6 +43,7 @@ PY
 ssh -i "$KEY" "$HOST" 'mkdir -p ~/business-sk/helper-dist'
 scp -q -i "$KEY" "$OUT/sk-helper.apk" "$HOST:business-sk/helper-dist/sk-helper.apk.new"
 ssh -i "$KEY" "$HOST" 'mv ~/business-sk/helper-dist/sk-helper.apk.new ~/business-sk/helper-dist/sk-helper.apk'
+scp -q -i "$KEY" web/pair.html "$HOST:business-sk/helper-dist/pair.html"   # the QR's landing page
 scp -q -i "$KEY" "$OUT/version.json" "$HOST:business-sk/helper-dist/version.json"
 rm -rf "$OUT"
 echo "✔ Published SK Helper $NAME ($CODE) — $BASE_URL/sk-helper.apk"

@@ -108,27 +108,69 @@ class HelperViewModel(app: Application) : AndroidViewModel(app) {
         _update.value = UpdateState.Failed(message, info)
     }
 
-    /** skhelper://pair?server=<url-encoded>&code=ABCD2345 (the Studio's QR / a tapped link). */
-    fun pairFromLink(uri: Uri?) {
-        if (uri == null || uri.scheme != "skhelper" || uri.host != "pair") return
-        val code = uri.getQueryParameter("code").orEmpty()
-        val server = uri.getQueryParameter("server").orEmpty().ifBlank { BuildConfig.DEFAULT_SERVER }
-        if (!server.startsWith("https://")) { _pair.value = PairState.Failed("That QR code isn't from your Studio."); return }
-        pairWithCode(code, server)
+    /** Deep links: skhelper://update (from the Studio's Settings) or a pairing link. */
+    fun handleLink(uri: Uri?) {
+        if (uri?.scheme == "skhelper" && uri.host == "update") updateFromLink() else pairFromLink(uri)
     }
+
+    private val _goSettings = MutableStateFlow(false)
+    val goSettings: StateFlow<Boolean> = _goSettings.asStateFlow()
+    fun consumeGoSettings() { _goSettings.value = false }
+
+    /** Studio → Settings → Update: open Settings here and install the newest build. */
+    fun updateFromLink() {
+        _goSettings.value = true
+        viewModelScope.launch {
+            _update.value = UpdateState.Checking
+            val info = withContext(Dispatchers.IO) { runCatching { Updater.latest() }.getOrNull() }
+            when {
+                info == null -> _update.value = UpdateState.Failed("Couldn't check for updates — check your internet")
+                Updater.isNewer(info) -> installUpdate(info)
+                else -> _update.value = UpdateState.UpToDate(info.versionName)
+            }
+        }
+    }
+
+    /** Pairing links: skhelper://pair?server=…&code=… (the "Open in SK Helper" button) or the QR's
+     *  https://<studio>/helper/pair.html?code=… (opened by any camera). */
+    fun pairFromLink(uri: Uri?) {
+        if (uri == null) return
+        when {
+            uri.scheme == "skhelper" && uri.host == "pair" -> {
+                val code = uri.getQueryParameter("code").orEmpty()
+                val server = uri.getQueryParameter("server").orEmpty().ifBlank { BuildConfig.DEFAULT_SERVER }
+                if (!server.startsWith("https://")) { _pair.value = PairState.Failed("That QR code isn't from your Studio."); return }
+                pairWithCode(code, server)
+            }
+            uri.scheme == "https" && uri.path.orEmpty().startsWith("/helper/pair") -> {
+                // only YOUR Studio's host — the server is derived from it, never taken from the link
+                val studio = Uri.parse(BuildConfig.DEFAULT_SERVER)
+                if (uri.host != studio.host) { _pair.value = PairState.Failed("That QR code isn't from your Studio."); return }
+                pairWithCode(uri.getQueryParameter("code").orEmpty(), BuildConfig.DEFAULT_SERVER)
+            }
+        }
+    }
+
+    private fun isPairLink(raw: String): Boolean =
+        raw.startsWith("skhelper://pair") ||
+            (raw.startsWith("https://") && Uri.parse(raw).path.orEmpty().startsWith("/helper/pair"))
 
     fun scanQr() {
         val opts = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
         viewModelScope.launch {
             try {
                 val code = GmsBarcodeScanning.getClient(getApplication(), opts).startScan().await()
-                val raw = code.rawValue.orEmpty()
-                if (!raw.startsWith("skhelper://pair")) {
+                val raw = code.rawValue.orEmpty().trim()
+                if (!isPairLink(raw)) {
                     _pair.value = PairState.Failed("That QR code isn't a Business-SK pairing code.")
                 } else pairFromLink(Uri.parse(raw))
             } catch (e: Exception) {
-                if (e.message?.contains("cancel", ignoreCase = true) != true) {
-                    _pair.value = PairState.Failed("The scanner couldn't start. Type the code instead.")
+                val msg = e.message.orEmpty()
+                _pair.value = when {
+                    msg.contains("cancel", ignoreCase = true) -> PairState.Idle
+                    msg.contains("download", ignoreCase = true) || msg.contains("module", ignoreCase = true) ->
+                        PairState.Failed("Google Play services is still downloading the QR scanner — try again in a minute, or type the code.")
+                    else -> PairState.Failed("The scanner couldn't start (${msg.take(60)}). Type the code instead.")
                 }
             }
         }
@@ -174,6 +216,7 @@ class HelperViewModel(app: Application) : AndroidViewModel(app) {
     fun setDataCap(mb: Int) = viewModelScope.launch { repo.setDataCap(mb) }
     fun setBatteryMin(pct: Int) = viewModelScope.launch { repo.setBatteryMin(pct) }
     fun setChargingOnly(v: Boolean) = viewModelScope.launch { repo.setChargingOnly(v) }
+    fun setCutouts(v: Boolean) = viewModelScope.launch { repo.setCutouts(v) }
     fun setAllowed(domain: String, on: Boolean) = viewModelScope.launch { repo.setAllowed(domain, on) }
     fun clearActivity() = ActivityLog.clear()
 

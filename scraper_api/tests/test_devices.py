@@ -41,3 +41,11 @@ def test_worker_allowlist():
 def test_qr_svg_renders():
     svg = devices.qr_svg("skhelper://pair?server=https%3A%2F%2Fx.test%2Fscraper-worker&code=ABCD2345")
     assert svg.lstrip().startswith("<svg") and "</svg>" in svg
+
+
+def test_qr_is_an_https_pair_page(monkeypatch):
+    monkeypatch.setenv("SCRAPER_PUBLIC_WORKER_URL", "https://x.test/scraper-worker")
+    monkeypatch.delenv("SCRAPER_PAIR_PAGE_URL", raising=False)
+    assert devices.pair_page_url("ABCD2345") == "https://x.test/helper/pair.html?code=ABCD2345"
+    monkeypatch.setenv("SCRAPER_PUBLIC_WORKER_URL", "")
+    assert devices.pair_page_url("ABCD2345") == ""

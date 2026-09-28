@@ -260,6 +260,48 @@ def worker_online(max_age: float = 90.0) -> bool:  # file-backed → works acros
     return time.time() - float(_last_poll().get("t") or 0) < max_age
 
 
+# ── phone cut-out workers (SK Helper, ML Kit subject segmentation on the phone) ───────────────
+_DEV_POLL_FILE = ROOT / "device_worker.json"
+
+
+def _last_device_poll() -> Dict[str, Any]:
+    try:
+        return json.loads(_DEV_POLL_FILE.read_text("utf-8"))
+    except Exception:
+        return {"t": 0, "info": {}}
+
+
+def device_online(max_age: float = 90.0) -> bool:
+    return time.time() - float(_last_device_poll().get("t") or 0) < max_age
+
+
+def take_cutout_jobs(n: int = 2, info: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
+    """A phone's poll: cut-outs ONLY, and only while the laptop GPU is offline (its BiRefNet cut-outs
+    are better, so the laptop always goes first). Scenes are never given to a phone."""
+    now = time.time()
+    try:
+        _DEV_POLL_FILE.write_text(json.dumps({"t": now, "info": {k: str(v)[:60] for k, v in (info or {}).items()}}), "utf-8")
+    except Exception:
+        pass
+    if worker_online():
+        return []
+    out: List[Dict[str, Any]] = []
+    with _LOCK:
+        for j in sorted((j for j in _jobs() if j.get("type") == "cutout"), key=lambda j: j.get("queued", 0)):
+            if len(out) >= max(1, min(n, 4)):
+                break
+            if j.get("lease") and now - j["lease"] < _LEASE_SECS:
+                continue
+            j["tries"] = int(j.get("tries") or 0) + 1
+            if j["tries"] > 3:
+                (_jpath(j["id"]) or Path("/nonexistent")).unlink(missing_ok=True)
+                continue
+            j["lease"] = now
+            _write_job(j)
+            out.append({k: v for k, v in j.items() if k not in ("queued", "lease", "tries")})
+    return out
+
+
 def take_jobs(n: int = 4, info: Optional[Dict[str, Any]] = None, heartbeat: bool = False) -> List[Dict[str, Any]]:
     """Worker poll: lease up to n jobs (cutouts first — they're fast and block renders) but AT MOST
     ONE scene per poll (a scene takes ~2 min; batching scenes kept the worker silent for 10 min).
@@ -324,7 +366,7 @@ def submit(job_id: str, b64: str, meta: Optional[Dict[str, Any]] = None) -> Dict
             im = _verify_image(raw, want_alpha=True)
             iid = img_id(job["url"])
             im.save(CUT / f"{iid}.png", optimize=True)
-            m = {k: meta[k] for k in ("subject", "touches_bottom", "aspect", "colors", "fill") if meta and k in meta}
+            m = {k: meta[k] for k in ("subject", "touches_bottom", "aspect", "colors", "fill", "by") if meta and k in meta}
             m.update({"url": job["url"], "w": im.width, "h": im.height, "t": int(time.time())})
             (CUT / f"{iid}.json").write_text(json.dumps(m), "utf-8")
         else:
@@ -344,6 +386,8 @@ def wait_for(urls: List[str], keys: List[str], timeout: float) -> None:
     def _alive() -> bool:
         if worker_online():
             return True
+        if urls and not keys and device_online():  # a phone does cut-outs (never scenes)
+            return True
         now = time.time()
         return any(j.get("lease") and now - j["lease"] < _LEASE_SECS for j in _jobs())
     while time.time() < end and _alive():
@@ -359,6 +403,7 @@ def status() -> Dict[str, Any]:
     now = time.time()
     busy = any(j.get("lease") and now - j["lease"] < _LEASE_SECS for j in q)
     return {"worker_online": worker_online() or busy, "worker_busy": busy and not worker_online(),
+            "phone_cutouts_online": device_online(), "phone": _last_device_poll().get("info") or {},
             "last_poll_secs": round(time.time() - float(lp.get("t") or 0), 1)
             if lp.get("t") else None, "worker": lp.get("info") or {},
             "queued": len(q), "queued_cutouts": sum(1 for j in q if j["type"] == "cutout"),

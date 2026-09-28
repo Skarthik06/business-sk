@@ -16,13 +16,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        if (savedInstanceState == null) vm.pairFromLink(intent?.data)
+        if (savedInstanceState == null) vm.handleLink(intent?.data)
         setContent { HelperTheme { HelperRoot(vm) } }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        vm.pairFromLink(intent.data)
+        vm.handleLink(intent.data)
     }
 
     override fun onResume() {

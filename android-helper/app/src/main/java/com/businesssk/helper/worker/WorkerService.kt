@@ -11,6 +11,8 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import com.businesssk.helper.BuildConfig
+import com.businesssk.helper.cutout.Cutter
+import com.businesssk.helper.cutout.StudioCutApi
 import com.businesssk.helper.data.ActivityLog
 import com.businesssk.helper.data.HelperSettings
 import com.businesssk.helper.data.LogEntry
@@ -89,6 +91,7 @@ class WorkerService : LifecycleService() {
     // ── main loop ─────────────────────────────────────────────────────────────────────────────
     private suspend fun run() = coroutineScope {
         launch { heartbeats() }
+        launch { cutouts() }
         var failures = 0
         while (isActive) {
             val s = repo.current()
@@ -142,6 +145,53 @@ class WorkerService : LifecycleService() {
     }
 
     private fun backoff(failures: Int) = minOf(30_000L, 3_000L * failures)
+
+    // ── product cut-outs (ML Kit) — only while the laptop GPU is off ──────────────────────────
+    // Efficient by design: one tiny request every 20 s while the laptop GPU is off (60 s while it's
+    // on — then the laptop does every cut-out), same data/battery/network rules as scraping, and
+    // every downloaded + uploaded byte counts toward the daily limit.
+    private suspend fun cutouts() {
+        while (true) {
+            var wait = 60_000L
+            runCatching {
+                val s = repo.current()
+                val token = repo.token() ?: return@runCatching
+                if (!s.paired || !s.enabled || !s.cutouts) return@runCatching
+                val usage = repo.usageNow()
+                if (!Policy.evaluate(s, Policy.device(this), usage.bytes).ok) return@runCatching
+                val api = StudioCutApi(s.server, token)
+                val res = api.jobs(2, BuildConfig.VERSION_NAME)
+                wait = if (res.laptop_gpu) 60_000L else 20_000L
+                for (job in res.jobs) {
+                    if (job.url.isBlank()) continue
+                    if (!doCutout(api, job.id, job.url)) break
+                }
+                if (res.jobs.isNotEmpty()) wait = 2_000L        // more may be queued for this post
+            }
+            delay(wait)
+        }
+    }
+
+    private suspend fun doCutout(api: StudioCutApi, jobId: String, url: String): Boolean {
+        val host = url.toHttpUrlOrNull()?.host ?: "?"
+        show(Phase.WORKING, "Cutting out a product", host)
+        active.incrementAndGet()
+        return try {
+            val r = Cutter.cut(url)
+            val sent = api.result(jobId, r.png, r.facts)
+            repo.addUsage(r.downloaded + sent, 0)
+            ActivityLog.add(LogEntry(System.currentTimeMillis(), "✂️ Cut-out · ML Kit", host, 200, r.downloaded + sent,
+                r.ms, true, "${r.facts.subject} · ${r.png.size / 1024} KB", WorkerState.ip.value))
+            true
+        } catch (e: Exception) {
+            ActivityLog.add(LogEntry(System.currentTimeMillis(), "✂️ Cut-out · ML Kit", host, null, 0, 0, false,
+                e.message?.take(80) ?: "failed", WorkerState.ip.value))
+            false
+        } finally {
+            active.decrementAndGet()
+            show(Phase.READY, readyText(repo.usageNow()))
+        }
+    }
 
     private fun beat(s: HelperSettings, u: Usage, d: Policy.Device, pausedReason: String?) = Beat(
         worker_id = s.workerId,

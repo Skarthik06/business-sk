@@ -49,6 +49,7 @@ data class HelperSettings(
     val batteryMin: Int = 15,
     val chargingOnly: Boolean = false,
     val allowed: Set<String> = SUPPORTED_SITES.map { it.domain }.toSet(),
+    val cutouts: Boolean = true,              // product cut-outs (ML Kit) while the laptop GPU is off
 )
 
 data class Usage(val day: String, val bytes: Long, val jobs: Int, val lastJobAt: Long) {
@@ -72,6 +73,7 @@ class SettingsRepo(private val context: Context) {
         val BYTES = longPreferencesKey("usage_bytes")
         val JOBS = intPreferencesKey("usage_jobs")
         val LAST_JOB = longPreferencesKey("last_job_at")
+        val CUTOUTS = booleanPreferencesKey("cutouts")
     }
 
     val settings: Flow<HelperSettings> = context.dataStore.data.map { p ->
@@ -87,6 +89,7 @@ class SettingsRepo(private val context: Context) {
             batteryMin = p[K.BATTERY_MIN] ?: 15,
             chargingOnly = p[K.CHARGING_ONLY] ?: false,
             allowed = p[K.ALLOWED] ?: SUPPORTED_SITES.map { it.domain }.toSet(),
+            cutouts = p[K.CUTOUTS] ?: true,
         )
     }
 
@@ -126,6 +129,7 @@ class SettingsRepo(private val context: Context) {
     suspend fun setDataCap(mb: Int) = context.dataStore.edit { it[K.CAP] = mb.coerceIn(10, 2000) }
     suspend fun setBatteryMin(pct: Int) = context.dataStore.edit { it[K.BATTERY_MIN] = pct.coerceIn(0, 80) }
     suspend fun setChargingOnly(v: Boolean) = context.dataStore.edit { it[K.CHARGING_ONLY] = v }
+    suspend fun setCutouts(v: Boolean) = context.dataStore.edit { it[K.CUTOUTS] = v }
     suspend fun setAllowed(domain: String, on: Boolean) = context.dataStore.edit {
         val cur = (it[K.ALLOWED] ?: SUPPORTED_SITES.map { s -> s.domain }.toSet()).toMutableSet()
         if (on) cur.add(domain) else cur.remove(domain)

@@ -55,8 +55,22 @@ async def create_pairing(created_by: int) -> Dict[str, Any]:
     code = f"{raw[:4]}-{raw[4:]}"
     server = public_worker_url()
     link = f"skhelper://pair?server={quote(server, safe='')}&code={raw}" if server else ""
-    return {"code": code, "expires_in": CODE_TTL, "server": server, "pair_url": link,
-            "qr_svg": qr_svg(link) if link else ""}
+    # The QR holds a normal https link: phone cameras / Google Lens open https (not skhelper://).
+    # With the app installed Android opens it straight in SK Helper (App Link); otherwise a small
+    # page shows the code + "Open in SK Helper" (android-helper/web/pair.html).
+    page = pair_page_url(raw)
+    return {"code": code, "expires_in": CODE_TTL, "server": server, "pair_url": link, "pair_page": page,
+            "qr_svg": qr_svg(page or link) if (page or link) else ""}
+
+
+def pair_page_url(raw_code: str) -> str:
+    base = (os.getenv("SCRAPER_PAIR_PAGE_URL") or "").strip()
+    if not base:
+        server = public_worker_url()
+        if not server.endswith("/scraper-worker"):
+            return ""
+        base = server[: -len("/scraper-worker")] + "/helper/pair.html"
+    return f"{base}?code={raw_code}"
 
 
 async def rate_limited(ip: str) -> bool:

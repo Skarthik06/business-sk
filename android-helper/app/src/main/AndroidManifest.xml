@@ -27,6 +27,11 @@
         android:theme="@style/Theme.Helper"
         tools:targetApi="35">
 
+        <!-- Google's QR scanner + subject segmentation (cut-outs) are downloaded with the app. -->
+        <meta-data
+            android:name="com.google.mlkit.vision.DEPENDENCIES"
+            android:value="barcode_ui,subject_segment" />
+
         <meta-data
             android:name="asset_statements"
             android:resource="@string/asset_statements" />
@@ -46,6 +51,16 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="skhelper" android:host="pair" />
+                <!-- Studio → Settings → "Update" hands the app update to SK Helper -->
+                <data android:scheme="skhelper" android:host="update" />
+            </intent-filter>
+            <!-- The Studio's QR is a normal https link (any camera / Google Lens opens it). With the
+                 app installed Android opens it right here (verified App Link: assetlinks.json). -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="140-238-247-18.nip.io" android:pathPrefix="/helper/pair" />
             </intent-filter>
         </activity>
 

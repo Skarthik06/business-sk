@@ -315,6 +315,8 @@ private fun PermissionRow(icon: ImageVector, title: String, body: String, done: 
 @Composable
 private fun MainScreens(vm: HelperViewModel, s: HelperSettings) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    val goSettings by vm.goSettings.collectAsStateWithLifecycle()
+    LaunchedEffect(goSettings) { if (goSettings) { tab = 2; vm.consumeGoSettings() } }
     Scaffold(
         containerColor = Sk.Bg,
         bottomBar = {
@@ -480,7 +482,8 @@ private fun LogRow(e: LogEntry) {
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
             Text(e.host, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
-            Text("📱 Mobile" + if (e.ip.isNotBlank()) " · IP ${e.ip}" else "", style = MaterialTheme.typography.bodySmall,
+            Text((if (e.host.startsWith("✂️")) "📱 Mobile · on-device" else "📱 Mobile") +
+                (if (e.ip.isNotBlank()) " · IP ${e.ip}" else ""), style = MaterialTheme.typography.bodySmall,
                 color = Sk.Gold, fontFamily = FontFamily.Monospace)
             Text(
                 listOfNotNull(e.path.takeIf { it.isNotBlank() }, e.note.takeIf { it.isNotBlank() }).joinToString(" · "),
@@ -536,6 +539,14 @@ private fun SettingsScreen(vm: HelperViewModel, s: HelperSettings) {
             Slider(value = min, onValueChange = { min = it }, valueRange = 0f..50f, steps = 9,
                 onValueChangeFinished = { vm.setBatteryMin(min.toInt()) })
             ToggleRow("Only while charging", s.chargingOnly) { vm.setChargingOnly(it) }
+        }
+        Spacer(Modifier.height(12.dp))
+        Card {
+            Eyebrow("PRODUCT CUT-OUTS")
+            ToggleRow("Cut products out for posts", s.cutouts) { vm.setCutouts(it) }
+            Text("When your laptop's GPU is off, this phone removes the background from product photos " +
+                "(Google ML Kit, on the phone) so posts still get clean cut-outs. About 1–2 MB per product.",
+                style = MaterialTheme.typography.bodySmall, color = Sk.Faint)
         }
         Spacer(Modifier.height(12.dp))
         Card {

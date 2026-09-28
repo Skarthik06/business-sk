@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pair SK Helper</title>
+<meta name="robots" content="noindex">
+<style>
+  :root { --bg:#0e0f12; --panel:#16181d; --border:#2a2e37; --gold:#e2b45c; --text:#ece9e2; --muted:#a7a39a; --faint:#6f6c66; }
+  * { box-sizing: border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text);
+         font:15px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; display:grid; place-items:center; padding:16px; }
+  .card { width:min(420px,100%); background:var(--panel); border:1px solid var(--border); border-radius:18px; padding:26px 22px; text-align:center; }
+  .mark { width:56px; height:56px; margin:0 auto 14px; border-radius:16px; background:linear-gradient(135deg,#1d2027,#0e0f12);
+          display:grid; place-items:center; color:var(--gold); font-size:30px; border:1px solid var(--border); }
+  h1 { font-size:21px; margin:0 0 6px; }
+  p { color:var(--muted); margin:0 0 18px; font-size:14px; }
+  .code { font:700 30px/1.2 ui-monospace,Consolas,monospace; letter-spacing:.14em; margin:6px 0 20px; }
+  .btn { display:block; width:100%; padding:14px; border-radius:13px; font-weight:600; text-decoration:none; font-size:15px; margin-bottom:10px; }
+  .primary { background:var(--gold); color:#1a1407; }
+  .ghost { border:1px solid var(--border); color:var(--text); }
+  small { color:var(--faint); display:block; margin-top:8px; font-size:12px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="mark">✦</div>
+  <h1>Pair SK Helper</h1>
+  <p>Your Studio's one-time pairing code:</p>
+  <div class="code" id="code">—</div>
+  <a class="btn primary" id="open" href="#">Open in SK Helper</a>
+  <a class="btn ghost" href="/helper/sk-helper.apk">Don't have the app? Download it</a>
+  <small>If the button does nothing, open SK Helper and type the code. Codes work once and expire after 10 minutes.</small>
+</div>
+<script>
+  // The QR in the Studio points here. With SK Helper installed, Android opens the app directly
+  // (App Link); this page is the fallback for cameras / phones without the app.
+  var q = new URLSearchParams(location.search);
+  var code = (q.get('code') || '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8);
+  var server = location.origin + '/scraper-worker';
+  document.getElementById('code').textContent = code.length === 8 ? code.slice(0, 4) + '-' + code.slice(4) : '—';
+  document.getElementById('open').href = 'skhelper://pair?server=' + encodeURIComponent(server) + '&code=' + code;
+</script>
+</body>
+</html>

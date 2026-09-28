@@ -353,6 +353,13 @@ async def worker_result(body: ResultReq, request: Request,
     return {**res, "ip": ip}                               # the phone shows which IP fetched it
 
 
+@app.post("/v1/workers/whoami")
+async def worker_whoami(ident: Dict[str, Any] = Depends(worker_auth)):
+    """Which worker this token belongs to (a paired phone → its worker id). Other services use it to
+    accept work from a phone with the phone's own token."""
+    return {"ok": True, **{k: v for k, v in ident.items() if k in ("kind", "worker_id", "device_id")}}
+
+
 class PairReq(BaseModel):
     code: str = Field(..., max_length=20)
     name: str = Field("Phone", max_length=60)

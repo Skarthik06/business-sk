@@ -1546,7 +1546,7 @@ function ScraperPanel({ active }) {
               <p className="text-sm" style={{ color: 'var(--muted)' }}>This code expired.</p>
               <button className="btn btn-sm mt-3" onClick={startPairing}>New code</button>
             </> : <>
-              <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>Open <b>SK Helper</b> on your phone → <b>Scan QR</b>, or type the code.</p>
+              <p className="text-xs mb-3" style={{ color: 'var(--muted)' }}>Scan with your <b>phone camera</b> (or SK Helper → <b>Scan QR code</b>), or type the code.</p>
               {pairing.qr && <div style={{ background: '#fff', borderRadius: 12, padding: 8, width: 240, margin: '0 auto' }}
                                   dangerouslySetInnerHTML={{ __html: pairing.qr.replace('<svg', '<svg width="224" height="224"') }} />}
               <div className="font-mono mt-3" style={{ fontSize: 28, letterSpacing: '.12em', fontWeight: 700 }}>{pairing.code}</div>
