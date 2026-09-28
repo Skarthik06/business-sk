@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.11.0** (2026-09-28) — Phone cut-outs (ML Kit) when the laptop GPU is off; QR with any camera; Studio app-update card; app 1.5.0
 - **v2.9.0** (2026-09-28) — Your device scrapes (phone ↔ laptop) + IPs in Activity/Studio; app 1.3.0
 - **v2.8.0** (2026-09-28) — App 1.2.0 (in-app updates, Business-SK / SK Helper names + icons); remove old workers
 - **v2.7.1** (2026-09-28) — SK Studio Android app (the Studio full-screen) + Helper 1.1.0
