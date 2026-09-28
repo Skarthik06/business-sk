@@ -85,7 +85,8 @@ async def admin_gate(request, call_next):
     # Meta webhooks carry no admin auth — they're verified by challenge + signature.
     if (request.method == "OPTIONS" or not path.startswith("/api/")
             or path in _OPEN_PATHS or path.startswith("/api/webhooks/")
-            or path.startswith("/api/gpu/worker/") or path.startswith("/api/gpu/device/")):
+            or path.startswith("/api/gpu/worker/") or path.startswith("/api/gpu/device/")
+            or path == "/api/gpu/colab/claim"):
         return await call_next(request)
     if not _auth.verify(_auth.token_from_header(request.headers.get("authorization"))):
         return JSONResponse(status_code=401,
@@ -694,12 +695,43 @@ class GpuResultReq(BaseModel):
 
 
 @app.get("/api/gpu/worker/jobs")
-def gpu_worker_jobs(token: str = "", n: int = 4, gpu: str = "", ver: str = "", hb: int = 0):
-    """Laptop GPU worker poll (token-authenticated; bypasses the admin gate). hb=1 = heartbeat only."""
+def gpu_worker_jobs(token: str = "", n: int = 4, gpu: str = "", ver: str = "", hb: int = 0, kind: str = ""):
+    """GPU worker poll — the laptop, or a Google Colab session (token-authenticated; bypasses the
+    admin gate). hb=1 = heartbeat only."""
     from app.services import scene_store
     if not scene_store.worker_token_ok(token):
         raise HTTPException(401, "bad worker token")
-    return {"jobs": scene_store.take_jobs(n, {"gpu": gpu, "ver": ver}, heartbeat=bool(hb))}
+    info = {"gpu": gpu, "ver": ver, "kind": "colab" if kind == "colab" else "laptop"}
+    return {"jobs": scene_store.take_jobs(n, info, heartbeat=bool(hb))}
+
+
+COLAB_NOTEBOOK = "https://colab.research.google.com/github/Skarthik06/business-sk/blob/main/colab/sk_gpu_worker.ipynb"
+
+
+@app.post("/api/sk/gpu/colab")
+def sk_gpu_colab():
+    """"Render with Colab": if the laptop GPU is online nothing is needed; otherwise a one-time
+    session code for the Colab notebook (you open it and press Run — Colab can't be started for you)."""
+    from app.services import scene_store
+    st = scene_store.status()
+    if st.get("worker_online") and st.get("worker_kind") != "colab":
+        return {"success": True, "laptop_online": True}
+    return {"success": True, "laptop_online": False, "colab_online": bool(st.get("worker_online")),
+            "notebook": COLAB_NOTEBOOK, **scene_store.new_colab_code()}
+
+
+class ColabClaimReq(BaseModel):
+    code: str
+
+
+@app.post("/api/gpu/colab/claim")
+def gpu_colab_claim(body: ColabClaimReq):
+    """PUBLIC: the Colab notebook swaps its one-time code for a temporary GPU worker token."""
+    from app.services import scene_store
+    tok = scene_store.claim_colab_code(body.code)
+    if not tok:
+        raise HTTPException(400, "code is wrong or expired — press Render with Colab again in the Studio")
+    return {"ok": True, "token": tok, "hours": 6}
 
 
 @app.post("/api/gpu/worker/result")

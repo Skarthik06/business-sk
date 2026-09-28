@@ -553,8 +553,25 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     const next = cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id].slice(-3);
     setStyles(next.join(' ')); setStylesDraft(next.join(' '));
   };
+  // ☁️ Render with Colab: the server checks the laptop GPU first; if it's off you get a one-time code
+  const [colab, setColab] = useState(null);
+  const [colabBusy, setColabBusy] = useState(false);
+  const tickScenes = useRef(null);
+  const gpuName = scenes?.status?.worker_kind === 'colab'
+    ? `Colab GPU${scenes.status.worker_gpu ? ' (' + scenes.status.worker_gpu + ')' : ''}` : 'Laptop GPU';
+  const startColab = async () => {
+    setColabBusy(true);
+    try {
+      const r = await api.skGpuColab();
+      if (r.laptop_online) { setColab(null); say('Laptop GPU is online — rendering there, no Colab needed'); }
+      else setColab(r);
+      tickScenes.current?.();
+    } catch { say('Could not start a Colab session', 'error'); } finally { setColabBusy(false); }
+  };
+
   useEffect(() => {
     const tick = () => api.skScenes().then(setScenes).catch(() => {});
+    tickScenes.current = tick;
     tick();
     const t = setInterval(tick, 20000);
     return () => clearInterval(t);
@@ -722,11 +739,29 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                 {scenes?.status
                   ? (scenes.status.worker_online
                       ? (scenes.status.worker_busy
-                          ? `● Laptop GPU painting a scene… · ${scenes.status.queued} queued`
-                          : `● Laptop GPU online · ${scenes.status.library_ready} scenes${scenes.status.queued ? ` · ${scenes.status.queued} queued` : ''}`)
-                      : `○ Laptop GPU offline · ${scenes.status.library_ready} scenes · server cut-outs`)
+                          ? `● ${gpuName} painting a scene… · ${scenes.status.queued} queued`
+                          : `● ${gpuName} online · ${scenes.status.library_ready} scenes${scenes.status.queued ? ` · ${scenes.status.queued} queued` : ''}`)
+                      : `○ Laptop GPU offline · ${scenes.status.library_ready} scenes · ${scenes.status.phone_cutouts_online ? 'phone cut-outs' : 'server cut-outs'}`)
                   : 'checking…'}
+                {/* laptop off → start a Google Colab session yourself (Colab can't be started for you) */}
+                {scenes?.status && (!scenes.status.worker_online || scenes.status.worker_kind === 'colab') && (
+                  <button className="mini" style={{ marginLeft: 8 }} onClick={startColab} disabled={colabBusy}
+                    title="Checks the laptop GPU first; if it's off, gives you a one-time code for the Colab notebook">
+                    {colabBusy ? '…' : scenes.status.worker_kind === 'colab' ? '↻ New Colab code' : '☁️ Render with Colab'}
+                  </button>)}
               </div>
+              {colab && !colab.laptop_online && (
+                <div className="panel p-3 mt-2" style={{ background: 'var(--panel-2)', maxWidth: 520 }}>
+                  <div className="text-xs mb-1" style={{ color: 'var(--muted)' }}>Laptop GPU is off → use Google Colab's free GPU:</div>
+                  <div className="font-mono" style={{ fontSize: 22, letterSpacing: '.12em', fontWeight: 700 }}>{colab.code}</div>
+                  <div className="text-xs mb-2" style={{ color: 'var(--faint)' }}>One-time code · valid {Math.round((colab.expires_in || 1800) / 60)} min · Colab then renders for up to 6 h</div>
+                  <div className="flex flex-wrap gap-2">
+                    <button className="btn btn-sm" onClick={() => navigator.clipboard?.writeText(colab.code).then(() => say('Code copied'))}>Copy code</button>
+                    <a className="btn btn-sm btn-accent" href={colab.notebook} target="_blank" rel="noreferrer">Open Colab ↗</a>
+                    <button className="btn btn-sm btn-ghost" onClick={() => setColab(null)}>Close</button>
+                  </div>
+                  <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>In Colab: Runtime → Run all → paste the code. Keep the tab open; it stops itself after 15 idle minutes.</div>
+                </div>)}
             </div>
             <div className="flex flex-wrap items-end gap-4 mb-2">
               <div>

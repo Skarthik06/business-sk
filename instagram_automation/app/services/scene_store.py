@@ -50,8 +50,78 @@ def scene_key(s: str) -> str:
 
 
 def worker_token_ok(tok: Optional[str]) -> bool:
+    """The laptop's permanent token, or a temporary Google Colab session token."""
     want = (os.getenv("GPU_WORKER_TOKEN") or "").strip()
-    return bool(want) and bool(tok) and hmac.compare_digest(want, str(tok).strip())
+    tok = str(tok or "").strip()
+    if not tok:
+        return False
+    if want and hmac.compare_digest(want, tok):
+        return True
+    return tok.startswith("skg_") and colab_token_ok(tok)
+
+
+# ── Google Colab sessions: you start the notebook (a human, interactive session), type a
+# one-time code from the Studio, and the notebook swaps it for a temporary worker token. ────────
+_SESS_FILE = ROOT / "gpu_sessions.json"
+_CODE_TTL = 30 * 60                     # the code must be used within 30 min
+_SESSION_TTL = 6 * 3600                 # a Colab token works for 6 h (a free session is shorter anyway)
+_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+_CLAIM_FAILS: List[float] = []
+
+
+def _sha(s: str) -> str:
+    return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+
+def _sessions() -> List[Dict[str, Any]]:
+    try:
+        items = json.loads(_SESS_FILE.read_text("utf-8"))
+    except Exception:
+        items = []
+    now = time.time()
+    return [s for s in items if float(s.get("exp") or 0) > now]
+
+
+def _save_sessions(items: List[Dict[str, Any]]) -> None:
+    tmp = _SESS_FILE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(items), "utf-8")
+    tmp.replace(_SESS_FILE)
+
+
+def new_colab_code() -> Dict[str, Any]:
+    import secrets
+    raw = "".join(secrets.choice(_ALPHABET) for _ in range(8))
+    with _LOCK:
+        items = _sessions()
+        items.append({"code": _sha(raw), "exp": time.time() + _CODE_TTL})
+        _save_sessions(items)
+    return {"code": f"{raw[:4]}-{raw[4:]}", "expires_in": _CODE_TTL}
+
+
+def claim_colab_code(code: str) -> Optional[str]:
+    """One-time code → temporary worker token (only its hash is stored). None = wrong/expired."""
+    import secrets
+    now = time.time()
+    _CLAIM_FAILS[:] = [t for t in _CLAIM_FAILS if now - t < 1800]
+    if len(_CLAIM_FAILS) >= 20:                       # guessing protection
+        return None
+    raw = re.sub(r"[^A-Z0-9]", "", (code or "").upper())
+    with _LOCK:
+        items = _sessions()
+        hit = next((s for s in items if s.get("code") == _sha(raw)), None) if len(raw) == 8 else None
+        if not hit:
+            _CLAIM_FAILS.append(now)
+            return None
+        items.remove(hit)                             # single use
+        token = "skg_" + secrets.token_urlsafe(32)
+        items.append({"token": _sha(token), "exp": now + _SESSION_TTL})
+        _save_sessions(items)
+    return token
+
+
+def colab_token_ok(tok: str) -> bool:
+    h = _sha(tok)
+    return any(hmac.compare_digest(s.get("token") or "", h) for s in _sessions())
 
 
 # ── library ──────────────────────────────────────────────────────────────────
@@ -403,6 +473,8 @@ def status() -> Dict[str, Any]:
     now = time.time()
     busy = any(j.get("lease") and now - j["lease"] < _LEASE_SECS for j in q)
     return {"worker_online": worker_online() or busy, "worker_busy": busy and not worker_online(),
+            "worker_kind": (lp.get("info") or {}).get("kind") or "laptop",
+            "worker_gpu": (lp.get("info") or {}).get("gpu") or "",
             "phone_cutouts_online": device_online(), "phone": _last_device_poll().get("info") or {},
             "last_poll_secs": round(time.time() - float(lp.get("t") or 0), 1)
             if lp.get("t") else None, "worker": lp.get("info") or {},

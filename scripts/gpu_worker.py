@@ -8,6 +8,8 @@ Polls the cloud (/api/gpu/worker/jobs) and posts results back (/api/gpu/worker/r
 Runs from the dedicated AI venv:  %USERPROFILE%\\sk-ai\\venv\\Scripts\\pythonw.exe scripts\\gpu_worker.py
 Token: env GPU_WORKER_TOKEN or ~/.sk_worker_token (same file the scrape worker uses).
 Knobs (env): SK_API (server), GPU_IDLE_RELEASE_SECS (default 300).
+Google Colab (colab/sk_gpu_worker.ipynb) runs this same file with SK_WORKER_KIND=colab and
+SK_IDLE_EXIT_SECS=900: it stops by itself after 15 idle minutes instead of waiting forever.
 
 GPU only when needed: while there is no work the worker is a tiny poller that never touches CUDA
 (0 MB VRAM, the laptop's NVIDIA GPU can power down). Models load on the first job; after
@@ -27,10 +29,12 @@ import traceback
 import urllib.request
 
 API = os.getenv("SK_API", "https://140-238-247-18.nip.io").rstrip("/")
-VER = "1.3"
+VER = "1.4"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0 Safari/537.36")
 IDLE_RELEASE = int(os.getenv("GPU_IDLE_RELEASE_SECS", "300"))
+KIND = "colab" if os.getenv("SK_WORKER_KIND", "").strip().lower() == "colab" else "laptop"
+IDLE_EXIT = int(os.getenv("SK_IDLE_EXIT_SECS", "0") or 0)       # >0: stop after this long with no jobs
 EMPTY = ("completely empty scene, no people, no person, no mannequin, no clothes, no products, no text, "
          "no logo, clear open space in the center and lower half, photorealistic, editorial photography, "
          "shot on medium format, soft natural shadows, high detail")
@@ -44,6 +48,7 @@ def log(msg: str) -> None:
     except Exception:
         pass
     try:
+        os.makedirs(os.path.dirname(LOG), exist_ok=True)
         with open(LOG, "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except Exception:
@@ -128,8 +133,10 @@ class Models:
         if self._zimg is None:
             from diffusers import ZImagePipeline
             t = time.time()
-            pipe = ZImagePipeline.from_pretrained("unsloth/Z-Image-Turbo-unsloth-bnb-4bit",
-                                                  torch_dtype=self.torch.bfloat16)
+            torch = self.torch
+            # bfloat16 on GPUs that have it (the laptop's RTX); float16 on older ones (Colab's T4)
+            dtype = torch.bfloat16 if (self.dev == "cuda" and torch.cuda.is_bf16_supported()) else torch.float16
+            pipe = ZImagePipeline.from_pretrained("unsloth/Z-Image-Turbo-unsloth-bnb-4bit", torch_dtype=dtype)
             try:
                 pipe.to("cuda")
             except Exception:
@@ -249,7 +256,8 @@ def main() -> None:
         log("No token: set GPU_WORKER_TOKEN or create ~/.sk_worker_token")
         sys.exit(1)
     M = Models()                                   # nothing loaded: GPU untouched until a job arrives
-    log(f"GPU worker {VER} online (GPU idle, released) · {M.gpu} · {API}")
+    log(f"GPU worker {VER} ({KIND}) online (GPU idle, released) · {M.gpu} · {API}")
+    q = f"token={tok}&gpu={urllib.request.quote(M.gpu)}&ver={VER}&kind={KIND}"
     last_job = time.time()
     # heartbeat while busy: a scene paint takes ~2 min; tell the server we're alive every 20 s
     import threading
@@ -260,21 +268,23 @@ def main() -> None:
             time.sleep(20)
             if busy["on"]:
                 try:
-                    _get_json(f"{API}/api/gpu/worker/jobs?token={tok}&hb=1&gpu={urllib.request.quote(M.gpu)}&ver={VER}", timeout=15)
+                    _get_json(f"{API}/api/gpu/worker/jobs?{q}&hb=1", timeout=15)
                 except Exception:
                     pass
     threading.Thread(target=_beat, daemon=True).start()
     idle = 0
     while True:
         try:
-            jobs = _get_json(f"{API}/api/gpu/worker/jobs?token={tok}&n=4&gpu={urllib.request.quote(M.gpu)}&ver={VER}"
-                             ).get("jobs", [])
+            jobs = _get_json(f"{API}/api/gpu/worker/jobs?{q}&n=4").get("jobs", [])
         except Exception as e:
             log(f"poll failed: {str(e)[:120]}")
             time.sleep(15)
             continue
         if not jobs:
             idle += 1
+            if IDLE_EXIT and time.time() - last_job > IDLE_EXIT:
+                log(f"no work for {IDLE_EXIT // 60} min -> stopping (start it again from the Studio when needed)")
+                return
             if M.gpu_in_use and time.time() - last_job > IDLE_RELEASE:
                 _release_gpu()                     # restart as a CUDA-free poller (never returns)
             time.sleep(3 if idle < 20 else 8)
@@ -310,6 +320,8 @@ if __name__ == "__main__":
     while True:                                    # self-healing: never die for good
         try:
             main()
+            if IDLE_EXIT:                              # a Colab session ended on purpose
+                break
         except KeyboardInterrupt:
             break
         except SystemExit:
