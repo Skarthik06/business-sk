@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.6.2** (2026-09-28) — Affiliate: posted/cleared posts leave the panels; Flipkart products work again (Scraper API false challenge)
 - **v2.6.1** (2026-09-27) — Security: the affiliate API (/sk-api) now requires the Studio admin session (verified via the IG backend); service calls use an internal key; hub/storefront/health/worker endpoints stay open
 - **v2.6.0** (2026-09-27) — Intelligent Multi-Route Scraper API: Strategy Engine (route scoring from domain history), circuit breakers, bounded failover, remote worker pool (laptop/phone) with heartbeats + leases, dashboard in the Studio; laptop is optional
 - **v2.5.0** (2026-09-27) — Self-hosted Scraper API service (blueprint MVP): HTTP-first + Playwright, classification + bounded retry, disk cache, proxy registry, attempt log, metrics; affiliate engine uses it first
