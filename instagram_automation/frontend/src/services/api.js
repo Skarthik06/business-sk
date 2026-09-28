@@ -6,10 +6,15 @@ const data = (r) => r.data;
 export const TOKEN_KEY = 'ig_admin_token';
 export const REFRESH_KEY = 'ig_admin_refresh';
 
+// Which device the Studio runs on: phone → Colab renders the post, laptop → the laptop GPU
+// (and the same device fetches products). Sent with every request.
+export const DEVICE = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent || '') ? 'phone' : 'laptop';
+
 // Attach the admin bearer token to every request.
 http.interceptors.request.use((config) => {
   const t = localStorage.getItem(TOKEN_KEY);
   if (t) config.headers.Authorization = `Bearer ${t}`;
+  config.headers['X-SK-Device'] = DEVICE;
   return config;
 });
 

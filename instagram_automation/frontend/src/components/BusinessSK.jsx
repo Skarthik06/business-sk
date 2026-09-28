@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import skApi from '../services/skApi';
-import api from '../services/api';
+import api, { DEVICE } from '../services/api';
 import { Icon, Spinner, cx } from './ui';
 import MyShopifyPanel from './MyShopifyPanel';
 
@@ -557,8 +557,36 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   const [colab, setColab] = useState(null);
   const [colabBusy, setColabBusy] = useState(false);
   const tickScenes = useRef(null);
-  const gpuName = scenes?.status?.worker_kind === 'colab'
-    ? `Colab GPU${scenes.status.worker_gpu ? ' (' + scenes.status.worker_gpu + ')' : ''}` : 'Laptop GPU';
+  const st = scenes?.status;
+  const gpuLabel = (kind) => (kind === 'colab'
+    ? `Colab GPU${st?.colab_gpu ? ' (' + st.colab_gpu + ')' : ''}` : `Laptop GPU${st?.laptop_gpu ? ' (' + st.laptop_gpu.replace(/^NVIDIA (GeForce )?/, '').replace(/ Laptop GPU$/, '') + ')' : ''}`);
+  // device-aware: the phone's posts render on Colab; the laptop's on the laptop GPU (Colab if it's off)
+  const myGpu = DEVICE === 'phone' ? 'colab' : (st?.laptop_online ? 'laptop' : 'colab');
+  const myGpuOn = !!(st && (myGpu === 'colab' ? st.colab_online : st.laptop_online));
+  const RENDER_TXT = { colab: '☁️ Colab is rendering your post', laptop: '🖥️ Laptop is rendering your post', phone: '✂️ Your phone is cutting out the products' };
+  const renderLine = !st ? 'checking…'
+    : (st.rendering || []).length ? `● ${(st.rendering || []).map((k) => RENDER_TXT[k] || k).join(' · ')}${st.queued ? ` · ${st.queued} queued` : ''}`
+      : myGpuOn ? `● ${gpuLabel(myGpu)} renders your ${DEVICE === 'phone' ? 'phone' : 'laptop'} posts · ${st.library_ready} scenes`
+        : DEVICE === 'phone'
+          ? `○ Colab off · phone posts use ${st.phone_cutouts_online ? 'phone cut-outs' : 'server cut-outs'} + a saved backdrop`
+          : `○ Laptop GPU offline · ${st.library_ready} scenes · ${st.phone_cutouts_online ? 'phone cut-outs' : 'server cut-outs'}`;
+  const lastRender = useRef('');
+  const autoColab = useRef(false);
+  useEffect(() => {                                  // pop-up when a GPU starts rendering
+    const now = (st?.rendering || []).join(',');
+    if (now && now !== lastRender.current) (st.rendering || []).forEach((k) => { if (!lastRender.current.includes(k)) say(RENDER_TXT[k] || k); });
+    lastRender.current = now;
+    if (DEVICE === 'phone' && st && st.waiting_colab > 0 && !st.colab_online && !colab && !autoColab.current) {
+      autoColab.current = true;                      // a phone post is waiting for Colab → offer it once
+      say('☁️ This post renders on Colab — start it with the code below');
+      startColab();
+    }
+  }, [st?.rendering?.join(','), st?.waiting_colab, st?.colab_online]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {                                  // poll every 5 s while something renders
+    if (!st || (!st.queued && !(st.rendering || []).length)) return undefined;
+    const t = setInterval(() => tickScenes.current?.(), 5000);
+    return () => clearInterval(t);
+  }, [st?.queued, (st?.rendering || []).length]); // eslint-disable-line react-hooks/exhaustive-deps
   const startColab = async () => {
     setColabBusy(true);
     try {
@@ -734,25 +762,19 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                   );
                 })}
               </div>
-              <div className="text-xs" style={{ marginTop: 3, color: scenes?.status?.worker_online ? '#3fb950' : 'var(--faint)' }}
+              <div className="text-xs" style={{ marginTop: 3, color: myGpuOn ? '#3fb950' : 'var(--faint)' }}
                 title="The Art Director designs every post: an AI scene, each slide's layout and the headline. Products stay 100% real. The laptop GPU makes sharper cut-outs + new scenes; without it the server cuts products out itself.">
-                {scenes?.status
-                  ? (scenes.status.worker_online
-                      ? (scenes.status.worker_busy
-                          ? `● ${gpuName} painting a scene… · ${scenes.status.queued} queued`
-                          : `● ${gpuName} online · ${scenes.status.library_ready} scenes${scenes.status.queued ? ` · ${scenes.status.queued} queued` : ''}`)
-                      : `○ Laptop GPU offline · ${scenes.status.library_ready} scenes · ${scenes.status.phone_cutouts_online ? 'phone cut-outs' : 'server cut-outs'}`)
-                  : 'checking…'}
-                {/* laptop off → start a Google Colab session yourself (Colab can't be started for you) */}
-                {scenes?.status && (!scenes.status.worker_online || scenes.status.worker_kind === 'colab') && (
+                {renderLine}
+                {/* the GPU for this device is off → start a Google Colab session yourself (it can't be started for you) */}
+                {scenes?.status && !myGpuOn && (
                   <button className="mini" style={{ marginLeft: 8 }} onClick={startColab} disabled={colabBusy}
-                    title="Checks the laptop GPU first; if it's off, gives you a one-time code for the Colab notebook">
-                    {colabBusy ? '…' : scenes.status.worker_kind === 'colab' ? '↻ New Colab code' : '☁️ Render with Colab'}
+                    title={DEVICE === 'phone' ? 'Posts you make on the phone render on Google Colab — get a one-time code' : "The laptop GPU is off — render on Google Colab instead"}>
+                    {colabBusy ? '…' : '☁️ Render with Colab'}
                   </button>)}
               </div>
               {colab && !colab.laptop_online && (
                 <div className="panel p-3 mt-2" style={{ background: 'var(--panel-2)', maxWidth: 520 }}>
-                  <div className="text-xs mb-1" style={{ color: 'var(--muted)' }}>Laptop GPU is off → use Google Colab's free GPU:</div>
+                  <div className="text-xs mb-1" style={{ color: 'var(--muted)' }}>{DEVICE === 'phone' ? 'You\'re on the phone → your posts render on Google Colab\'s free GPU:' : 'Laptop GPU is off → use Google Colab\'s free GPU:'}</div>
                   <div className="font-mono" style={{ fontSize: 22, letterSpacing: '.12em', fontWeight: 700 }}>{colab.code}</div>
                   <div className="text-xs mb-2" style={{ color: 'var(--faint)' }}>One-time code · valid {Math.round((colab.expires_in || 1800) / 60)} min · Colab then renders for up to 6 h</div>
                   <div className="flex flex-wrap gap-2">

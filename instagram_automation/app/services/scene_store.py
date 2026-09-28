@@ -49,6 +49,28 @@ def scene_key(s: str) -> str:
     return k or "scene_" + hashlib.sha1((s or "").encode()).hexdigest()[:10]
 
 
+# ── device-aware rendering: work on the PHONE → Colab renders; on the LAPTOP → the laptop GPU ──
+# The Studio sends X-SK-Device (phone | laptop) with every request; jobs queued while serving it are
+# tagged with a target. (Public IPs can't tell phone and laptop apart on the same Wi-Fi.)
+import contextvars  # noqa: E402
+
+_DEVICE: contextvars.ContextVar = contextvars.ContextVar("sk_render_device", default="")
+_LAST_DEVICE = {"device": "", "at": 0.0}
+COLAB_GRACE = float(os.getenv("SK_COLAB_GRACE_SECS", "300"))   # a phone job waits this long for Colab
+
+
+def set_render_device(d: str) -> None:
+    d = (d or "").strip().lower()
+    if d in ("phone", "laptop"):
+        _DEVICE.set(d)
+        _LAST_DEVICE.update(device=d, at=time.time())
+
+
+def render_target() -> str:
+    d = _DEVICE.get() or (_LAST_DEVICE["device"] if time.time() - _LAST_DEVICE["at"] < 600 else "")
+    return {"phone": "colab", "laptop": "laptop"}.get(d, "")
+
+
 def worker_token_ok(tok: Optional[str]) -> bool:
     """The laptop's permanent token, or a temporary Google Colab session token."""
     want = (os.getenv("GPU_WORKER_TOKEN") or "").strip()
@@ -252,7 +274,8 @@ def enqueue_cutout(url: str) -> Optional[str]:
     jid = "cut_" + img_id(url)
     with _LOCK:
         if not _jpath(jid).exists():
-            _write_job({"id": jid, "type": "cutout", "url": url, "queued": time.time(), "lease": 0, "tries": 0})
+            _write_job({"id": jid, "type": "cutout", "url": url, "queued": time.time(), "lease": 0, "tries": 0,
+                        "target": render_target()})
     return jid
 
 
@@ -265,7 +288,7 @@ def enqueue_scene(key: str, prompt: str, seed: int = 0) -> Optional[str]:
         if _jpath(jid) and not _jpath(jid).exists():
             _write_job({"id": jid, "type": "scene", "key": key, "prompt": prompt[:900],
                         "seed": int(seed) % 100000, "w": 1024, "h": 1280,
-                        "queued": time.time(), "lease": 0, "tries": 0})
+                        "queued": time.time(), "lease": 0, "tries": 0, "target": render_target()})
     return jid
 
 
@@ -319,15 +342,51 @@ def plan_update(pid: str, **kv: Any) -> None:
             plan_put(pid, cur)
 
 
-def _last_poll() -> Dict[str, Any]:
+_COLAB_POLL_FILE = ROOT / "colab_worker.json"
+
+
+def _poll_file(kind: str) -> Path:
+    return _COLAB_POLL_FILE if kind == "colab" else _POLL_FILE
+
+
+def _last_poll(kind: str = "laptop") -> Dict[str, Any]:
     try:
-        return json.loads(_POLL_FILE.read_text("utf-8"))
+        return json.loads(_poll_file(kind).read_text("utf-8"))
     except Exception:
         return {"t": 0, "info": {}}
 
 
-def worker_online(max_age: float = 90.0) -> bool:  # file-backed → works across processes
-    return time.time() - float(_last_poll().get("t") or 0) < max_age
+def laptop_online(max_age: float = 90.0) -> bool:  # file-backed → works across processes
+    return time.time() - float(_last_poll("laptop").get("t") or 0) < max_age
+
+
+def colab_online(max_age: float = 90.0) -> bool:
+    return time.time() - float(_last_poll("colab").get("t") or 0) < max_age
+
+
+def worker_online(max_age: float = 90.0) -> bool:
+    """Any render GPU (laptop or Colab) is connected."""
+    return laptop_online(max_age) or colab_online(max_age)
+
+
+def render_gpu_online() -> bool:
+    """Is the GPU that serves THIS device's work connected? (phone → Colab; laptop → laptop, or Colab
+    while the laptop is off). Decides whether a post waits for a fresh backdrop or uses a saved one."""
+    tgt = render_target()
+    if tgt == "colab":
+        return colab_online()
+    return worker_online()
+
+
+def _eligible(j: Dict[str, Any], kind: str, now: float) -> bool:
+    """Who may take a job: phone-started work is reserved for Colab (the laptop only helps once no
+    Colab showed up within COLAB_GRACE); laptop-started work goes to Colab only when the laptop is off."""
+    tgt = j.get("target") or ""
+    if kind == "laptop" and tgt == "colab":
+        return not colab_online() and now - float(j.get("queued") or now) > COLAB_GRACE
+    if kind == "colab" and tgt == "laptop":
+        return not laptop_online()
+    return True
 
 
 # ── phone cut-out workers (SK Helper, ML Kit subject segmentation on the phone) ───────────────
@@ -353,11 +412,14 @@ def take_cutout_jobs(n: int = 2, info: Optional[Dict[str, Any]] = None) -> List[
         _DEV_POLL_FILE.write_text(json.dumps({"t": now, "info": {k: str(v)[:60] for k, v in (info or {}).items()}}), "utf-8")
     except Exception:
         pass
-    if worker_online():
+    if colab_online():
         return []
+    laptop = laptop_online()
     out: List[Dict[str, Any]] = []
     with _LOCK:
         for j in sorted((j for j in _jobs() if j.get("type") == "cutout"), key=lambda j: j.get("queued", 0)):
+            if laptop and j.get("target") != "colab":
+                continue                             # the laptop does its own (better) cut-outs
             if len(out) >= max(1, min(n, 4)):
                 break
             if j.get("lease") and now - j["lease"] < _LEASE_SECS:
@@ -367,8 +429,9 @@ def take_cutout_jobs(n: int = 2, info: Optional[Dict[str, Any]] = None) -> List[
                 (_jpath(j["id"]) or Path("/nonexistent")).unlink(missing_ok=True)
                 continue
             j["lease"] = now
+            j["by"] = "phone"
             _write_job(j)
-            out.append({k: v for k, v in j.items() if k not in ("queued", "lease", "tries")})
+            out.append({k: v for k, v in j.items() if k not in ("queued", "lease", "tries", "target", "by")})
     return out
 
 
@@ -377,8 +440,9 @@ def take_jobs(n: int = 4, info: Optional[Dict[str, Any]] = None, heartbeat: bool
     ONE scene per poll (a scene takes ~2 min; batching scenes kept the worker silent for 10 min).
     heartbeat=True only records that the (busy) worker is alive — no jobs are leased."""
     now = time.time()
+    kind = "colab" if (info or {}).get("kind") == "colab" else "laptop"
     try:
-        _POLL_FILE.write_text(json.dumps({"t": now, "info": {k: str(v)[:60] for k, v in (info or {}).items()}}), "utf-8")
+        _poll_file(kind).write_text(json.dumps({"t": now, "info": {k: str(v)[:60] for k, v in (info or {}).items()}}), "utf-8")
     except Exception:
         pass
     out: List[Dict[str, Any]] = []
@@ -394,6 +458,8 @@ def take_jobs(n: int = 4, info: Optional[Dict[str, Any]] = None, heartbeat: bool
                 break
             if j.get("lease") and now - j["lease"] < _LEASE_SECS:
                 continue
+            if not _eligible(j, kind, now):
+                continue
             if j.get("type") == "scene":
                 if scenes_taken:
                     continue
@@ -403,8 +469,9 @@ def take_jobs(n: int = 4, info: Optional[Dict[str, Any]] = None, heartbeat: bool
                 (_jpath(j["id"]) or Path("/nonexistent")).unlink(missing_ok=True)
                 continue
             j["lease"] = now
+            j["by"] = kind
             _write_job(j)
-            out.append({k: v for k, v in j.items() if k not in ("queued", "lease", "tries")})
+            out.append({k: v for k, v in j.items() if k not in ("queued", "lease", "tries", "target", "by")})
     return out
 
 
@@ -454,7 +521,7 @@ def wait_for(urls: List[str], keys: List[str], timeout: float) -> None:
     # "online" includes BUSY: while the laptop paints a scene (~70 s) it doesn't poll, so a job it
     # leased recently also counts — otherwise the wait gave up mid-paint and used the fallback.
     def _alive() -> bool:
-        if worker_online():
+        if render_gpu_online():
             return True
         if urls and not keys and device_online():  # a phone does cut-outs (never scenes)
             return True
@@ -469,12 +536,19 @@ def wait_for(urls: List[str], keys: List[str], timeout: float) -> None:
 def status() -> Dict[str, Any]:
     q = _jobs()
     lib = library()
-    lp = _last_poll()
+    lp = _last_poll("laptop")
+    cp = _last_poll("colab")
     now = time.time()
     busy = any(j.get("lease") and now - j["lease"] < _LEASE_SECS for j in q)
+    active = [j for j in q if j.get("lease") and now - j["lease"] < _LEASE_SECS]
+    rendering = sorted({str(j.get("by") or "laptop") for j in active})
+    waiting_colab = sum(1 for j in q if j.get("target") == "colab" and not j.get("lease") and not colab_online())
     return {"worker_online": worker_online() or busy, "worker_busy": busy and not worker_online(),
-            "worker_kind": (lp.get("info") or {}).get("kind") or "laptop",
-            "worker_gpu": (lp.get("info") or {}).get("gpu") or "",
+            "laptop_online": laptop_online(), "colab_online": colab_online(),
+            "laptop_gpu": (lp.get("info") or {}).get("gpu") or "", "colab_gpu": (cp.get("info") or {}).get("gpu") or "",
+            "worker_kind": "colab" if colab_online() and not laptop_online() else "laptop",
+            "worker_gpu": ((cp if colab_online() and not laptop_online() else lp).get("info") or {}).get("gpu") or "",
+            "rendering": rendering, "waiting_colab": waiting_colab, "device": render_target() and _LAST_DEVICE["device"],
             "phone_cutouts_online": device_online(), "phone": _last_device_poll().get("info") or {},
             "last_poll_secs": round(time.time() - float(lp.get("t") or 0), 1)
             if lp.get("t") else None, "worker": lp.get("info") or {},

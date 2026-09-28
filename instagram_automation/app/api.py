@@ -82,6 +82,9 @@ _OPEN_PATHS = {"/api/health", "/api/v1/admin/login", "/api/v1/admin/google", "/a
 @app.middleware("http")
 async def admin_gate(request, call_next):
     path = request.url.path
+    if path.startswith("/api/sk/"):                # which device the Studio runs on → who renders
+        from app.services import scene_store as _ss
+        _ss.set_render_device(request.headers.get("x-sk-device", ""))
     # Meta webhooks carry no admin auth — they're verified by challenge + signature.
     if (request.method == "OPTIONS" or not path.startswith("/api/")
             or path in _OPEN_PATHS or path.startswith("/api/webhooks/")
@@ -713,10 +716,10 @@ def sk_gpu_colab():
     """"Render with Colab": if the laptop GPU is online nothing is needed; otherwise a one-time
     session code for the Colab notebook (you open it and press Run — Colab can't be started for you)."""
     from app.services import scene_store
-    st = scene_store.status()
-    if st.get("worker_online") and st.get("worker_kind") != "colab":
+    # on the laptop with its GPU on → nothing to do; on the phone (or laptop GPU off) → a Colab code
+    if scene_store.render_target() != "colab" and scene_store.laptop_online():
         return {"success": True, "laptop_online": True}
-    return {"success": True, "laptop_online": False, "colab_online": bool(st.get("worker_online")),
+    return {"success": True, "laptop_online": scene_store.laptop_online(), "colab_online": scene_store.colab_online(),
             "notebook": COLAB_NOTEBOOK, **scene_store.new_colab_code()}
 
 
@@ -792,7 +795,8 @@ def gpu_device_jobs(n: int = 2, ver: str = "", x_worker_token: str = Header("", 
     if not wid:
         raise HTTPException(401, "bad device token")
     jobs = scene_store.take_cutout_jobs(n, {"worker": wid, "ver": ver})
-    return {"jobs": jobs, "laptop_gpu": scene_store.worker_online()}   # laptop on → the phone polls less
+    # the laptop does laptop-started work → the phone polls less; phone-started work → poll fast
+    return {"jobs": jobs, "laptop_gpu": scene_store.laptop_online() and scene_store.render_target() != "colab"}
 
 
 @app.post("/api/gpu/device/result")

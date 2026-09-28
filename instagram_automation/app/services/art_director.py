@@ -583,11 +583,11 @@ def _direct(products: List[Dict[str, Any]], category: str = "", look: str = "", 
         _same = sorted((x for x in scene_store.library() if x.get("ready") and x.get("palette") == new["palette"]),
                        key=lambda x: int(x.get("uses") or 0))
         plan["scene"]["fallback"] = _same[0]["key"] if _same else plan["scene"]["use"]
-        if scene_store.worker_online() or not plan["scene"]["use"]:
+        if scene_store.render_gpu_online() or not plan["scene"]["use"]:
             plan["scene"]["use"] = new["key"]             # THIS post gets its own AI-built scene
             plan["palette"] = new["palette"]
     plan["error"] = err
-    plan["worker_online"] = scene_store.worker_online()
+    plan["worker_online"] = scene_store.render_gpu_online()
     _remember_look(plan.get("palette", ""), plan.get("concept", ""), str(plan["scene"].get("use") or ""),
                    plan.get("presets"))
     return plan
