@@ -2143,6 +2143,7 @@ function StoreGenerate({ markets, say, queue, setQueue, constraints, plan }) {
         setGroup(g);
         setQueue && setQueue((prevQ) => [...(prevQ || []).filter((x) => x.id !== g.id), g]);
         say?.(`Generated ${products.length} ${isDeals ? 'deals' : 'products'} from ${mk.name} → Post to IG`);
+        (r.notes || []).forEach((n) => say?.(n));          // e.g. "Flipkart shows no ratings for this search…"
       } else say?.(r.note || r.error || 'Nothing generated — try different filters', 'error');
     } catch { say?.('Generate failed', 'error'); } finally { setRunning(false); }
   };

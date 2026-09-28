@@ -20,27 +20,10 @@ import Engagement from './components/Engagement';
 import Placeholder from './components/Placeholder';
 import BusinessSK from './components/BusinessSK';
 
-// Two business workspaces, each a collapsible dropdown group in the sidebar.
-//   Business-JK → the real-estate Instagram platform (all existing panels)
-//   Business-SK → the affiliate business (frontend built later; API is live)
+// Two business workspaces, each a collapsible dropdown group in the sidebar — Business-SK first.
+//   Business-SK → the affiliate business (open by default)
+//   Business-JK → the real-estate Instagram platform (collapsed by default)
 const NAV_GROUPS = [
-  {
-    id: 'jk', label: 'Business-JK', icon: 'building',
-    items: [
-      { id: 'dashboard', label: 'Dashboard', icon: 'studio' },
-      { id: 'business', label: 'Business', icon: 'building' },
-      { id: 'engagement', label: 'Engagement', icon: 'bolt' },
-      { id: 'custom', label: 'Custom Poster', icon: 'edit' },
-      { id: 'properties', label: 'Properties', icon: 'doc' },
-      { id: 'media', label: 'Media Library', icon: 'quote' },
-      { id: 'templates', label: 'Templates', icon: 'edit' },
-      { id: 'analytics', label: 'Analytics', icon: 'history' },
-      { id: 'leads', label: 'Leads', icon: 'bolt' },
-      { id: 'calendar', label: 'Calendar', icon: 'news' },
-      { id: 'integrations', label: 'Integrations', icon: 'ext' },
-      { id: 'admin', label: 'Admin', icon: 'shield' },
-    ],
-  },
   {
     id: 'sk', label: 'Business-SK', icon: 'spark',
     sections: [
@@ -66,6 +49,23 @@ const NAV_GROUPS = [
       ] },
     ],
   },
+  {
+    id: 'jk', label: 'Business-JK', icon: 'building',
+    items: [
+      { id: 'dashboard', label: 'Dashboard', icon: 'studio' },
+      { id: 'business', label: 'Business', icon: 'building' },
+      { id: 'engagement', label: 'Engagement', icon: 'bolt' },
+      { id: 'custom', label: 'Custom Poster', icon: 'edit' },
+      { id: 'properties', label: 'Properties', icon: 'doc' },
+      { id: 'media', label: 'Media Library', icon: 'quote' },
+      { id: 'templates', label: 'Templates', icon: 'edit' },
+      { id: 'analytics', label: 'Analytics', icon: 'history' },
+      { id: 'leads', label: 'Leads', icon: 'bolt' },
+      { id: 'calendar', label: 'Calendar', icon: 'news' },
+      { id: 'integrations', label: 'Integrations', icon: 'ext' },
+      { id: 'admin', label: 'Admin', icon: 'shield' },
+    ],
+  },
 ];
 
 // Flatten a group's items whether it uses flat `items` or nested `sections`.
@@ -86,7 +86,7 @@ export default function App() {
   // Deep-linkable view: the URL hash reflects the current panel (e.g. #sk-affiliate),
   // so links change per panel and are shareable / bookmarkable / back-forward aware.
   const [view, setView] = useState(() => {
-    const h = (typeof location !== 'undefined' ? location.hash.replace('#', '') : '') || 'dashboard';
+    const h = (typeof location !== 'undefined' ? location.hash.replace('#', '') : '') || 'sk-overview';
     return h;
   });
   // Keep the URL in sync when the panel changes.
@@ -101,7 +101,10 @@ export default function App() {
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, [view]);
-  const [openGroups, setOpenGroups] = useState({ jk: true, sk: true });
+  // Business-SK open, Business-JK collapsed — unless you're on a Business-JK page (never hide it)
+  const [openGroups, setOpenGroups] = useState(() => ({
+    sk: true, jk: groupItems(NAV_GROUPS.find((g) => g.id === 'jk')).some((it) => it.id === view),
+  }));
   const toggleGroup = (id) => setOpenGroups((g) => ({ ...g, [id]: !g[id] }));
   const [drawerOpen, setDrawerOpen] = useState(false);   // mobile nav drawer
   // Lock body scroll while the mobile drawer is open.

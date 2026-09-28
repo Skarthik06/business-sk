@@ -1413,9 +1413,13 @@ async def cuelinks_store_generate(
                             "market": mk.get("id"), "store": name, "error": sc.get("error", "scrape failed"),
                             "items": []})
     raw = sc.get("items", [])
+    notes: list = []
     quality: dict = {}
     if min_rating is not None:
         quality["min_rating"] = min_rating
+        if min_rating > 0 and raw and not any(p.get("rating") for p in raw):
+            # the store shows no ratings for this search → say so instead of pretending we filtered
+            notes.append(f"{name} shows no ratings for this search, so the minimum-rating filter couldn't be applied.")
     if price_max is not None:
         quality["price_max"] = price_max
     if brands and brands.strip():
@@ -1440,7 +1444,7 @@ async def cuelinks_store_generate(
         "hashtags": (items[0].get("hashtags") if items else []),
         "cover_title": (items[0].get("cover_title") if items else ""),
         "cover_subtitle": (items[0].get("cover_subtitle") if items else ""),
-        "deduped": len(dups), "goal": (goal or "balanced"), "angle": (angle or "")})
+        "deduped": len(dups), "goal": (goal or "balanced"), "angle": (angle or ""), "notes": notes})
 
 
 # ── My Store — the owner's OWN Shopify store as a first-party product source ───────────────────
