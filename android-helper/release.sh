@@ -22,7 +22,9 @@ SDK="${ANDROID_SDK_ROOT:-${LOCALAPPDATA:-}/Android/Sdk}"
 ./gradlew --no-daemon -q assembleRelease
 APK=app/build/outputs/apk/release/app-release.apk
 
-BADGING="$("$SDK/build-tools/"*/aapt2* dump badging "$APK" | head -1)"
+AAPT2="$(ls "$SDK"/build-tools/*/aapt2.exe "$SDK"/build-tools/*/aapt2 2>/dev/null | tail -1)"
+[ -n "$AAPT2" ] || { echo "aapt2 not found under $SDK/build-tools (set ANDROID_SDK_ROOT)"; exit 1; }
+BADGING="$("$AAPT2" dump badging "$APK" | head -1)"
 CODE="$(sed -n "s/.*versionCode='\([0-9]*\)'.*/\1/p" <<<"$BADGING")"
 NAME="$(sed -n "s/.*versionName='\([^']*\)'.*/\1/p" <<<"$BADGING")"
 SHA="$(sha256sum "$APK" | cut -d' ' -f1)"
