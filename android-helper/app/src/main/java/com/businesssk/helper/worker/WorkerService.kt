@@ -150,18 +150,24 @@ class WorkerService : LifecycleService() {
     // Efficient by design: one tiny request every 20 s while the laptop GPU is off (60 s while it's
     // on — then the laptop does every cut-out), same data/battery/network rules as scraping, and
     // every downloaded + uploaded byte counts toward the daily limit.
+    private val seenAlerts = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
     private suspend fun cutouts() {
         while (true) {
             var wait = 60_000L
             runCatching {
                 val s = repo.current()
                 val token = repo.token() ?: return@runCatching
-                if (!s.paired || !s.enabled || !s.cutouts) return@runCatching
+                if (!s.paired || !s.enabled) return@runCatching
                 val usage = repo.usageNow()
-                if (!Policy.evaluate(s, Policy.device(this), usage.bytes).ok) return@runCatching
+                // cut-outs only when allowed (setting + data/battery rules); alerts always arrive
+                val canCut = s.cutouts && Policy.evaluate(s, Policy.device(this), usage.bytes).ok
                 val api = StudioCutApi(s.server, token)
-                val res = api.jobs(2, BuildConfig.VERSION_NAME)
+                val res = api.jobs(if (canCut) 2 else 0, BuildConfig.VERSION_NAME)
                 wait = if (res.laptop_gpu) 60_000L else 20_000L
+                for (a in res.alerts) {                              // GPU Watchdog → a phone notification, once each
+                    if (seenAlerts.add(a.id)) Notifications.alert(this@WorkerService, a.id, a.message, a.url)
+                }
                 for (job in res.jobs) {
                     if (job.url.isBlank()) continue
                     if (!doCutout(api, job.id, job.url)) break

@@ -35,7 +35,12 @@ import kotlin.math.roundToInt
 data class CutJob(val id: String, val type: String = "cutout", val url: String = "")
 
 @Serializable
-data class CutJobs(val jobs: List<CutJob> = emptyList(), val laptop_gpu: Boolean = false)
+data class CutJobs(val jobs: List<CutJob> = emptyList(), val laptop_gpu: Boolean = false,
+                   val alerts: List<StudioAlert> = emptyList())
+
+/** A GPU Watchdog alert from the Studio ("Colab needed — open Colab → Run all"). */
+@Serializable
+data class StudioAlert(val id: String, val message: String, val url: String = "")
 
 /** The Studio's phone cut-out endpoints (/api/gpu/device/…), authenticated with this phone's token. */
 class StudioCutApi(server: String, private val token: String) {

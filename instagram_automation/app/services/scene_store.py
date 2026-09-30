@@ -141,6 +141,32 @@ def claim_colab_code(code: str) -> Optional[str]:
     return token
 
 
+def create_colab_key(days: int = 90) -> Dict[str, Any]:
+    """A long-lived Colab key (shown ONCE): saved in Colab's Secrets as SK_COLAB_KEY, the notebook
+    connects with no code. Only its hash is stored; revoke any time. Creating one replaces the old."""
+    import secrets
+    key = "skg_" + secrets.token_urlsafe(32)
+    exp = time.time() + max(1, min(int(days), 365)) * 86400
+    with _LOCK:
+        items = [s for s in _sessions() if s.get("kind") != "key"]
+        items.append({"token": _sha(key), "exp": exp, "kind": "key"})
+        _save_sessions(items)
+    return {"key": key, "expires_at": int(exp), "days": int(days)}
+
+
+def revoke_colab_keys() -> int:
+    with _LOCK:
+        items = _sessions()
+        keep = [s for s in items if s.get("kind") != "key"]
+        _save_sessions(keep)
+    return len(items) - len(keep)
+
+
+def colab_key_expiry() -> float:
+    """Expiry (epoch) of the saved Colab key, 0 if none."""
+    return max((float(s.get("exp") or 0) for s in _sessions() if s.get("kind") == "key"), default=0.0)
+
+
 def colab_token_ok(tok: str) -> bool:
     h = _sha(tok)
     return any(hmac.compare_digest(s.get("token") or "", h) for s in _sessions())
@@ -560,7 +586,7 @@ def status() -> Dict[str, Any]:
             "laptop_gpu": (lp.get("info") or {}).get("gpu") or "", "colab_gpu": (cp.get("info") or {}).get("gpu") or "",
             "worker_kind": "colab" if colab_online() and not laptop_online() else "laptop",
             "worker_gpu": ((cp if colab_online() and not laptop_online() else lp).get("info") or {}).get("gpu") or "",
-            "rendering": rendering, "waiting_colab": waiting_colab, "device": render_target() and _LAST_DEVICE["device"],
+            "rendering": rendering, "waiting_colab": waiting_colab, "colab_key_expires": int(colab_key_expiry()), "device": render_target() and _LAST_DEVICE["device"],
             "phone_cutouts_online": device_online(), "phone": _last_device_poll().get("info") or {},
             "last_poll_secs": round(time.time() - float(lp.get("t") or 0), 1)
             if lp.get("t") else None, "worker": lp.get("info") or {},

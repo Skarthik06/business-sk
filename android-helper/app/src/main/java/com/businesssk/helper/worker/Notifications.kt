@@ -12,6 +12,7 @@ import com.businesssk.helper.R
 
 object Notifications {
     const val CHANNEL = "helper_status"
+    const val ALERTS = "studio_alerts"
     const val ID = 1605
 
     fun createChannel(context: Context) {
@@ -19,6 +20,33 @@ object Notifications {
         ch.description = context.getString(R.string.channel_desc)
         ch.setShowBadge(false)
         context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(ch)
+        // GPU Watchdog alerts (e.g. "Colab needed") — these should actually get your attention
+        val al = NotificationChannel(ALERTS, "Studio alerts", NotificationManager.IMPORTANCE_HIGH)
+        al.description = "When Google Colab needs a tap to render your posts"
+        context.getSystemService(NotificationManager::class.java)?.createNotificationChannel(al)
+    }
+
+    /** A tappable alert: opens `url` (the Colab notebook) in the browser. */
+    fun alert(context: Context, key: String, text: String, url: String) {
+        runCatching {
+            val open = PendingIntent.getActivity(
+                context, key.hashCode(),
+                Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url.ifBlank { "https://colab.research.google.com" }))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            val n = NotificationCompat.Builder(context, ALERTS)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setColor(0xFFE2B45C.toInt())
+                .setContentTitle("Business-SK · render GPU")
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setAutoCancel(true)
+                .setContentIntent(open)
+                .addAction(0, "Open Colab", open)
+                .build()
+            context.getSystemService(NotificationManager::class.java)?.notify(2000 + (key.hashCode() and 0xFFF), n)
+        }
     }
 
     fun build(context: Context, title: String, text: String): Notification {

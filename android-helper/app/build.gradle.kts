@@ -13,8 +13,8 @@ android {
         applicationId = "com.businesssk.helper"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "1.5.1"
+        versionCode = 8
+        versionName = "1.6.0"
         // The Scraper API's public worker endpoint (Caddy /scraper-worker → /v1/workers).
         // Self-update: release.sh publishes the newest APK + this version file next to it.
         // The Studio icon opens this URL; the version lets Studio → Settings show "installed x.y.z".

@@ -50,6 +50,9 @@ async def lifespan(app: FastAPI):
     # Start the engagement auto-sync poller (pulls comments/DMs + auto-replies on a timer).
     from app.engagement.api import start_background_sync
     start_background_sync()
+    # GPU Watchdog agent: alerts when Colab needs a tap (app/agents/gpu-watchdog.agents.md)
+    from app.services import gpu_watchdog
+    gpu_watchdog.start()
     yield
 
 
@@ -646,7 +649,8 @@ def sk_scenes():
     """Backdrop library (with small thumbnails) + GPU worker/queue status for the Studio panel."""
     from app.services import scene_store
     from app.services import art_director as _ad
-    return {"success": True, "status": scene_store.status(),
+    from app.services import gpu_watchdog
+    return {"success": True, "status": scene_store.status(), "alerts": gpu_watchdog.alerts(),
             "presets": [{"id": k, **v} for k, v in _ad.presets().items()],
             "library": [dict(s, thumb=scene_store.thumb(s["key"])) for s in scene_store.library()]}
 
@@ -742,6 +746,20 @@ def sk_gpu_colab(force: bool = False):
             "notebook": COLAB_NOTEBOOK, **scene_store.new_colab_code()}
 
 
+@app.post("/api/sk/gpu/colab-key")
+def sk_gpu_colab_key(days: int = 90):
+    """A long-lived Colab key, shown ONCE: save it in Colab → Secrets as SK_COLAB_KEY and the notebook
+    connects with no code (Open → Run all). Replaces any previous key."""
+    from app.services import scene_store
+    return {"success": True, **scene_store.create_colab_key(days), "secret_name": "SK_COLAB_KEY"}
+
+
+@app.delete("/api/sk/gpu/colab-key")
+def sk_gpu_colab_key_revoke():
+    from app.services import scene_store
+    return {"success": True, "revoked": scene_store.revoke_colab_keys()}
+
+
 class ColabClaimReq(BaseModel):
     code: str
 
@@ -814,9 +832,11 @@ def gpu_device_jobs(n: int = 2, ver: str = "", x_worker_token: str = Header("", 
     wid = _device_worker(x_worker_token)
     if not wid:
         raise HTTPException(401, "bad device token")
-    jobs = scene_store.take_cutout_jobs(n, {"worker": wid, "ver": ver})
+    from app.services import gpu_watchdog
+    jobs = scene_store.take_cutout_jobs(n, {"worker": wid, "ver": ver}) if n > 0 else []
     # the laptop does laptop-started work → the phone polls less; phone-started work → poll fast
-    return {"jobs": jobs, "laptop_gpu": scene_store.laptop_online() and scene_store.render_target() != "colab"}
+    return {"jobs": jobs, "laptop_gpu": scene_store.laptop_online() and scene_store.render_target() != "colab",
+            "alerts": gpu_watchdog.alerts(actionable_only=True)}          # SK Helper turns these into notifications
 
 
 @app.post("/api/gpu/device/result")

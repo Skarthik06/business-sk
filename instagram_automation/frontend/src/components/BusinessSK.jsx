@@ -1537,12 +1537,24 @@ function OverviewPanel({ active, health, stats, accounts = [], go }) {
 // ── Render GPUs: who paints posts (laptop GPU / Google Colab / phone cut-outs) + the Colab code ──
 function RenderGpuPanel({ active }) {
   const [st, setSt] = useState(null);
+  const [alerts, setAlerts] = useState([]);
   const [colab, setColab] = useState(null);
+  const [key, setKey] = useState(null);               // a freshly created Colab key (shown once)
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const newKey = async () => {
+    if (st?.colab_key_expires && !window.confirm('Create a new Colab key? The current one stops working — update SK_COLAB_KEY in Colab Secrets.')) return;
+    setBusy(true); setErr('');
+    try { setKey(await api.skGpuColabKey()); } catch { setErr('Could not create a key'); } finally { setBusy(false); }
+  };
+  const revokeKey = async () => {
+    if (!window.confirm('Revoke the Colab key? Colab will need a new key (or a one-time code) to connect.')) return;
+    await api.skGpuColabKeyRevoke().catch(() => {}); setKey(null);
+    api.skScenes().then((r) => setSt(r.status || null)).catch(() => {});
+  };
   useEffect(() => {
     if (!active) return undefined;
-    const load = () => api.skScenes().then((r) => setSt(r.status || null)).catch(() => {});
+    const load = () => api.skScenes().then((r) => { setSt(r.status || null); setAlerts(r.alerts || []); }).catch(() => {});
     load();
     const t = setInterval(load, 15000);
     return () => clearInterval(t);
@@ -1575,7 +1587,36 @@ function RenderGpuPanel({ active }) {
         <div className="text-xs mt-1" style={{ color: 'var(--faint)' }}>
           {(st.rendering || []).length ? `Rendering now on: ${st.rendering.join(', ')}` : 'Idle'} · {st.queued || 0} queued · {st.library_ready} saved backdrops
         </div>
+        <div className="flex flex-wrap items-center gap-2 text-xs mt-3" style={{ color: 'var(--muted)' }}>
+          <span>🔑 Colab key (no codes):</span>
+          {st.colab_key_expires
+            ? <span style={{ color: '#3fb950' }}>active until {new Date(st.colab_key_expires * 1000).toLocaleDateString()}</span>
+            : <span style={{ color: 'var(--faint)' }}>not set up</span>}
+          <button className="btn btn-sm btn-ghost" onClick={newKey} disabled={busy}>{st.colab_key_expires ? 'Replace key' : 'Create key'}</button>
+          {st.colab_key_expires ? <button className="btn btn-sm btn-ghost" onClick={revokeKey} style={{ color: 'var(--danger)' }}>Revoke</button> : null}
+        </div>
+        {/* GPU Watchdog agent: what needs a tap */}
+        {alerts.filter((a) => a.actionable).slice(-2).map((a) => (
+          <div key={a.id} className="flex items-center gap-2 text-xs mt-2 p-2" style={{ background: 'var(--panel-2)', borderRadius: 8 }}>
+            <span style={{ flex: 1 }}>{a.message}</span>
+            <a className="btn btn-sm" href={a.url} target="_blank" rel="noreferrer">Open Colab ↗</a>
+          </div>))}
       </>}
+      {key && (
+        <div className="panel p-3 mt-3" style={{ background: 'var(--panel-2)', maxWidth: 620 }}>
+          <div className="text-xs mb-1" style={{ color: 'var(--muted)' }}>Your Colab key — <b>shown only now</b>. Save it once in Colab, then just Open → Run all (no codes):</div>
+          <div className="font-mono text-xs" style={{ wordBreak: 'break-all', padding: '8px 10px', background: 'var(--bg)', borderRadius: 8 }}>{key.key}</div>
+          <div className="flex flex-wrap gap-2 mt-2">
+            <button className="btn btn-sm" onClick={() => navigator.clipboard?.writeText(key.key)}>Copy key</button>
+            <a className="btn btn-sm btn-accent" href="https://colab.research.google.com/github/Skarthik06/business-sk/blob/main/colab/sk_gpu_worker.ipynb" target="_blank" rel="noreferrer">Open Colab ↗</a>
+            <button className="btn btn-sm btn-ghost" onClick={() => setKey(null)}>Done</button>
+          </div>
+          <ol className="text-xs mt-2" style={{ color: 'var(--faint)', paddingLeft: 18, listStyle: 'decimal' }}>
+            <li>In Colab, click the 🔑 <b>Secrets</b> icon on the left → <b>Add new secret</b>.</li>
+            <li>Name: <b>{key.secret_name}</b> · Value: paste the key · switch <b>Notebook access</b> on.</li>
+            <li>Runtime → Run all. From now on that's all it takes. Valid {key.days} days (the watchdog reminds you before it expires).</li>
+          </ol>
+        </div>)}
       {err && <p className="text-xs mt-2" style={{ color: 'var(--danger)' }}>{err}</p>}
       {colab && (
         <div className="panel p-3 mt-3" style={{ background: 'var(--panel-2)', maxWidth: 560 }}>
