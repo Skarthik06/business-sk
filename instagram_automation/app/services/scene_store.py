@@ -86,7 +86,7 @@ def worker_token_ok(tok: Optional[str]) -> bool:
 # one-time code from the Studio, and the notebook swaps it for a temporary worker token. ────────
 _SESS_FILE = ROOT / "gpu_sessions.json"
 _CODE_TTL = 30 * 60                     # the code must be used within 30 min
-_SESSION_TTL = 6 * 3600                 # a Colab token works for 6 h (a free session is shorter anyway)
+_SESSION_TTL = 12 * 3600                # a Colab token works for 12 h (a free Colab session's maximum)
 _ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
 _CLAIM_FAILS: List[float] = []
 

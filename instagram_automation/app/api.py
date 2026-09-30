@@ -752,7 +752,7 @@ def gpu_colab_claim(body: ColabClaimReq):
     tok = scene_store.claim_colab_code(body.code)
     if not tok:
         raise HTTPException(400, "code is wrong or expired — press Render with Colab again in the Studio")
-    return {"ok": True, "token": tok, "hours": 6}
+    return {"ok": True, "token": tok, "hours": 12}
 
 
 @app.post("/api/gpu/worker/result")

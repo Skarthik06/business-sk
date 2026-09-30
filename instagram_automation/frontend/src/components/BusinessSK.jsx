@@ -776,7 +776,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                 <div className="panel p-3 mt-2" style={{ background: 'var(--panel-2)', maxWidth: 520 }}>
                   <div className="text-xs mb-1" style={{ color: 'var(--muted)' }}>{DEVICE === 'phone' ? 'You\'re on the phone → your posts render on Google Colab\'s free GPU:' : 'Laptop GPU is off → use Google Colab\'s free GPU:'}</div>
                   <div className="font-mono" style={{ fontSize: 22, letterSpacing: '.12em', fontWeight: 700 }}>{colab.code}</div>
-                  <div className="text-xs mb-2" style={{ color: 'var(--faint)' }}>One-time code · valid {Math.round((colab.expires_in || 1800) / 60)} min · Colab then renders for up to 6 h</div>
+                  <div className="text-xs mb-2" style={{ color: 'var(--faint)' }}>One-time code · valid {Math.round((colab.expires_in || 1800) / 60)} min · Colab then renders for up to 12 h</div>
                   <div className="flex flex-wrap gap-2">
                     <button className="btn btn-sm" onClick={() => navigator.clipboard?.writeText(colab.code).then(() => say('Code copied'))}>Copy code</button>
                     <a className="btn btn-sm btn-accent" href={colab.notebook} target="_blank" rel="noreferrer">Open Colab ↗</a>

@@ -280,6 +280,9 @@ def main() -> None:
         try:
             jobs = _get_json(f"{API}/api/gpu/worker/jobs?{q}&n=4").get("jobs", [])
         except Exception as e:
+            if KIND == "colab" and "401" in str(e):            # the 12-hour session key expired
+                log("session expired -> stopping. Get a new code: Studio → Content Studio → ☁️ Render with Colab")
+                return
             log(f"poll failed: {str(e)[:120]}")
             time.sleep(15)
             continue
@@ -323,7 +326,7 @@ if __name__ == "__main__":
     while True:                                    # self-healing: never die for good
         try:
             main()
-            if IDLE_EXIT:                              # a Colab session ended on purpose
+            if IDLE_EXIT or KIND == "colab":           # a Colab worker ended on purpose (idle / expired)
                 break
         except KeyboardInterrupt:
             break
