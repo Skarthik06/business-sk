@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.15.0** (2026-09-30) — GPU Watchdog agent + no-code Colab key; phone notifications; app 1.6.0
 - **v2.14.4** (2026-09-30) — Overview: Render GPUs box with Get Colab code
 - **v2.14.3** (2026-09-30) — Colab: never-stop by default (notebook setting), 12-hour session key
 - **v2.14.2** (2026-09-30) — Worker tokens out of access logs; Colab verified on a T4
