@@ -29,7 +29,7 @@ import traceback
 import urllib.request
 
 API = os.getenv("SK_API", "https://140-238-247-18.nip.io").rstrip("/")
-VER = "1.4"
+VER = "1.5"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/140.0 Safari/537.36")
 IDLE_RELEASE = int(os.getenv("GPU_IDLE_RELEASE_SECS", "300"))
@@ -67,7 +67,8 @@ def _token() -> str:
 
 
 def _get_json(url: str, timeout: int = 30):
-    req = urllib.request.Request(url, headers={"User-Agent": "sk-gpu-worker/" + VER})
+    # the token travels in a header — a URL (and its ?token=) ends up in access logs
+    req = urllib.request.Request(url, headers={"User-Agent": "sk-gpu-worker/" + VER, "X-Worker-Token": _token()})
     with urllib.request.urlopen(req, timeout=timeout) as r:
         return json.loads(r.read().decode("utf-8"))
 
@@ -259,7 +260,7 @@ def main() -> None:
         sys.exit(1)
     M = Models()                                   # nothing loaded: GPU untouched until a job arrives
     log(f"GPU worker {VER} ({KIND}) online (GPU idle, released) · {M.gpu} · {API}")
-    q = f"token={tok}&gpu={urllib.request.quote(M.gpu)}&ver={VER}&kind={KIND}"
+    q = f"gpu={urllib.request.quote(M.gpu)}&ver={VER}&kind={KIND}"
     last_job = time.time()
     # heartbeat while busy: a scene paint takes ~2 min; tell the server we're alive every 20 s
     import threading

@@ -8,6 +8,23 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+# Access logs must never contain secrets: older workers put their token in the URL (?token=…).
+import logging as _logging  # noqa: E402
+import re as _re_redact  # noqa: E402
+
+
+class _RedactTokens(_logging.Filter):
+    def filter(self, record):
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and "token=" in str(args[2]):
+            a = list(args)
+            a[2] = _re_redact.sub(r"token=[^&\s]+", "token=REDACTED", str(a[2]))
+            record.args = tuple(a)
+        return True
+
+
+_logging.getLogger("uvicorn.access").addFilter(_RedactTokens())
+
 from fastapi.staticfiles import StaticFiles
 
 from app import db, rags, settings
@@ -698,11 +715,12 @@ class GpuResultReq(BaseModel):
 
 
 @app.get("/api/gpu/worker/jobs")
-def gpu_worker_jobs(token: str = "", n: int = 4, gpu: str = "", ver: str = "", hb: int = 0, kind: str = ""):
+def gpu_worker_jobs(token: str = "", n: int = 4, gpu: str = "", ver: str = "", hb: int = 0, kind: str = "",
+                    x_worker_token: str = Header("", alias="X-Worker-Token")):
     """GPU worker poll — the laptop, or a Google Colab session (token-authenticated; bypasses the
     admin gate). hb=1 = heartbeat only."""
     from app.services import scene_store
-    if not scene_store.worker_token_ok(token):
+    if not scene_store.worker_token_ok(x_worker_token or token):     # header (new) or ?token= (old)
         raise HTTPException(401, "bad worker token")
     info = {"gpu": gpu, "ver": ver, "kind": "colab" if kind == "colab" else "laptop"}
     return {"jobs": scene_store.take_jobs(n, info, heartbeat=bool(hb))}

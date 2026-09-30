@@ -222,6 +222,24 @@ class RunResponse(BaseModel):
 
 # ─── App ──────────────────────────────────────────────────────────────────────
 
+
+# Access logs must never contain secrets: older workers put their token in the URL (?token=…).
+import logging as _logging  # noqa: E402
+import re as _re_redact  # noqa: E402
+
+
+class _RedactTokens(_logging.Filter):
+    def filter(self, record):
+        args = record.args
+        if isinstance(args, tuple) and len(args) >= 3 and "token=" in str(args[2]):
+            a = list(args)
+            a[2] = _re_redact.sub(r"token=[^&\s]+", "token=REDACTED", str(a[2]))
+            record.args = tuple(a)
+        return True
+
+
+_logging.getLogger("uvicorn.access").addFilter(_RedactTokens())
+
 app = FastAPI(
     title="Affiliate Bot — JSON API",
     version="4.0",
