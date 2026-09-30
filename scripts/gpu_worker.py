@@ -240,13 +240,26 @@ def do_scene(M: Models, job: dict) -> tuple[str, dict]:
             M._bir.to("cuda")
 
 
+# Backdrop speed. Colab's T4 must paint in float32 (float16 overflows in Z-Image's transformer → a
+# black image — tested), ~35 s per step at full size. So on Colab paint smaller + fewer steps and
+# upscale (a soft, empty studio backdrop loses almost nothing): ~6 min → ~2 min. The laptop keeps full size.
+_FAST = KIND == "colab" and os.getenv("SK_FAST_SCENES", "1") != "0"
+SCENE_SCALE = float(os.getenv("SK_SCENE_SCALE", "0.75" if _FAST else "1"))
+SCENE_STEPS = int(os.getenv("SK_SCENE_STEPS", "6" if _FAST else "9"))
+
+
 def _paint(M: Models, job: dict) -> tuple[str, dict]:
     torch = M.torch
     pipe = M.zimage()
     prompt = f"{job['prompt']}, {EMPTY}"
-    img = pipe(prompt=prompt, height=int(job.get("h", 1280)), width=int(job.get("w", 1024)),
-               num_inference_steps=9, guidance_scale=0.0,
+    W, H = int(job.get("w", 1024)), int(job.get("h", 1280))
+    w, h = max(512, int(W * SCENE_SCALE) // 16 * 16), max(512, int(H * SCENE_SCALE) // 16 * 16)
+    img = pipe(prompt=prompt, height=h, width=w,
+               num_inference_steps=SCENE_STEPS, guidance_scale=0.0,
                generator=torch.Generator(M.dev).manual_seed(int(job.get("seed", 0)))).images[0]
+    if img.size != (W, H):                                   # painted smaller → back to the slide size
+        from PIL import Image
+        img = img.resize((W, H), Image.LANCZOS)
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="JPEG", quality=92)
     M.last_scene = time.time()

@@ -972,9 +972,8 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
     } finally { setDesigning(false); }
   };
 
-  // Auto-render the designed slides once when the post loads, so Content Studio ALWAYS shows the
-  // real post (product photos for products, deal cards for deals) instead of a blank carousel.
-  useEffect(() => { if (pins.length && !design && !designing) renderDesign(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [g.id]);
+  // No auto-render: the card shows the real product photos until YOU press "Preview post design"
+  // (rendering costs AI-direction tokens + GPU time, so it only happens when asked).
   // The post got a NEW plan (a "fresh design" re-roll in the big preview) → show that one here too,
   // so this card never shows a different design from what will post.
   useEffect(() => { if (artId && renderedArt.current && artId !== renderedArt.current && !designing) renderDesign(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [artId]);
