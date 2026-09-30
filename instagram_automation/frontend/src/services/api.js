@@ -73,7 +73,7 @@ export default {
   skArtDirect: (products, category = '', look = '', styles = '', fresh = false) => http.post('/sk/art-direct', { products, category, look, styles, fresh }, { timeout: 90000 }).then(data),
   // Backdrop library (thumbnails) + laptop GPU worker status.
   skScenes: () => http.get('/sk/scenes').then(data),
-  skGpuColab: () => http.post('/sk/gpu/colab').then(data),   // laptop state + a one-time Colab session code
+  skGpuColab: (force = false) => http.post('/sk/gpu/colab', null, { params: force ? { force: 1 } : {} }).then(data),   // a one-time Colab session code
   // Scraper API ops view (routes, workers, circuits) — via the admin-gated IG backend.
   skScraperDashboard: () => http.get('/sk/scraper-dashboard').then(data),
   // Business-SK Helper phone pairing (QR + one-time code) and device management.

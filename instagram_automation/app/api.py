@@ -730,12 +730,13 @@ COLAB_NOTEBOOK = "https://colab.research.google.com/github/Skarthik06/business-s
 
 
 @app.post("/api/sk/gpu/colab")
-def sk_gpu_colab():
-    """"Render with Colab": if the laptop GPU is online nothing is needed; otherwise a one-time
-    session code for the Colab notebook (you open it and press Run — Colab can't be started for you)."""
+def sk_gpu_colab(force: bool = False):
+    """"Render with Colab": if the laptop GPU is online nothing is needed (unless force=1, e.g. the
+    Overview's "Get Colab code"); otherwise a one-time session code for the Colab notebook (you open
+    it and press Run — Colab can't be started for you)."""
     from app.services import scene_store
     # on the laptop with its GPU on → nothing to do; on the phone (or laptop GPU off) → a Colab code
-    if scene_store.render_target() != "colab" and scene_store.laptop_online():
+    if not force and scene_store.render_target() != "colab" and scene_store.laptop_online():
         return {"success": True, "laptop_online": True}
     return {"success": True, "laptop_online": scene_store.laptop_online(), "colab_online": scene_store.colab_online(),
             "notebook": COLAB_NOTEBOOK, **scene_store.new_colab_code()}

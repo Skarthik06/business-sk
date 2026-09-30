@@ -1517,6 +1517,7 @@ function OverviewPanel({ active, health, stats, accounts = [], go }) {
             : <ActionCard title="Find winning products" body="Run Discover to surface fresh, high-winner-score products, then publish." btn="Open Discover" onClick={() => go?.('sk-affiliate')} />}
         </div>
       </div>
+      <RenderGpuPanel active={active} />
       <ScraperPanel active={active} />
       <div className="panel p-4">
         <div className="eyebrow mb-3">Recent winners</div>
@@ -1533,6 +1534,65 @@ function OverviewPanel({ active, health, stats, accounts = [], go }) {
   );
 }
 // Scraper API ops view (Strategy Engine): which routes are alive, which work per site, open circuits.
+// ── Render GPUs: who paints posts (laptop GPU / Google Colab / phone cut-outs) + the Colab code ──
+function RenderGpuPanel({ active }) {
+  const [st, setSt] = useState(null);
+  const [colab, setColab] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    if (!active) return undefined;
+    const load = () => api.skScenes().then((r) => setSt(r.status || null)).catch(() => {});
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, [active]);
+  const getCode = async () => {
+    setBusy(true); setErr('');
+    try { setColab(await api.skGpuColab(true)); } catch { setErr('Could not create a code'); } finally { setBusy(false); }
+  };
+  const row = (on, label, detail) => (
+    <div className="flex items-center gap-2 text-sm mb-1.5">
+      <span style={{ width: 9, height: 9, borderRadius: '50%', background: on ? '#3fb950' : 'var(--danger)', flex: 'none' }} />
+      <span>{label}</span>
+      <span className="text-xs" style={{ color: 'var(--faint)' }}>{detail}</span>
+    </div>);
+  const gpu = (s) => (s || '').replace(/^NVIDIA (GeForce )?/, '').replace(/ Laptop GPU$/, '');
+  return (
+    <div className="panel p-4 mb-4">
+      <div className="flex items-center mb-3 gap-2">
+        <div className="eyebrow">Render GPUs</div>
+        <span className="flex-1" />
+        <a className="btn btn-sm btn-ghost" href="https://colab.research.google.com/github/Skarthik06/business-sk/blob/main/colab/sk_gpu_worker.ipynb" target="_blank" rel="noreferrer">Open Colab ↗</a>
+        <button className="btn btn-sm" onClick={getCode} disabled={busy} title="A one-time code for the Colab notebook (valid 30 min, single use)">
+          {busy ? <Spinner size={12} /> : '☁️'} Get Colab code
+        </button>
+      </div>
+      {!st ? <p className="text-sm" style={{ color: 'var(--muted)' }}><Spinner size={14} /></p> : <>
+        {row(st.laptop_online, '💻 Laptop GPU', st.laptop_online ? `online · ${gpu(st.laptop_gpu)} · renders laptop posts` : 'offline')}
+        {row(st.colab_online, '☁️ Google Colab', st.colab_online ? `online · ${st.colab_gpu || 'GPU'} · renders phone posts` : 'not running — Get Colab code, then Run all in the notebook')}
+        {row(st.phone_cutouts_online, '📱 Phone cut-outs', st.phone_cutouts_online ? 'ready (ML Kit) · used when no GPU is on' : 'offline')}
+        <div className="text-xs mt-1" style={{ color: 'var(--faint)' }}>
+          {(st.rendering || []).length ? `Rendering now on: ${st.rendering.join(', ')}` : 'Idle'} · {st.queued || 0} queued · {st.library_ready} saved backdrops
+        </div>
+      </>}
+      {err && <p className="text-xs mt-2" style={{ color: 'var(--danger)' }}>{err}</p>}
+      {colab && (
+        <div className="panel p-3 mt-3" style={{ background: 'var(--panel-2)', maxWidth: 560 }}>
+          {colab.laptop_online && <div className="text-xs mb-1" style={{ color: 'var(--muted)' }}>Your laptop GPU is online, so Colab isn't needed for laptop posts right now — here's a code anyway:</div>}
+          <div className="font-mono" style={{ fontSize: 24, letterSpacing: '.12em', fontWeight: 700 }}>{colab.code}</div>
+          <div className="text-xs mb-2" style={{ color: 'var(--faint)' }}>One-time code · valid {Math.round((colab.expires_in || 1800) / 60)} min · Colab then renders for up to 12 h</div>
+          <div className="flex flex-wrap gap-2">
+            <button className="btn btn-sm" onClick={() => navigator.clipboard?.writeText(colab.code)}>Copy code</button>
+            <a className="btn btn-sm btn-accent" href={colab.notebook} target="_blank" rel="noreferrer">Open Colab ↗</a>
+            <button className="btn btn-sm btn-ghost" onClick={() => setColab(null)}>Close</button>
+          </div>
+          <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>In Colab: paste the code into <b>SESSION_CODE</b> (step 3) → Runtime → Run all. Keep the tab open.</div>
+        </div>)}
+    </div>
+  );
+}
+
 function ScraperPanel({ active }) {
   const [d, setD] = useState(null);
   const [err, setErr] = useState('');
