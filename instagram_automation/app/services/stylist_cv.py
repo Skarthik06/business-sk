@@ -379,9 +379,9 @@ def check_and_fix(styled_jpeg: bytes, a: Dict[str, Any]) -> Dict[str, Any]:
         cx, cy, size = x + w / 2, y + h / 2, max(w, h)
         bgr = _erase(bgr, c["mask"], region)
         res["logo"] = "restored"
-    else:
-        cx, cy, size = exp_cx, exp_cy, exp_sz
-        res["logo"] = "placed"
+    else:                                                   # the model left the logo out: a flat-lay
+        res["logo"] = "missing"                             # re-proportions the garment, so guessing a
+        return res                                          # spot could put it somewhere wrong — report it
     bgr = _paste_logo(bgr, src, sm, (lx0, ly0, lx1, ly1), (cx, cy), size, np.asarray(a["fabric_lab"], np.float32))
     ok, enc = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 92])
     res["image"] = enc.tobytes()

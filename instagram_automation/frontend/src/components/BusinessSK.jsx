@@ -994,6 +994,7 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
       const fixed = (r.results || []).filter((x) => x.logo === 'restored').length;
       setStyleMsg(`✨ ${r.styled} styled · spent $${(r.spent_usd || 0).toFixed(3)} · today $${r.today_usd.toFixed(3)}/${r.daily_cap_usd.toFixed(2)}` +
         (fixed ? ` · ${fixed} logo(s) corrected to the real one` : '') +
+        ((r.results || []).some((x) => x.logo === 'missing') ? ' · a logo was left out by the model — check that slide' : '') +
         (bad.length ? ` · ${bad.length} kept the free design (${bad[0].status}${bad[0].why ? ': ' + bad[0].why : ''})` : ''));
       await renderDesign();
     } catch (e) {
