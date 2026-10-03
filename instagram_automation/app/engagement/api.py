@@ -629,16 +629,43 @@ class SyncReq(BaseModel):
 _LAST_SYNC: Dict[int, Dict[str, Any]] = {}
 
 
+# Comments whose automation is finished (reply + DM sent, or nothing to do) — skipped on later
+# polls instead of re-running every rule for every comment ever made every 30 s (that work grew
+# forever with the account). Keyed to the rules' signature: change a rule → everything re-checks.
+_SETTLED: Dict[Any, str] = {}
+_FINAL = {"SUCCESS", "DUPLICATE", "SKIPPED", "FAILED"}       # FAILED here = permanent (retryable is RATE_LIMITED)
+_PRIVATE_REPLY_DAYS = 7                                       # Instagram allows a private reply for 7 days
+
+
+def _rules_sig(account_id: int) -> str:
+    try:
+        return str(hash(repr(store.load_engine_rules(account_id))))
+    except Exception:
+        return ""
+
+
+def _comment_age_days(cm: Dict[str, Any]) -> float:
+    from datetime import datetime, timezone
+    return (datetime.now(timezone.utc) - _graph_time(cm.get("timestamp"))).total_seconds() / 86400
+
+
 def _sync_one_post(account_id: int, media_id: str, token: str, run_rules: bool,
-                   warnings: List[str], with_insights: bool = True) -> Dict[str, Any]:
+                   warnings: List[str], with_insights: bool = True, max_pages: int = 1,
+                   sig: str = "", stop_at_known: bool = False) -> Dict[str, Any]:
     """Pull one post's comments (+ run rules on new ones). Insights are OPTIONAL:
     the background poller skips them (with_insights=False) because polling insights every
     tick was the #1 rate-limit consumer and comment→DM never needs them — analytics are
     fetched only on a manual sync or the post-detail view."""
     new_count = fired = 0
     _acct = rags.get_account(account_id) or {}          # for the self-author feedback-loop guard
+    def _page_known(page: List[Dict[str, Any]]) -> bool:      # newest first → once a page's oldest
+        tail = [str(c.get("id")) for c in page if c.get("id")][-5:]   # comments are known, the
+        if not tail:                                                  # rest is older → stop paging
+            return False
+        return all((account_id, i) in _SETTLED for i in tail) or store.comments_known(account_id, tail)
     try:
-        comments = service.get_comments(token, media_id)
+        comments = service.get_comments(token, media_id, max_pages=max_pages,
+                                        stop=_page_known if stop_at_known else None)
     except service.GraphError as e:
         comments = []
         # Persistent permission / "object does not exist" errors mean this account's token
@@ -654,6 +681,8 @@ def _sync_one_post(account_id: int, media_id: str, token: str, run_rules: bool,
         # Feedback-loop guard: skip the account's OWN comments/replies (else auto-replies loop).
         if _is_self_author(_acct, (cm.get("from") or {}).get("id"), cm.get("username")):
             continue
+        if sig and _SETTLED.get((account_id, cid)) == sig:
+            continue                                        # finished earlier — no DB work, no rules
         res = store.upsert_comment(account_id, media_id, cid,
                                    username=cm.get("username"), text=cm.get("text", ""))
         if res["is_new"]:
@@ -669,9 +698,18 @@ def _sync_one_post(account_id: int, media_id: str, token: str, run_rules: bool,
                                 external_event_id=f"comment:{cid}")
             rec = store.store_event(account_id, "COMMENT_RECEIVED", f"comment:{cid}",
                                     cm, post_id=media_id, comment_id=cid)
+            if not res["is_new"] and _comment_age_days(cm) > _PRIVATE_REPLY_DAYS + 1:
+                if sig:                                     # handled long ago; Instagram no longer allows
+                    _SETTLED[(account_id, cid)] = sig       # a private reply → nothing left to do
+                continue
             out = process_event(account_id, ev, rec["event_id"])
             store.mark_event(rec["event_id"], "SUCCESS")
-            fired += sum(1 for e in out.get("executions", []) if e.get("status") not in ("DUPLICATE", "HELD_QUIET"))
+            ex = out.get("executions", [])
+            fired += sum(1 for e in ex if e.get("status") not in ("DUPLICATE", "HELD_QUIET", "DEFERRED"))
+            if sig and all(e.get("status") in _FINAL for e in ex):
+                if len(_SETTLED) > 200000:
+                    _SETTLED.clear()
+                _SETTLED[(account_id, cid)] = sig
     insights: Dict[str, Any] = {}
     if with_insights:                                     # skipped by the poller (saves the most calls)
         try:
@@ -815,6 +853,22 @@ def ensure_affiliate_automation(account_id: int, ig_media_id: str, *, category: 
             "products": len(products)}
 
 
+_TICKS: Dict[int, int] = {}
+_COUNTS: Dict[Any, int] = {}
+_SWEEP_EVERY = 20                                           # ticks (×30 s ≈ 10 min)
+
+
+def _published_recently(ts: Any, days: int = _PRIVATE_REPLY_DAYS + 1) -> bool:
+    from datetime import datetime, timezone
+    try:
+        dt = ts if isinstance(ts, datetime) else datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - dt).days <= days
+    except Exception:
+        return True
+
+
 def run_account_sync(account_id: int, run_rules: bool = True, light: bool = False) -> Dict[str, Any]:
     """Universal sync for one account: every published post's comments (+ optional insights),
     plus optional DM-inbox pull. Auto-replies/DMs fire when a rule matches. Safe on a timer.
@@ -835,12 +889,46 @@ def run_account_sync(account_id: int, run_rules: bool = True, light: bool = Fals
     # PER-ACCOUNT ISOLATION: only sync real-estate posts published BY THIS account, so the
     # affiliate account never touches real-estate media (no clash, no cross-account errors).
     posts = [p for p in bstore.list_published_posts() if p.get("account_id") == account_id]
-    per_post, totals = [], {"new_comments": 0, "rules_fired": 0, "posts": 0}
+    per_post, totals = [], {"new_comments": 0, "rules_fired": 0, "posts": 0, "skipped_idle": 0}
+    # SCALE: one call returns every post's comment count; only posts with NEW activity are read
+    # (newest-first pages until known comments). Every ~10 min a sweep re-reads posts from the last
+    # 8 days so held DMs (follow gate) and rate-limited sends get their retry.
+    sig = _rules_sig(account_id)
+    _TICKS[account_id] = _TICKS.get(account_id, 0) + 1
+    sweep = not light or _TICKS[account_id] % _SWEEP_EVERY == 1
+    counts: Optional[Dict[str, int]] = None
+    if light and ig_user_id:
+        try:
+            counts = service.media_comment_counts(token, str(ig_user_id))
+        except service.GraphError as e:
+            warnings.append(f"Comment counts unavailable: {e.message}")
+
+    def _wanted(mid: str, recent: bool):
+        """None = skip; else (max_pages, stop_at_known)."""
+        if counts is None:                                  # manual sync / counts failed → read it
+            return (4, False) if not light else (2, True)
+        c, prev = counts.get(str(mid)), _COUNTS.get((account_id, str(mid)))
+        if sweep and recent:
+            return (10, False)                              # retries + follow-gate re-checks
+        if c is not None and c != prev:
+            return (20, True)                               # new comments: newest pages until known
+        return None
+
+    def _seen(mid: str) -> None:
+        if counts is not None and counts.get(str(mid)) is not None:
+            _COUNTS[(account_id, str(mid))] = counts[str(mid)]
+
     for p in posts:
         mid = p.get("ig_media_id")
         if not mid:
             continue
-        r = _sync_one_post(account_id, mid, token, run_rules, warnings, with_insights=want_insights)
+        plan = _wanted(mid, False)
+        if not plan:
+            totals["skipped_idle"] += 1
+            continue
+        r = _sync_one_post(account_id, mid, token, run_rules, warnings, with_insights=want_insights,
+                           max_pages=plan[0], sig=sig, stop_at_known=plan[1])
+        _seen(mid)
         if want_insights:                                 # persist analytics only on a full sync
             try:
                 bstore.save_analytics(p["campaign_id"], p.get("property_id"), mid,
@@ -856,7 +944,13 @@ def run_account_sync(account_id: int, run_rules: bool = True, light: bool = Fals
         mid = ap.get("ig_media_id")
         if not mid:
             continue
-        r = _sync_one_post(account_id, mid, token, run_rules, warnings, with_insights=want_insights)
+        plan = _wanted(mid, _published_recently(ap.get("published_at")))
+        if not plan:
+            totals["skipped_idle"] += 1
+            continue
+        r = _sync_one_post(account_id, mid, token, run_rules, warnings, with_insights=want_insights,
+                           max_pages=plan[0], sig=sig, stop_at_known=plan[1])
+        _seen(mid)
         per_post.append({"campaign_id": None, "label": f"affiliate#{ap.get('category') or ''}", **r})
         totals["new_comments"] += r["new_comments"]
         totals["rules_fired"] += r["rules_fired"]
@@ -864,7 +958,7 @@ def run_account_sync(account_id: int, run_rules: bool = True, light: bool = Fals
     new_dms = 0 if light else _sync_dms(account_id, token, account, warnings)
     import time as _t
     summary = {"account_id": account_id, "ran_at": _t.time(), "run_rules": run_rules,
-               "posts": totals["posts"], "new_comments": totals["new_comments"],
+               "posts": totals["posts"], "skipped_idle": totals["skipped_idle"], "new_comments": totals["new_comments"],
                "rules_fired": totals["rules_fired"], "new_dms": new_dms,
                "warnings": warnings, "per_post": per_post}
     _LAST_SYNC[account_id] = {k: summary[k] for k in
@@ -1032,6 +1126,26 @@ def _dispatch(account_id: int, action: R.Action, event: R.InboundEvent, text: st
     return res
 
 
+# When Meta says "slow down" (rate-limit codes) we pause sends for THAT account — 1 min, doubling
+# to 15 min while it repeats — instead of retrying every pending comment every tick (which keeps
+# the limit hot). Deferred sends are not logged as failures; they go out once the pause ends.
+_COOLDOWN: Dict[int, Any] = {}                              # account_id → [until_ts, backoff_s]
+
+
+def _cooling(account_id: int) -> bool:
+    import time as _t
+    c = _COOLDOWN.get(account_id)
+    return bool(c and _t.time() < c[0])
+
+
+def _note_rate_limit(account_id: int) -> None:
+    import time as _t
+    c = _COOLDOWN.get(account_id) or [0, 30]
+    back = min(900, c[1] * 2)
+    _COOLDOWN[account_id] = [_t.time() + back, back]
+    print(f"[engagement] Meta rate limit on account {account_id} — pausing sends {back}s", flush=True)
+
+
 def _dispatch_inner(account_id: int, action: R.Action, event: R.InboundEvent, text: str, dry: bool):
     """Execute one action. Internal actions never touch Meta; reply/DM go to Graph
     only when live + eligible. Returns (status, request_ref, error_code, error_msg)."""
@@ -1039,6 +1153,17 @@ def _dispatch_inner(account_id: int, action: R.Action, event: R.InboundEvent, te
         return "SUCCESS", None, None, None
     if dry or not _LIVE:
         return "SKIPPED", "dry-run", None, None
+    if action.type in ("REPLY_TO_COMMENT", "SEND_DM") and _cooling(account_id):
+        return "DEFERRED", None, "COOLDOWN", "Meta rate limit — paused, retried automatically"
+    res = _dispatch_send(account_id, action, event, text)
+    if res[0] == "RATE_LIMITED":
+        _note_rate_limit(account_id)
+    elif res[0] == "SUCCESS" and action.type in ("REPLY_TO_COMMENT", "SEND_DM") and account_id in _COOLDOWN:
+        _COOLDOWN.pop(account_id, None)
+    return res
+
+
+def _dispatch_send(account_id: int, action: R.Action, event: R.InboundEvent, text: str):
     account = rags.get_account(account_id, with_secret=True)
     token = (account or {}).get("ig_access_token")
     ig_id = (account or {}).get("ig_business_id")
@@ -1208,7 +1333,7 @@ def _process_event(account_id: int, event: R.InboundEvent, event_id: Optional[in
                 continue
             text = provider.build(action, event, _context(event, account))
             status, ref, code, err = _dispatch(account_id, action, event, text, dry)
-            if status in ("HELD_QUIET", "DUPLICATE"):   # silent re-check / already done — nothing to log
+            if status in ("HELD_QUIET", "DUPLICATE", "DEFERRED"):   # silent re-check / done / paused — nothing to log
                 results.append({"rule_id": rule.id, "action": action.type, "status": status})
                 continue
             if persist:
@@ -1342,8 +1467,14 @@ async def receive_webhook(request: Request):
     import json, asyncio
     payload = json.loads(raw or b"{}")
     # Fire-and-forget in a thread so blocking Graph calls never hold up the 200 ACK to Meta.
-    asyncio.get_running_loop().run_in_executor(None, _process_payload, payload)
+    # Own bounded pool: a burst of comments queues here (in order) instead of taking every
+    # shared worker thread the rest of the app needs.
+    asyncio.get_running_loop().run_in_executor(_WEBHOOK_POOL, _process_payload, payload)
     return {"received": True}
+
+
+from concurrent.futures import ThreadPoolExecutor as _TPE
+_WEBHOOK_POOL = _TPE(max_workers=int(os.getenv("ENGAGEMENT_WEBHOOK_WORKERS", "6")), thread_name_prefix="webhook")
 
 
 def _process_payload(payload: Dict[str, Any]) -> int:

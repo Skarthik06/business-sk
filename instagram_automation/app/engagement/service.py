@@ -233,10 +233,38 @@ def send_dm(token: str, ig_user_id: str, recipient_id: str, message: str) -> Dic
     return _send_message(token, ig_user_id, {"id": recipient_id}, message)
 
 
-def get_comments(token: str, ig_media_id: str) -> List[Dict[str, Any]]:
-    body = _get(f"{GRAPH}/{ig_media_id}/comments", token,
-                {"fields": "id,text,username,timestamp,parent_id,from{id,username}", "limit": 50})
-    return body.get("data", [])
+def get_comments(token: str, ig_media_id: str, max_pages: int = 1, stop=None) -> List[Dict[str, Any]]:
+    """Top-level comments, NEWEST FIRST (Graph v3.2+), 50 per page. Follows paging up to
+    max_pages; `stop(page)` → True ends early (e.g. the page reached comments we already have),
+    so a busy post never loses the commenters beyond the first 50 and an idle one costs 1 call."""
+    url, params = f"{GRAPH}/{ig_media_id}/comments", {"fields": "id,text,username,timestamp,parent_id,from{id,username}", "limit": 50}
+    out: List[Dict[str, Any]] = []
+    for _ in range(max(1, max_pages)):
+        body = _get(url, token, params)
+        page = body.get("data", [])
+        out += page
+        nxt = ((body.get("paging") or {}).get("cursors") or {}).get("after")
+        if not page or not nxt or not (body.get("paging") or {}).get("next") or (stop and stop(page)):
+            break
+        params = {**params, "after": nxt}
+    return out
+
+
+def media_comment_counts(token: str, ig_user_id: str, max_pages: int = 3) -> Dict[str, int]:
+    """{media_id: comments_count} for the account's recent media — ONE call per 100 posts. The
+    poller only reads comments of posts whose count changed (idle posts cost nothing)."""
+    counts: Dict[str, int] = {}
+    url, params = f"{GRAPH}/{ig_user_id}/media", {"fields": "id,comments_count", "limit": 100}
+    for _ in range(max_pages):
+        body = _get(url, token, params)
+        for m in body.get("data", []):
+            if m.get("id") is not None:
+                counts[str(m["id"])] = int(m.get("comments_count") or 0)
+        nxt = ((body.get("paging") or {}).get("cursors") or {}).get("after")
+        if not nxt or not (body.get("paging") or {}).get("next"):
+            break
+        params = {**params, "after": nxt}
+    return counts
 
 
 def get_self(token: str) -> Dict[str, Any]:

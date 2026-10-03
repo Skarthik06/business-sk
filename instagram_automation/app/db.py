@@ -98,14 +98,86 @@ class _Connection:
         self._conn.commit()
 
 
+# Connection reuse. The DB is Supabase over the internet: a NEW connection per query cost ~29 ms
+# and one Postgres slot each (the DB allows 60, shared with the other services) — a burst of
+# comments, each doing a few queries from parallel worker threads, could exhaust the slots and
+# fail events. Reused connections cost ~2.5 ms. Idle connections wait in a small stack; at most
+# _DB_MAX_ACTIVE are open at once (others wait briefly instead of overloading the database).
+import queue as _queue
+import threading as _threading
+import time as _time
+
+_DB_IDLE_MAX = 8
+_DB_MAX_ACTIVE = 20
+_IDLE: "_queue.LifoQueue" = _queue.LifoQueue(maxsize=_DB_IDLE_MAX)
+_ACTIVE = _threading.BoundedSemaphore(_DB_MAX_ACTIVE)
+
+
+def _fresh() -> psycopg.Connection:
+    return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+
+
+def _take() -> psycopg.Connection:
+    while True:
+        try:
+            conn, idle_since = _IDLE.get_nowait()
+        except _queue.Empty:
+            return _fresh()
+        if conn.closed or conn.broken:
+            continue
+        if _time.time() - idle_since > 20:                 # the pooler may have dropped it — check
+            try:
+                conn.execute("SELECT 1")
+                conn.rollback()
+            except Exception:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                continue
+        return conn
+
+
+def _give(conn: psycopg.Connection) -> None:
+    try:
+        if (not conn.closed and not conn.broken
+                and conn.info.transaction_status == psycopg.pq.TransactionStatus.IDLE):
+            _IDLE.put_nowait((conn, _time.time()))
+            return
+    except _queue.Full:
+        pass
+    except Exception:
+        pass
+    try:
+        conn.close()
+    except Exception:
+        pass
+
+
 @contextmanager
 def connect() -> Iterator[_Connection]:
-    conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+    # nested connect() calls in one thread can't deadlock: after 15 s we go ahead regardless
+    slot = _ACTIVE.acquire(timeout=15)
     try:
-        yield _Connection(conn)
-        conn.commit()
+        conn = _take()
+        ok = False
+        try:
+            yield _Connection(conn)
+            conn.commit()
+            ok = True
+        finally:
+            if not ok:
+                try:
+                    conn.rollback()
+                except Exception:
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+            _give(conn)
     finally:
-        conn.close()
+        if slot:
+            _ACTIVE.release()
 
 
 # ===================== SCHEMA =====================

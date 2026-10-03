@@ -376,6 +376,18 @@ def upsert_comment(account_id: int, post_id: Optional[str], external_comment_id:
         return {"id": int(row["id"]), "is_new": bool(row["is_new"])}
 
 
+def comments_known(account_id: int, external_comment_ids: List[str]) -> bool:
+    """True if ALL these comments are already stored (one query) — the poller's paging stop."""
+    ids = [str(i) for i in external_comment_ids if i]
+    if not ids:
+        return False
+    with connect() as c:
+        cur = c.cursor()
+        cur.execute("SELECT COUNT(*) AS n FROM eng_comments WHERE social_account_id = ? AND external_comment_id = ANY(?)",
+                    (account_id, ids))
+        return int(cur.fetchone()["n"]) >= len(set(ids))
+
+
 def set_comment_reply_status(account_id: int, external_comment_id: str, status: str) -> None:
     with connect() as c:
         c.cursor().execute(
