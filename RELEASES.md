@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.19.1** (2026-10-03) — Engagement: every commenter reached in a flood (resume where the last poll stopped), 4 handled at a time
 - **v2.19.0** (2026-10-03) — Engagement scale: DB pool, activity-driven comment poller (all commenters, not just 50), rate-limit cooldown
 - **v2.18.0** (2026-10-03) — Post to IG: a post that went live while the phone app was in the background leaves the queue; no double posting
 - **v2.17.2** (2026-10-03) — AI Stylist: a logo the model drops is reported, never pasted at a guessed spot
