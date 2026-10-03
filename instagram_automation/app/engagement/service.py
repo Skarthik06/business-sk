@@ -234,10 +234,19 @@ def send_dm(token: str, ig_user_id: str, recipient_id: str, message: str) -> Dic
 
 
 def get_comments(token: str, ig_media_id: str, max_pages: int = 1, stop=None) -> List[Dict[str, Any]]:
-    """Top-level comments, NEWEST FIRST (Graph v3.2+), 50 per page. Follows paging up to
-    max_pages; `stop(page)` → True ends early (e.g. the page reached comments we already have),
-    so a busy post never loses the commenters beyond the first 50 and an idle one costs 1 call."""
+    return get_comments_run(token, ig_media_id, max_pages, stop)[0]
+
+
+def get_comments_run(token: str, ig_media_id: str, max_pages: int = 1, stop=None,
+                     after: Optional[str] = None):
+    """Top-level comments, NEWEST FIRST (Graph v3.2+), 50 per page, from `after` (a paging
+    cursor) or the newest. Follows paging up to max_pages; `stop(page)` → True ends early (the
+    page reached comments we already have). Returns (comments, resume_cursor): the cursor is set
+    only when max_pages ran out while comments were still new — the next poll continues there,
+    so in a flood no commenter is ever skipped."""
     url, params = f"{GRAPH}/{ig_media_id}/comments", {"fields": "id,text,username,timestamp,parent_id,from{id,username}", "limit": 50}
+    if after:
+        params["after"] = after
     out: List[Dict[str, Any]] = []
     for _ in range(max(1, max_pages)):
         body = _get(url, token, params)
@@ -245,9 +254,9 @@ def get_comments(token: str, ig_media_id: str, max_pages: int = 1, stop=None) ->
         out += page
         nxt = ((body.get("paging") or {}).get("cursors") or {}).get("after")
         if not page or not nxt or not (body.get("paging") or {}).get("next") or (stop and stop(page)):
-            break
+            return out, None
         params = {**params, "after": nxt}
-    return out
+    return out, params.get("after")
 
 
 def media_comment_counts(token: str, ig_user_id: str, max_pages: int = 3) -> Dict[str, int]:

@@ -649,67 +649,99 @@ def _comment_age_days(cm: Dict[str, Any]) -> float:
     return (datetime.now(timezone.utc) - _graph_time(cm.get("timestamp"))).total_seconds() / 86400
 
 
+_RESUME: Dict[Any, List[str]] = {}      # (account, media) → paging cursors where floods left off
+_COMMENT_WORKERS = max(1, int(os.getenv("ENGAGEMENT_COMMENT_WORKERS", "4")))
+
+
 def _sync_one_post(account_id: int, media_id: str, token: str, run_rules: bool,
                    warnings: List[str], with_insights: bool = True, max_pages: int = 1,
                    sig: str = "", stop_at_known: bool = False) -> Dict[str, Any]:
     """Pull one post's comments (+ run rules on new ones). Insights are OPTIONAL:
     the background poller skips them (with_insights=False) because polling insights every
     tick was the #1 rate-limit consumer and comment→DM never needs them — analytics are
-    fetched only on a manual sync or the post-detail view."""
-    new_count = fired = 0
+    fetched only on a manual sync or the post-detail view.
+
+    Flood-safe: comments come newest first; reading stops at comments we already have. If the
+    page budget runs out while comments are still new, the cursor is kept and the next poll
+    carries on from there — every commenter is reached, never only the newest ones."""
     _acct = rags.get_account(account_id) or {}          # for the self-author feedback-loop guard
+
     def _page_known(page: List[Dict[str, Any]]) -> bool:      # newest first → once a page's oldest
         tail = [str(c.get("id")) for c in page if c.get("id")][-5:]   # comments are known, the
         if not tail:                                                  # rest is older → stop paging
             return False
         return all((account_id, i) in _SETTLED for i in tail) or store.comments_known(account_id, tail)
+    stop = _page_known if stop_at_known else None
+    key = (account_id, str(media_id))
+    comments: List[Dict[str, Any]] = []
     try:
-        comments = service.get_comments(token, media_id, max_pages=max_pages,
-                                        stop=_page_known if stop_at_known else None)
+        comments, cur = service.get_comments_run(token, media_id, max_pages, stop)
+        pending = _RESUME.pop(key, [])                    # unread stretches left by earlier floods
+        if cur:                                           # newest pages alone used the budget
+            pending.append(cur)
+        else:
+            if pending:                                   # carry on where the last flood stopped
+                more, cur2 = service.get_comments_run(token, media_id, max_pages, stop, after=pending.pop())
+                comments += more
+                if cur2:
+                    pending.append(cur2)
+        if pending:
+            _RESUME[key] = pending[-10:]
     except service.GraphError as e:
-        comments = []
         # Persistent permission / "object does not exist" errors mean this account's token
         # simply can't read this post (e.g. a JK real-estate post under a user token) — don't
         # surface it as a scary sync error; it's expected and fail-open.
         m = (e.message or "").lower()
         if "does not exist" not in m and "permission" not in m:
             warnings.append(f"Comments unavailable: {e.message}")
-    for cm in comments:
+
+    def _one(cm: Dict[str, Any]):
+        """→ (is_new, fired) for one comment."""
         cid = cm.get("id")
         if not cid:
-            continue
+            return 0, 0
         # Feedback-loop guard: skip the account's OWN comments/replies (else auto-replies loop).
         if _is_self_author(_acct, (cm.get("from") or {}).get("id"), cm.get("username")):
-            continue
+            return 0, 0
         if sig and _SETTLED.get((account_id, cid)) == sig:
-            continue                                        # finished earlier — no DB work, no rules
+            return 0, 0                                   # finished earlier — no DB work, no rules
         res = store.upsert_comment(account_id, media_id, cid,
                                    username=cm.get("username"), text=cm.get("text", ""))
-        if res["is_new"]:
-            new_count += 1
-        if run_rules:
-            # Evaluate rules on EVERY pulled comment (not just brand-new ones) so a rule
-            # you create/fix later still fires on comments already stored. store_event is
-            # idempotent (one event per comment) and process_event dedupes per (rule,event),
-            # so a given rule acts on a given comment exactly once.
-            ev = R.InboundEvent(trigger_type="COMMENT_RECEIVED", text=cm.get("text", ""),
-                                post_id=media_id, comment_id=cid, username=cm.get("username"),
-                                user_id=(cm.get("from") or {}).get("id"),
-                                external_event_id=f"comment:{cid}")
-            rec = store.store_event(account_id, "COMMENT_RECEIVED", f"comment:{cid}",
-                                    cm, post_id=media_id, comment_id=cid)
-            if not res["is_new"] and _comment_age_days(cm) > _PRIVATE_REPLY_DAYS + 1:
-                if sig:                                     # handled long ago; Instagram no longer allows
-                    _SETTLED[(account_id, cid)] = sig       # a private reply → nothing left to do
-                continue
-            out = process_event(account_id, ev, rec["event_id"])
-            store.mark_event(rec["event_id"], "SUCCESS")
-            ex = out.get("executions", [])
-            fired += sum(1 for e in ex if e.get("status") not in ("DUPLICATE", "HELD_QUIET", "DEFERRED"))
-            if sig and all(e.get("status") in _FINAL for e in ex):
-                if len(_SETTLED) > 200000:
-                    _SETTLED.clear()
-                _SETTLED[(account_id, cid)] = sig
+        if not run_rules:
+            return int(res["is_new"]), 0
+        # Evaluate rules on pulled comments (not just brand-new ones) so a rule you create/fix
+        # later still fires on comments already stored. store_event is idempotent (one event per
+        # comment) and process_event dedupes per (rule,event) → a rule acts on a comment once.
+        if not res["is_new"] and _comment_age_days(cm) > _PRIVATE_REPLY_DAYS + 1:
+            if sig:                                       # handled long ago; Instagram no longer
+                _SETTLED[(account_id, cid)] = sig         # allows a private reply → nothing to do
+            return 0, 0
+        ev = R.InboundEvent(trigger_type="COMMENT_RECEIVED", text=cm.get("text", ""),
+                            post_id=media_id, comment_id=cid, username=cm.get("username"),
+                            user_id=(cm.get("from") or {}).get("id"),
+                            external_event_id=f"comment:{cid}")
+        rec = store.store_event(account_id, "COMMENT_RECEIVED", f"comment:{cid}",
+                                cm, post_id=media_id, comment_id=cid)
+        out = process_event(account_id, ev, rec["event_id"])
+        store.mark_event(rec["event_id"], "SUCCESS")
+        ex = out.get("executions", [])
+        if sig and all(e.get("status") in _FINAL for e in ex):
+            if len(_SETTLED) > 200000:
+                _SETTLED.clear()
+            _SETTLED[(account_id, cid)] = sig
+        return int(res["is_new"]), sum(1 for e in ex if e.get("status") not in ("DUPLICATE", "HELD_QUIET", "DEFERRED"))
+
+    new_count = fired = 0
+    todo = [cm for cm in comments if not (sig and _SETTLED.get((account_id, cm.get("id"))) == sig)]
+    if len(todo) > 3 and _COMMENT_WORKERS > 1:           # a flood: several commenters at a time
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=_COMMENT_WORKERS, thread_name_prefix="comments") as ex_pool:
+            for n, f in ex_pool.map(lambda c: _safe(_one, c), todo):
+                new_count += n; fired += f
+    else:
+        for cm in todo:
+            n, f = _safe(_one, cm)
+            new_count += n; fired += f
     insights: Dict[str, Any] = {}
     if with_insights:                                     # skipped by the poller (saves the most calls)
         try:
@@ -718,6 +750,15 @@ def _sync_one_post(account_id: int, media_id: str, token: str, run_rules: bool,
             warnings.append(f"Insights unavailable: {e.message}")
     return {"ig_media_id": media_id, "synced_comments": len(comments),
             "new_comments": new_count, "rules_fired": fired, "insights": insights}
+
+
+def _safe(fn, cm):
+    """One commenter's failure never stops the others."""
+    try:
+        return fn(cm)
+    except Exception as e:  # noqa: BLE001
+        print(f"[engagement] comment {cm.get('id')} failed: {type(e).__name__}: {str(e)[:120]}", flush=True)
+        return 0, 0
 
 
 def _graph_time(s: Optional[str]):
@@ -909,8 +950,8 @@ def run_account_sync(account_id: int, run_rules: bool = True, light: bool = Fals
             return (4, False) if not light else (2, True)
         c, prev = counts.get(str(mid)), _COUNTS.get((account_id, str(mid)))
         if sweep and recent:
-            return (10, False)                              # retries + follow-gate re-checks
-        if c is not None and c != prev:
+            return (20, False)                              # retries + follow-gate re-checks
+        if (c is not None and c != prev) or (account_id, str(mid)) in _RESUME:
             return (20, True)                               # new comments: newest pages until known
         return None
 
