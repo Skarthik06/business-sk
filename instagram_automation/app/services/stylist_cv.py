@@ -468,3 +468,45 @@ def _paste_logo(dst, src, mask, box, centre, size, fabric_lab):
     out = dst.copy()
     out[Y:Y + nh, X:X + nw] = np.clip(fg * a + roi * (1 - a), 0, 255).astype(np.uint8)
     return out
+
+
+# ── 3 · very dark garments: bring back the folds (free, no AI) ──────────────────────────────────
+def lift_dark_garment(styled_jpeg: bytes, garment_lab) -> Dict[str, Any]:
+    """A black garment on a dark surface often comes out as one flat black shape. Inside the
+    garment only: local contrast (CLAHE) + a gentle shadow lift, feathered at the edges, so seams,
+    folds and the knit read again — like a photographer's fill light. Nothing else changes."""
+    g = np.asarray(garment_lab, np.float32)
+    if float(g[0]) > 24 or float(np.hypot(g[1], g[2])) > 14:
+        return {"lifted": False, "image": styled_jpeg}
+    bgr = cv2.imdecode(np.frombuffer(styled_jpeg, np.uint8), cv2.IMREAD_COLOR)
+    lab8 = cv2.cvtColor(bgr, cv2.COLOR_BGR2LAB)
+    L = lab8[..., 0]
+    lab = _lab(bgr)
+    # the garment: dark + neutral-ish, the biggest such region (the surface is lighter / textured)
+    smooth = cv2.GaussianBlur(lab[..., 0], (0, 0), 2)                 # judge on smoothed lightness:
+    m = ((smooth < max(13.0, float(g[0]) + 7)) & (np.hypot(lab[..., 1], lab[..., 2]) < 10)).astype(np.uint8)
+    m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((7, 7), np.uint8))   # stone's dark corners are lighter
+    k = max(9, (max(m.shape) // 90) | 1)                                 # than black cloth → left out
+    m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
+    n, lbl, st, _ = cv2.connectedComponentsWithStats(m)
+    if n <= 1:
+        return {"lifted": False, "image": styled_jpeg}
+    big = 1 + int(np.argmax(st[1:, cv2.CC_STAT_AREA]))
+    if st[big, cv2.CC_STAT_AREA] < 0.08 * m.size:
+        return {"lifted": False, "image": styled_jpeg}
+    mask = _fill(lbl == big).astype(np.uint8)
+    mask = cv2.erode(mask, np.ones((5, 5), np.uint8)).astype(np.float32)   # stay inside the garment edge
+    mask = cv2.GaussianBlur(mask, (0, 0), max(2.5, max(m.shape) / 400))
+    before = float(np.median(L[mask > 0.5]))
+    # local contrast + shadow lift on the lightness only (colour untouched)
+    cl = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(L).astype(np.float32)
+    lift = 255.0 * np.power(np.clip(cl / 255.0, 0, 1), 0.88)          # opens the shadows a little
+    target = np.clip(lift + 2, 0, 255)
+    target = np.minimum(target, L.astype(np.float32) + 34)             # stays BLACK — never washed grey
+    newL = L.astype(np.float32) * (1 - mask) + target * mask
+    lab8[..., 0] = np.clip(newL, 0, 255).astype(np.uint8)
+    out = cv2.cvtColor(lab8, cv2.COLOR_LAB2BGR)
+    ok, enc = cv2.imencode(".jpg", out, [cv2.IMWRITE_JPEG_QUALITY, 92])
+    after = float(np.median(lab8[..., 0][mask > 0.5]))
+    return {"lifted": True, "image": enc.tobytes() if ok else styled_jpeg,
+            "garment_L": [round(before * 100 / 255, 1), round(after * 100 / 255, 1)]}

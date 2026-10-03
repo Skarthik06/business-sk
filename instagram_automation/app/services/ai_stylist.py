@@ -285,6 +285,7 @@ def style_product(p: Dict[str, Any], surface: str) -> Dict[str, Any]:
     prompt = (f"Image 1: product photo. Image 2: empty surface. Create a top-down flat-lay product photo of ONLY the "
               f"{d.get('item') or 'product'} from image 1 (no person, body, face, hands or mannequin), laid on the surface "
               f"from image 2 with natural folds and soft realistic shadows. Keep its exact colours, panels, stripes and details."
+              f"{' Light the dark fabric so its folds, seams and texture stay clearly visible (not flat pure black).' if (a or d).get('garment_lab', [50])[0] < 25 else ''}"
               f"{f' Image 3 is a close-up of its small logo: reproduce exactly this design, {side}.' if logo else ''}"
               f" Keep the surface decor. Photorealistic.")
     images = [("product.jpg", _small_jpeg(raw), "image/jpeg"),
@@ -305,6 +306,10 @@ def style_product(p: Dict[str, Any], surface: str) -> Dict[str, Any]:
             return {"src": src, "status": "rejected", "why": chk["why"], "usd": round(usd, 5)}
         img = chk.get("image") or img
         note = {"logo": chk.get("logo", "-")}
+        lift = stylist_cv.lift_dark_garment(img, a["garment_lab"])         # black cloth: bring the folds back
+        if lift.get("lifted"):
+            img = lift["image"]
+            note["lifted"] = True
     from PIL import Image
     Image.open(io.BytesIO(img)).convert("RGB").save(out, "JPEG", quality=90, optimize=True)
     return {"src": src, "status": "styled", "quality": q, "usd": round(usd, 5), **note}

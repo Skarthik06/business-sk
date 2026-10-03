@@ -615,7 +615,9 @@ def _render_sig(art: dict | None, handle: str, templates, cover_tags, palette: s
     if a.get("id"):                                # ✨ AI-styled flat-lays change the slides → a new render
         try:
             from app.services import ai_stylist
-            styled = "|".join(sorted(f"{k}={v}" for k, v in ai_stylist.styled_for(str(a["id"])).items()))
+            import os as _os
+            styled = "|".join(sorted(f"{k}={v}@{int(_os.path.getmtime(v))}"      # re-processed image → new render
+                                     for k, v in ai_stylist.styled_for(str(a["id"])).items()))
         except Exception:
             styled = ""
     key = [str(a.get("id") or ""), (handle or "").lstrip("@").lower(), [t or "" for t in (templates or [])],

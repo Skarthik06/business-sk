@@ -1500,7 +1500,8 @@ def _styled_slide(p, img, P, handle, dark=False, num=0, foot="SWIPE →"):
     eyebrow = _scene_eyebrow(p, "", num)
     inner = f"""<style>
 .ybar{{position:absolute;left:56px;right:56px;bottom:100px;z-index:5;display:flex;align-items:center;justify-content:space-between;
-   gap:20px;background:{P['card']}EB;border-radius:20px;padding:16px 24px;box-shadow:0 14px 34px rgba(0,0,0,.22)}}
+   gap:20px;background:{str(P['card'])[:7]}F2;border-radius:20px;padding:16px 24px;box-shadow:0 14px 34px rgba(0,0,0,.30);
+   -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}}
 .yl{{min-width:0;display:flex;flex-direction:column;gap:4px}}
 .yeye{{font-family:{_MONO};font-size:17px;letter-spacing:.16em;text-transform:uppercase;color:{P['muted']};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
 .yname{{font-family:{_SERIF};font-size:32px;line-height:1.05;color:{P['text']};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
@@ -1543,7 +1544,7 @@ def _styled_cover(products, imgs, P, handle, *, title, subtitle="", dark=True, n
 .ytn{{position:absolute;left:10px;top:10px;font-family:{_MONO};font-weight:700;font-size:18px;color:#fff;background:rgba(0,0,0,.55);
    padding:4px 9px;border-radius:8px}}
 .ytp{{position:absolute;right:10px;bottom:10px;font-family:{_SANS};font-weight:800;font-size:24px;color:{P['text']};
-   background:{P['card']}EB;padding:5px 11px;border-radius:10px}}
+   background:{str(P['card'])[:7]}F2;padding:5px 11px;border-radius:10px}}
 </style>
     <div class="ycov"></div>
     <div class="yhead"><div class="ytitle">{_esc(title)}</div>{f'<div class="ysubt">{_esc(subtitle)}</div>' if subtitle else ''}</div>
