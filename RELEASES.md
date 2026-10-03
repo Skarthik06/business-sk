@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.20.3** (2026-10-03) — Fix: Style with AI now shows in the preview and is what gets posted
 - **v2.20.2** (2026-10-03) — Content Studio: ✨ Style with AI moved to the top publish bar
 - **v2.20.1** (2026-10-03) — Content Studio: ✨ Style with AI button made prominent after a preview
 - **v2.20.0** (2026-10-03) — Post Timing agent: 2 best times a day + strict 2-a-day limit; one-tap Colab for phones
