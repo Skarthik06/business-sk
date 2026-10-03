@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.16.1** (2026-10-03) — AI Stylist: small logos detected reliably
 - **v2.16.0** (2026-10-03) — AI Stylist: styled flat-lays (gpt-image-1-mini on free local surfaces), money-guarded
 - **v2.15.1** (2026-09-30) — Colab backdrops ~3x faster; Content Studio renders only on click
 - **v2.15.0** (2026-09-30) — GPU Watchdog agent + no-code Colab key; phone notifications; app 1.6.0
