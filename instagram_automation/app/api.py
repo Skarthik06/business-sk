@@ -266,6 +266,11 @@ class SkCarouselReq(BaseModel):
     cover_tags: list[str] = []         # selection tags for the cover (audience/style/deals/price/rating)
     templates: list[str] = []          # per-product-slide template overrides ("" = keep the AI pick)
     art: dict | None = None            # AI Art Director plan (/api/sk/art-direct) → AI-scene slides
+    post_key: str = ""                 # the Studio's id for THIS post → server-side posted/posting record
+
+
+class SkPostKeysReq(BaseModel):
+    keys: list[str] = []
 
 
 class SkRenderReq(BaseModel):
@@ -383,6 +388,42 @@ def _recover_recent_media(account: dict, within_seconds: int = 180, tries: int =
 
 @app.post("/api/sk/carousel")
 def sk_carousel(body: SkCarouselReq):
+    """Publish one Post-to-IG carousel, recorded server-side under body.post_key (see post_ledger):
+    the post leaves the Studio queue even if the phone paused/reloaded the page while it ran, and
+    the same post can never be published twice."""
+    from app.services import post_ledger
+    try:
+        post_ledger.begin(body.post_key, body.category)
+    except post_ledger.AlreadyPosted as e:
+        raise HTTPException(409, "This post is already live on Instagram" if e.rec.get("state") == "posted"
+                            else "This post is still being published — wait for it to finish")
+    try:
+        res = _sk_carousel(body)
+    except HTTPException as e:
+        post_ledger.fail(body.post_key, str(e.detail))
+        raise
+    except Exception as e:
+        post_ledger.fail(body.post_key, f"{type(e).__name__}: {e}")
+        raise
+    post_ledger.finish(body.post_key, str(res.get("ig_media_id") or ""), str(res.get("permalink") or ""))
+    return res
+
+
+@app.post("/api/sk/post-status")
+def sk_post_status(body: SkPostKeysReq):
+    """{post_key: {state: posting|posted|failed, media_id, permalink, recorded}} for the Studio queue."""
+    from app.services import post_ledger
+    return {"success": True, "posts": post_ledger.status(body.keys)}
+
+
+@app.post("/api/sk/post-ack")
+def sk_post_ack(body: SkPostKeysReq):
+    """The Studio recorded these live posts (dedup memory + storefront) — don't hand them out again."""
+    from app.services import post_ledger
+    return {"success": True, "acked": sum(1 for k in body.keys[:50] if post_ledger.ack(k))}
+
+
+def _sk_carousel(body: SkCarouselReq):
     """Publish an affiliate product carousel via a SELECTED rags account. The
     Business-SK affiliate service generates the content; this posts it using the
     account's server-side encrypted token (never exposed to the browser).

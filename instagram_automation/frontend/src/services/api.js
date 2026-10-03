@@ -59,8 +59,11 @@ export default {
 
   // Business-SK — post an affiliate carousel via a selected IG account (token stays server-side).
   // category + products let the backend attach a post-specific comment→DM automation.
-  skCarousel: (accountId, imageUrls, caption, { category = '', products = [], palette = 'warm', cover_tags = [], templates = [], art = null } = {}) =>
-    http.post('/sk/carousel', { account_id: Number(accountId), image_urls: imageUrls, caption, category, products, palette, cover_tags, templates, ...(art ? { art } : {}) }).then(data),
+  skCarousel: (accountId, imageUrls, caption, { category = '', products = [], palette = 'warm', cover_tags = [], templates = [], art = null, post_key = '' } = {}) =>
+    http.post('/sk/carousel', { account_id: Number(accountId), image_urls: imageUrls, caption, category, products, palette, cover_tags, templates, post_key, ...(art ? { art } : {}) }).then(data),
+  // Server-side record of Post-to-IG publishes (survives the phone pausing/reloading the page).
+  skPostStatus: (keys) => http.post('/sk/post-status', { keys }).then(data),
+  skPostAck: (keys) => http.post('/sk/post-ack', { keys }).then(data),
 
   // Business-SK — render the Still Set designed slides for a set of products WITHOUT posting.
   // Returns { images:[cdn urls], plan:[{tmpl,label,n,product}], count, palette } — the real post preview.

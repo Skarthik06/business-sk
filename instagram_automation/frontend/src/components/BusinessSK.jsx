@@ -657,12 +657,15 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       const caption = tags && !body.includes(tags) ? `${body}\n\n${tags}` : body;  // append hashtags to the post
       const images = pins.map((p) => hiRes(p.image_url)).filter(Boolean);        // full-resolution images
       let media_id = null, permalink = null, status = 'dry';
+      const key = postKey(g);
       if (!dryRun) {
         const art = await getArt(g);
-        const res = await api.skCarousel(account, images, caption, { category: g.category, products: pins, palette, cover_tags: g.cover_tags || [], templates: tmplPick[g.id] || [], art });
+        inflight.current.add(key);
+        const res = await api.skCarousel(account, images, caption, { category: g.category, products: pins, palette, cover_tags: g.cover_tags || [], templates: tmplPick[g.id] || [], art, post_key: key });
         media_id = res.ig_media_id; permalink = res.permalink; status = 'posted';
       }
       const rec = await skApi.recordPost({ category: g.category, products: pins, media_id, permalink, caption, status, content_style: g.content_style || '' });
+      if (!dryRun) { inflight.current.delete(key); api.skPostAck([key]).catch(() => {}); }
       setSt(g.id, { phase: 'done', status, label: rec.post?.label, permalink });
       if (!dryRun && refresh) { try { await api.skPublishStorefront(); } catch { /* non-fatal */ } }
       if (!dryRun && status === 'posted') {
@@ -679,10 +682,66 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       if (/2207051|request limit|restrict certain activity/i.test(String(msg))) {
         msg = 'Instagram is cooling down (posts sent too fast). Wait a few minutes, then post once — don’t retry repeatedly.';
       }
+      inflight.current.delete(postKey(g));
+      if (e?.response?.status === 409) { setSt(g.id, { phase: 'posting', error: '' }); reconcile(); return false; }   // already live / still publishing
       setSt(g.id, { phase: 'failed', error: String(msg) });
       return false;
     } finally { setBusyId(null); }
   };
+
+  // The SERVER records every publish (post_ledger). On a phone the page is often paused or reloaded
+  // while a post publishes (home screen and back) — then the answer never reached this page and the
+  // live post stayed queued. So whenever the Studio opens or comes back, ask the server: live posts
+  // leave the queue (and get recorded if this page missed it), posts still publishing show as such.
+  const inflight = useRef(new Set());              // keys this page is publishing right now
+  const queueRef = useRef(queue);
+  queueRef.current = queue;
+  const [serverPosting, setServerPosting] = useState(false);
+  const reconcile = useCallback(async () => {
+    const q = (queueRef.current || []).filter((g) => (g.products || []).length);
+    if (!q.length) { setServerPosting(false); return; }
+    let posts = {};
+    try { posts = (await api.skPostStatus(q.map(postKey))).posts || {}; } catch { return; }
+    let live = 0, still = false;
+    for (const g of q) {
+      const key = postKey(g), r = posts[key];
+      if (!r || inflight.current.has(key)) continue;          // unknown, or this page is still handling it
+      if (r.state === 'posting') { still = true; setSt(g.id, { phase: 'posting', error: '' }); continue; }
+      if (r.state === 'failed') { setSt(g.id, { phase: 'failed', error: r.error || 'Not posted' }); continue; }
+      if (r.state !== 'posted') continue;
+      if (!r.recorded) {                                      // the page missed it → record it now (once)
+        try {
+          const pins = (g.products || []).slice(0, 10);
+          await skApi.recordPost({ category: g.category, products: pins, media_id: r.media_id || null, permalink: r.permalink || null,
+                                   caption: (g.caption || '').trim() || buildCaption(g.label, pins), status: 'posted', content_style: g.content_style || '' });
+          await api.skPostAck([key]);
+        } catch { /* retried on the next check */ }
+      }
+      addPosted({ id: g.id, label: g.label, category: g.category, count: Math.min((g.products || []).length, 10),
+                  permalink: r.permalink, at: Math.round((r.at || Date.now() / 1000) * 1000) });
+      setQueue((prev) => (prev || []).filter((x) => x.id !== g.id || postKey(x) !== key));
+      setSt(g.id, { phase: 'done', status: 'posted', permalink: r.permalink });
+      live++;
+    }
+    setServerPosting(still);
+    if (live) {
+      say(`${live} post${live === 1 ? '' : 's'} went live while the app was in the background — moved to Posted ✓`);
+      try { await api.skPublishStorefront(); } catch { /* non-fatal */ }
+    }
+  }, [setQueue, say]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    reconcile();
+    const onBack = () => { if (document.visibilityState === 'visible') reconcile(); };
+    document.addEventListener('visibilitychange', onBack);
+    window.addEventListener('pageshow', onBack);
+    window.addEventListener('focus', onBack);
+    return () => { document.removeEventListener('visibilitychange', onBack); window.removeEventListener('pageshow', onBack); window.removeEventListener('focus', onBack); };
+  }, [reconcile]);
+  useEffect(() => {                                  // a post is publishing on the server → check every 8 s
+    if (!serverPosting) return undefined;
+    const t = setInterval(reconcile, 8000);
+    return () => clearInterval(t);
+  }, [serverPosting, reconcile]);
 
   // One REAL post (with a confirm — it publishes public content to the live account).
   const postOneReal = async (g) => {
@@ -699,7 +758,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     setBusyAll(true);
     let ok = 0;
     for (const g of queue) {
-      if (statuses[g.id]?.phase === 'done') continue;      // skip already-posted
+      if (['done', 'posting'].includes(statuses[g.id]?.phase)) continue;      // skip already-posted / still publishing
       if (await publishOne(g, dryRun, false)) ok++;
     }
     if (!dryRun && ok) { try { await api.skPublishStorefront(); } catch { /* non-fatal */ } }
@@ -916,7 +975,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       {queue.length > 0 && (
         <div className="flex flex-col gap-4">
           {queue.map((g) => (
-            <IgPostCard key={g.id + ':' + look + ':' + styles} g={g} st={statuses[g.id] || {}} posting={busyId === g.id}
+            <IgPostCard key={g.id + ':' + look + ':' + styles} g={g} st={statuses[g.id] || {}} posting={busyId === g.id || statuses[g.id]?.phase === 'posting'}
               busyAll={busyAll} accountLabel={acctHandle} getArt={getArt} artId={artPlans[g.id] ? `${artPlans[g.id].id}:${artPlans[g.id].rev}` : ''}
               onPost={() => postOneReal(g)} onDry={() => publishOne(g, true)} />
           ))}
@@ -2784,6 +2843,13 @@ const hiRes = (url) => {
   const base = u.split('._')[0];
   const ext = (u.split('.').pop() || 'jpg').toLowerCase();
   return `${base}.${['jpg', 'jpeg', 'png', 'webp'].includes(ext) ? ext : 'jpg'}`;
+};
+// One post = this queue entry + exactly these products (a re-generated post with the same id is a new post).
+const postKey = (g) => {
+  const s = `${g.id}|${(g.products || []).slice(0, 10).map((p) => p.asin || p.product_id || p.affiliate_link || p.image_url || '').join(',')}`;
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return `p${h.toString(36)}${s.length.toString(36)}`;
 };
 const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } };
 const save = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* ignore */ } };
