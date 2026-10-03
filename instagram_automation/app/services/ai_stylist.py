@@ -158,7 +158,8 @@ def _key(*parts: str) -> str:
 
 # ── 1 · read the product (free, deterministic, cached per photo) ──────────────────────────────
 _TYPES = [  # (title pattern, item name) — most specific first
-    (r"zip\w*[- ]?(up )?hood|hood\w*.*\bzip", "zip hoodie"), (r"half[- ]zip|quarter[- ]zip", "half-zip sweatshirt"),
+    (r"(half|quarter)[- ]?zip.*hood|hood\w*.*(half|quarter)[- ]?zip", "half-zip hoodie"),
+    (r"(half|quarter)[- ]?zip", "half-zip sweatshirt"), (r"zip\w*[- ]?(up )?hood|hood\w*.*\bzip", "zip hoodie"),
     (r"hood(ie|y|ed)", "hoodie"), (r"sweat ?shirt", "sweatshirt"), (r"polo", "polo t-shirt"), (r"t[- ]?shirt|\btee\b", "t-shirt"),
     (r"overshirt|shacket", "overshirt"), (r"\bshirt", "shirt"), (r"blazer", "blazer"), (r"jacket|bomber|windcheater", "jacket"),
     (r"cardigan", "cardigan"), (r"sweater|pullover|jumper", "sweater"), (r"kurta", "kurta"), (r"dress", "dress"),
