@@ -611,8 +611,17 @@ def _render_sig(art: dict | None, handle: str, templates, cover_tags, palette: s
     import hashlib
     import json
     a = art or {}
+    styled = ""
+    if a.get("id"):                                # ✨ AI-styled flat-lays change the slides → a new render
+        try:
+            from app.services import ai_stylist
+            styled = "|".join(sorted(f"{k}={v}" for k, v in ai_stylist.styled_for(str(a["id"])).items()))
+        except Exception:
+            styled = ""
     key = [str(a.get("id") or ""), (handle or "").lstrip("@").lower(), [t or "" for t in (templates or [])],
            [] if a else list(cover_tags or []), "" if a.get("palette") else (palette or "")]
+    if styled:
+        key.append(styled)
     return hashlib.sha1(json.dumps(key).encode()).hexdigest()[:10]
 
 
