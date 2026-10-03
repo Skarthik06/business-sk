@@ -693,6 +693,55 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   // while a post publishes (home screen and back) — then the answer never reached this page and the
   // live post stayed queued. So whenever the Studio opens or comes back, ask the server: live posts
   // leave the queue (and get recorded if this page missed it), posts still publishing show as such.
+  // ✨ AI Stylist for every queued post — one estimate, one confirm, then the cards re-render
+  const [stylingAll, setStylingAll] = useState(false);
+  const [styleAllMsg, setStyleAllMsg] = useState('');
+  const [styleRev, setStyleRev] = useState(0);
+  const styleAll = async () => {
+    setStyleAllMsg('');
+    const posts = queue.filter((g) => (g.products || []).length);
+    if (!posts.length) return;
+    try {
+      setStylingAll(true);
+      setStyleAllMsg('Reading the products (free)…');
+      const jobs = [];
+      let todo = 0, usd = 0, med = 0, low = 0, est = null;
+      for (const g of posts) {
+        const art = await getArt(g);
+        if (!art?.id) { setStyleAllMsg(`Could not plan “${g.label}” — try Preview & layout first`); return; }
+        const dark = ['noir', 'mono'].includes(art.palette || '');        // dark looks → the stone surface
+        const pins = (g.products || []).slice(0, 10);
+        est = await api.skStylistEstimate(pins, art.id, dark);
+        todo += est.to_style; usd += est.estimate_usd; med += est.medium || 0; low += est.low || 0;
+        jobs.push({ g, art, dark, pins });
+      }
+      if (!todo) { setStyleAllMsg('All products are already styled — no cost'); setStyleRev((r) => r + 1); return; }
+      const left = est.credit_left_usd != null ? ` · ≈$${est.credit_left_usd.toFixed(2)} credit left` : '';
+      if (!window.confirm(`Style ${todo} product(s) in ${jobs.length} post(s) with ${est.model}?
+${med} with a logo/emblem → medium · ${low} plain → low (picked by our own free image check)
+
+Estimated cost: ≈$${usd.toFixed(3)} (max)
+Today: $${est.today_usd.toFixed(3)} of $${est.daily_cap_usd.toFixed(2)} cap${left}`)) { setStyleAllMsg(''); return; }
+      let styled = 0, spent = 0, fixed = 0, kept = 0, why = '', r = null;
+      for (const [i, j] of jobs.entries()) {
+        setStyleAllMsg(`✨ Styling post ${i + 1} of ${jobs.length} — about 20 s per product…`);
+        r = await api.skStylistStyle(j.pins, j.art.id, j.dark);
+        if (!r.ok) { why = r.error || 'not styled'; break; }
+        styled += r.styled || 0; spent += r.spent_usd || 0;
+        fixed += (r.results || []).filter((x) => x.logo === 'restored').length;
+        const bad = (r.results || []).filter((x) => !['styled', 'cached'].includes(x.status));
+        kept += bad.length; if (bad[0] && !why) why = `${bad[0].status}${bad[0].why ? ': ' + bad[0].why : ''}`;
+      }
+      setStyleAllMsg(`✨ ${styled} styled · spent $${spent.toFixed(3)}` + (r?.today_usd != null ? ` · today $${r.today_usd.toFixed(3)}/${r.daily_cap_usd.toFixed(2)}` : '') +
+        (fixed ? ` · ${fixed} logo(s) corrected to the real one` : '') +
+        (kept ? ` · ${kept} kept the free design (${why})` : why ? ` · ${why}` : '') + ' — slides re-rendering below');
+      setStyleRev((x) => x + 1);                       // every card re-renders with its styled flat-lays
+      if (preview) previewSlides(queue[0]);
+    } catch (e) {
+      setStyleAllMsg(e?.response?.data?.detail || e?.message || 'Style failed');
+    } finally { setStylingAll(false); }
+  };
+
   // 🗓 Post Timing: today's 2 best times + how many are posted (the server enforces the 2-a-day limit)
   const [plan, setPlan] = useState(null);
   const loadPlan = useCallback(() => { api.skPostPlan().then(setPlan).catch(() => {}); }, []);
@@ -900,6 +949,14 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
               <button className="btn btn-ghost" onClick={() => previewSlides(queue[0])} disabled={!!previewing || !queue.length} title="See the designed slides + recommended template per product (no posting)">
                 {artBusy ? <><Spinner size={14} /> Art directing…</> : previewing ? <><Spinner size={14} /> Rendering…</> : <><Icon name="quote" size={13} /> Preview & layout</>}
               </button>
+              <button className="btn" onClick={styleAll} disabled={stylingAll || busyAll || !!busyId || !queue.length}
+                style={{ background: 'linear-gradient(135deg,#e2b45c,#c8873a)', color: '#141414', fontWeight: 700, borderColor: 'transparent' }}
+                title="AI Stylist: every product of the queued posts as a styled flat-lay (paid per image — shows the cost and asks first)">
+                {stylingAll ? <><Spinner size={14} /> Styling…</> : <>✨ Style with AI</>}
+              </button>
+            </div>
+            <div className="text-xs" style={{ color: 'var(--muted)', marginTop: 8 }}>
+              {styleAllMsg || <>✨ <b style={{ color: 'var(--text)' }}>Style with AI</b> turns every product into an AI-styled flat-lay and slide 1 into a collage — it shows the cost and asks first. Without it, posts use the free designs.</>}
             </div>
             {preview && (
               <div className="panel p-4 mt-3" style={{ background: 'var(--panel-2)' }}>
@@ -1014,7 +1071,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       {queue.length > 0 && (
         <div className="flex flex-col gap-4">
           {queue.map((g) => (
-            <IgPostCard key={g.id + ':' + look + ':' + styles} g={g} st={statuses[g.id] || {}} posting={busyId === g.id || statuses[g.id]?.phase === 'posting'} capReached={capReached}
+            <IgPostCard key={g.id + ':' + look + ':' + styles} g={g} st={statuses[g.id] || {}} posting={busyId === g.id || statuses[g.id]?.phase === 'posting'} capReached={capReached} styleRev={styleRev}
               busyAll={busyAll} accountLabel={acctHandle} getArt={getArt} artId={artPlans[g.id] ? `${artPlans[g.id].id}:${artPlans[g.id].rev}` : ''}
               onPost={() => postOneReal(g)} onDry={() => publishOne(g, true)} />
           ))}
@@ -1032,7 +1089,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
 }
 
 // ── Instagram-style post preview card — swipe the carousel, read the caption, publish ──
-function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getArt, artId, capReached = false }) {
+function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getArt, artId, capReached = false, styleRev = 0 }) {
   const pins = (g.products || []).slice(0, 10);
   const [idx, setIdx] = useState(0);
   const [showCap, setShowCap] = useState(false);
@@ -1072,33 +1129,8 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
 
   // ✨ AI Stylist — styled flat-lays for this post (paid per image). Shows the estimate + today's spend
   // and asks before spending; images are saved, so re-previewing / posting never pays twice.
-  const [styling, setStyling] = useState(false);
-  const [styleMsg, setStyleMsg] = useState('');
-  const styleWithAi = async () => {
-    setStyleMsg('');
-    try {
-      const art = getArt ? await getArt(g) : null;
-      if (!art?.id) { setStyleMsg('Preview the design first'); return; }
-      const dark = ['noir', 'mono'].includes(art.palette || '');          // dark looks → the stone surface
-      const est = await api.skStylistEstimate(pins, art.id, dark);
-      if (!est.to_style) { setStyleMsg('All products are already styled — no cost'); await renderDesign(); return; }
-      const left = est.credit_left_usd != null ? ` · ≈$${est.credit_left_usd.toFixed(2)} credit left` : '';
-      const mix = `\n${est.medium || 0} with a logo/emblem → medium · ${est.low || 0} plain → low (picked by our own free image check)`;
-      if (!window.confirm(`Style ${est.to_style} product(s) with ${est.model}?${mix}\n\nEstimated cost: ≈$${est.estimate_usd.toFixed(3)} (max)\nToday: $${est.today_usd.toFixed(3)} of $${est.daily_cap_usd.toFixed(2)} cap${left}`)) return;
-      setStyling(true);
-      const r = await api.skStylistStyle(pins, art.id, dark);
-      if (!r.ok) { setStyleMsg(r.error || 'Not styled'); return; }
-      const bad = (r.results || []).filter((x) => !['styled', 'cached'].includes(x.status));
-      const fixed = (r.results || []).filter((x) => x.logo === 'restored').length;
-      setStyleMsg(`✨ ${r.styled} styled · spent $${(r.spent_usd || 0).toFixed(3)} · today $${r.today_usd.toFixed(3)}/${r.daily_cap_usd.toFixed(2)}` +
-        (fixed ? ` · ${fixed} logo(s) corrected to the real one` : '') +
-        ((r.results || []).some((x) => x.logo === 'missing') ? ' · a logo was left out by the model — check that slide' : '') +
-        (bad.length ? ` · ${bad.length} kept the free design (${bad[0].status}${bad[0].why ? ': ' + bad[0].why : ''})` : ''));
-      await renderDesign();
-    } catch (e) {
-      setStyleMsg(e?.response?.data?.detail || e?.message || 'Style failed');
-    } finally { setStyling(false); }
-  };
+  // ✨ Style with AI (top of Content Studio) finished → show this post with its styled flat-lays
+  useEffect(() => { if (styleRev > 0 && !designing) renderDesign(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [styleRev]);
   // No auto-render: the card shows the real product photos until YOU press "Preview post design"
   // (rendering costs AI-direction tokens + GPU time, so it only happens when asked).
   // The post got a NEW plan (a "fresh design" re-roll in the big preview) → show that one here too,
@@ -1144,15 +1176,6 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
           : <button className="btn btn-sm btn-ghost" onClick={() => { setDesign(null); setIdx(0); }}>Show products</button>}
         {slides && <span className="text-xs" style={{ color: 'var(--faint)' }}>Preview = exactly what posts · {total} slides</span>}
         {designErr && <span className="text-xs" style={{ color: '#f85149' }}>{designErr}</span>}
-        {slides && <button className="btn btn-sm" onClick={styleWithAi} disabled={styling || designing}
-          style={{ background: 'linear-gradient(135deg,#e2b45c,#c8873a)', color: '#141414', fontWeight: 700, borderColor: 'transparent' }}
-          title="AI Stylist: each product as a styled flat-lay (paid per image — shows the cost and asks first)">
-          {styling ? <><Spinner size={12} /> Styling…</> : '✨ Style with AI'}</button>}
-        {slides && !styling && !styleMsg && (
-          <span className="text-xs" style={{ color: 'var(--muted)' }}>
-            These are the free designs. <b style={{ color: 'var(--text)' }}>✨ Style with AI</b> turns every product into an AI-styled flat-lay (shows the cost first).
-          </span>)}
-        {styleMsg && <span className="text-xs" style={{ color: 'var(--muted)' }}>{styleMsg}</span>}
         {artInfo && <button className="btn btn-sm btn-ghost" onClick={() => setShowArt((v) => !v)}>✨ AI direction</button>}
         {cost && cost.lines?.length > 0 && (
           <span className="text-xs" style={{ color: 'var(--faint)' }} title="LLM tokens this post used, priced at the model's list rates">
