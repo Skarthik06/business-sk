@@ -623,7 +623,7 @@ def _render_sig(art: dict | None, handle: str, templates, cover_tags, palette: s
     key = [str(a.get("id") or ""), (handle or "").lstrip("@").lower(), [t or "" for t in (templates or [])],
            [] if a else list(cover_tags or []), "" if a.get("palette") else (palette or "")]
     if styled:
-        key.append(styled)
+        key.append(styled + "#tpl2")             # bump when the styled slide/cover templates change
     return hashlib.sha1(json.dumps(key).encode()).hexdigest()[:10]
 
 

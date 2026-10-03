@@ -1522,14 +1522,14 @@ def _styled_slide(p, img, P, handle, dark=False, num=0, foot="SWIPE →"):
 
 def _styled_cover(products, imgs, P, handle, *, title, subtitle="", dark=True, nums=None):
     """Slide 1 when the post is AI-styled: a collage of every styled flat-lay (2-6 tiles) under the
-    post title; each tile carries its number + price (details stay small)."""
+    post title; each tile carries only its number — the cover never shows names or prices
+    (Art Director rule: the cover is a collage of the products, no names/prices)."""
     n = len(imgs)
     cols = 2 if n in (2, 4) else 3 if n >= 5 else n
     rows = (n + cols - 1) // cols
     nums = nums or list(range(1, n + 1))
     tiles = "".join(
-        f"""<div class="ytile"><img src="{img}"><span class="ytn">{(nums[i] if i < len(nums) and nums[i] else i + 1):02d}</span>
-        {f'<span class="ytp">{_money(p.get("price"))}</span>' if _money(p.get("price")) else ''}</div>"""
+        f"""<div class="ytile"><img src="{img}"><span class="ytn">{(nums[i] if i < len(nums) and nums[i] else i + 1):02d}</span></div>"""
         for i, (p, img) in enumerate(zip(products, imgs)))
     bg = "#111214" if dark else P["g2"]
     inner = f"""<style>
