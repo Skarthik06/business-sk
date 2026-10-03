@@ -165,6 +165,7 @@ class WorkerService : LifecycleService() {
                 val api = StudioCutApi(s.server, token)
                 val res = api.jobs(if (canCut) 2 else 0, BuildConfig.VERSION_NAME)
                 wait = if (res.laptop_gpu) 60_000L else 20_000L
+                PostReminders.update(this@WorkerService, res.post_plan)   // the 2 daily "time to post" alarms
                 for (a in res.alerts) {                              // GPU Watchdog → a phone notification, once each
                     if (seenAlerts.add(a.id)) Notifications.alert(this@WorkerService, a.id, a.message, a.url)
                 }

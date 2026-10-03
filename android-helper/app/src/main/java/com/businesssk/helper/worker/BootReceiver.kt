@@ -15,6 +15,8 @@ class BootReceiver : BroadcastReceiver() {
         val pending = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
+                PostReminders.reschedule(context.applicationContext)    // alarms don't survive a reboot
+                PostReminders.refresh(context.applicationContext)
                 val s = SettingsRepo(context.applicationContext).current()
                 if (s.enabled && s.paired) WorkerService.start(context.applicationContext)
             } catch (_: Exception) {

@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <!-- The 2 daily "time to post" reminders ring at the exact best time -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
     <!-- Settings → App updates: install a newer build of THIS app from your own server. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
@@ -100,6 +103,10 @@
 
         <receiver
             android:name=".update.UpdateReceiver"
+            android:exported="false" />
+
+        <receiver
+            android:name=".worker.PostReminderReceiver"
             android:exported="false" />
 
         <receiver

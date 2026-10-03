@@ -36,7 +36,8 @@ data class CutJob(val id: String, val type: String = "cutout", val url: String =
 
 @Serializable
 data class CutJobs(val jobs: List<CutJob> = emptyList(), val laptop_gpu: Boolean = false,
-                   val alerts: List<StudioAlert> = emptyList())
+                   val alerts: List<StudioAlert> = emptyList(),
+                   val post_plan: com.businesssk.helper.worker.PostPlan? = null)
 
 /** A GPU Watchdog alert from the Studio ("Colab needed — open Colab → Run all"). */
 @Serializable
@@ -53,6 +54,16 @@ class StudioCutApi(server: String, private val token: String) {
         client.newCall(req).execute().use { r ->
             if (!r.isSuccessful) throw IOException("cut-out jobs: ${r.code}")
             return json.decodeFromString(CutJobs.serializer(), r.body?.string().orEmpty())
+        }
+    }
+
+    /** Today's 2 best posting times + posts done today (no jobs, no side effects). */
+    fun postPlan(): com.businesssk.helper.worker.PostPlan? {
+        val req = Request.Builder().url("$base/api/gpu/device/post-plan")
+            .header("X-Worker-Token", token).header("User-Agent", "SK-Helper-Android").build()
+        client.newCall(req).execute().use { r ->
+            if (!r.isSuccessful) return null
+            return json.decodeFromString(com.businesssk.helper.worker.PostPlan.serializer(), r.body?.string().orEmpty())
         }
     }
 
