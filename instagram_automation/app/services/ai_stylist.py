@@ -187,9 +187,12 @@ def describe(src: str, raw: Optional[bytes] = None) -> Dict[str, Any]:
         "Product photo. Look closely at the chest, sleeves, hood, pockets and hem for ANY logo, emblem, "
         "embroidery, print or text, even tiny ones. JSON only: {\"item\": the main product in 3-6 words "
         "(e.g. \"dark green zip hoodie\"), \"worn\": true if a person/mannequin wears or holds it, \"marks\": exact "
-        "description of every logo/emblem/print/text incl. shape, colour and position, or \"\" if truly none}")},
+        "description of every logo/emblem/print/text incl. shape, colour and position, or \"\" if truly none, "
+        "\"box\": [x0, y0, x1, y1] fractions 0-1 of the image around the MAIN logo/print, or [] if none}")},
         _img_part(_small_jpeg(raw, 1024), "high")], "describe", effort="low")
-    d = {"item": str(d.get("item") or "product")[:60], "worn": bool(d.get("worn")), "marks": str(d.get("marks") or "")[:160]}
+    box = d.get("box") if isinstance(d.get("box"), list) and len(d.get("box")) == 4 else []
+    d = {"item": str(d.get("item") or "product")[:60], "worn": bool(d.get("worn")), "marks": str(d.get("marks") or "")[:160],
+         "box": [max(0.0, min(1.0, float(v))) for v in box] if box else []}
     d["quality"] = "medium" if d["marks"] else "low"
     path.write_text(json.dumps(d), "utf-8")
     return d
@@ -236,6 +239,27 @@ def estimate(products: List[Dict[str, Any]], surface: str) -> Dict[str, Any]:
             **budget()}
 
 
+def _logo_crop(raw: bytes, box: List[float]) -> Optional[bytes]:
+    """The real logo, cut from the original photo (padded, upscaled) — shown to the image model."""
+    if not box:
+        return None
+    from PIL import Image
+    im = Image.open(io.BytesIO(raw)).convert("RGB")
+    W, H = im.size
+    x0, y0, x1, y1 = box
+    if x1 <= x0 or y1 <= y0:
+        return None
+    pad = 0.35 * max(x1 - x0, y1 - y0)                           # a little cloth around it for context
+    b = (int(max(0, x0 - pad) * W), int(max(0, y0 - pad) * H), int(min(1, x1 + pad) * W), int(min(1, y1 + pad) * H))
+    if b[2] - b[0] < 12 or b[3] - b[1] < 12:
+        return None
+    c = im.crop(b)
+    c = c.resize((256, max(32, int(256 * c.height / max(1, c.width)))), Image.LANCZOS)
+    out = io.BytesIO()
+    c.save(out, "JPEG", quality=90)
+    return out.getvalue()
+
+
 def _src(p: Dict[str, Any]) -> str:
     return (p.get("_art_src") or p.get("image_url") or p.get("image") or "").strip()
 
@@ -253,14 +277,18 @@ def style_product(p: Dict[str, Any], surface: str) -> Dict[str, Any]:
     q = d["quality"]
     _guard(EST[q])
     item = d["item"]
+    logo = _logo_crop(raw, d.get("box") or [])
     prompt = (f"Image 1: product photo. Image 2: empty surface. Create a top-down flat-lay product photo of ONLY the "
               f"{item} from image 1{' (no person, body, face, hands or mannequin)' if d['worn'] else ''}, laid on the "
               f"surface from image 2 with natural folds and soft realistic shadows. Keep its exact colours and details"
-              f"{'; keep exactly: ' + d['marks'] if d['marks'] else ''}. Keep the surface decor. Photorealistic.")
-    res = _client().images.edit(
-        model=MODEL, prompt=prompt, quality=q, size=SIZE, n=1,
-        image=[("product.jpg", _small_jpeg(raw), "image/jpeg"),
-               ("surface.jpg", _small_jpeg(sp.read_bytes(), INPUT_PX), "image/jpeg")])
+              f"{'; ' + d['marks'] if d['marks'] else ''}."
+              f"{' Image 3 is a close-up of its logo: reproduce exactly this design, same shape, colour and position (never another emblem).' if logo else ''}"
+              f" Keep the surface decor. Photorealistic.")
+    images = [("product.jpg", _small_jpeg(raw), "image/jpeg"),
+              ("surface.jpg", _small_jpeg(sp.read_bytes(), INPUT_PX), "image/jpeg")]
+    if logo:
+        images.append(("logo.jpg", logo, "image/jpeg"))
+    res = _client().images.edit(model=MODEL, prompt=prompt, quality=q, size=SIZE, n=1, image=images)
     u = getattr(res, "usage", None)
     det = getattr(u, "input_tokens_details", None)
     tin, iin, iout = (getattr(det, "text_tokens", 0) or 0), (getattr(det, "image_tokens", 0) or 0), (getattr(u, "output_tokens", 0) or 0)
@@ -270,12 +298,15 @@ def style_product(p: Dict[str, Any], surface: str) -> Dict[str, Any]:
     from PIL import Image
     im = Image.open(io.BytesIO(img)).convert("RGB")
     if CHECK:                                                       # same product? (colour / logo / shape)
-        marks = (" - " + d["marks"]) if d["marks"] else ""
-        v = _vision([{"type": "text", "text": (
-            "Image A is the original product photo, image B the styled photo of the " + item + ". JSON only: "
-            "{\"same\": true if B shows the same product (same colour, same logo/print" + marks +
-            ", same shape), \"why\": short}")},
-            _img_part(_small_jpeg(raw, 512), "low"), _img_part(_small_jpeg(img, 512), "low")], "fidelity")
+        parts = [{"type": "text", "text": (
+            "Image A is the original product photo, image B the styled photo of the " + item +
+            (", image C a close-up of the original logo" if logo else "") + ". JSON only: {\"same\": true only if B "
+            "shows the same product: same colour, same shape" + (", and the SAME logo design as C (a different emblem, "
+            "e.g. a wreath instead of antlers, means false)" if logo else "") + ", \"why\": short}")},
+            _img_part(_small_jpeg(raw, 512), "low"), _img_part(_small_jpeg(img, 768 if logo else 512), "auto" if logo else "low")]
+        if logo:
+            parts.append(_img_part(logo, "low"))
+        v = _vision(parts, "fidelity")
         if v.get("same") is False:
             return {"src": src, "status": "rejected", "why": str(v.get("why") or "")[:120], "usd": round(usd, 5)}
     im.save(out, "JPEG", quality=90, optimize=True)

@@ -1519,6 +1519,38 @@ def _styled_slide(p, img, P, handle, dark=False, num=0, foot="SWIPE →"):
     return _scene_page(P, img, inner, handle, dark, foot)
 
 
+def _styled_cover(products, imgs, P, handle, *, title, subtitle="", dark=True, nums=None):
+    """Slide 1 when the post is AI-styled: a collage of every styled flat-lay (2-6 tiles) under the
+    post title; each tile carries its number + price (details stay small)."""
+    n = len(imgs)
+    cols = 2 if n in (2, 4) else 3 if n >= 5 else n
+    rows = (n + cols - 1) // cols
+    nums = nums or list(range(1, n + 1))
+    tiles = "".join(
+        f"""<div class="ytile"><img src="{img}"><span class="ytn">{(nums[i] if i < len(nums) and nums[i] else i + 1):02d}</span>
+        {f'<span class="ytp">{_money(p.get("price"))}</span>' if _money(p.get("price")) else ''}</div>"""
+        for i, (p, img) in enumerate(zip(products, imgs)))
+    bg = "#111214" if dark else P["g2"]
+    inner = f"""<style>
+.ycov{{position:absolute;inset:0;background:{bg}}}
+.yhead{{position:absolute;left:64px;right:64px;top:70px;z-index:3}}
+.ytitle{{font-family:{_SERIF};font-size:70px;line-height:.95;letter-spacing:-.02em;color:{'#fff' if dark else P['text']};white-space:pre-line}}
+.ysubt{{font-family:{_MONO};font-size:19px;letter-spacing:.16em;text-transform:uppercase;color:{'#ffffffb3' if dark else P['muted']};margin-top:12px}}
+.ygrid{{position:absolute;left:56px;right:56px;top:{250 if subtitle else 220}px;bottom:118px;z-index:3;display:grid;gap:12px;
+   grid-template-columns:repeat({cols},1fr);grid-template-rows:repeat({rows},1fr)}}
+.ytile{{position:relative;border-radius:16px;overflow:hidden;box-shadow:0 12px 28px rgba(0,0,0,.35)}}
+.ytile img{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}}
+.ytn{{position:absolute;left:10px;top:10px;font-family:{_MONO};font-weight:700;font-size:18px;color:#fff;background:rgba(0,0,0,.55);
+   padding:4px 9px;border-radius:8px}}
+.ytp{{position:absolute;right:10px;bottom:10px;font-family:{_SANS};font-weight:800;font-size:24px;color:{P['text']};
+   background:{P['card']}EB;padding:5px 11px;border-radius:10px}}
+</style>
+    <div class="ycov"></div>
+    <div class="yhead"><div class="ytitle">{_esc(title)}</div>{f'<div class="ysubt">{_esc(subtitle)}</div>' if subtitle else ''}</div>
+    <div class="ygrid">{tiles}</div>"""
+    return _scene_page(P, "", inner, handle, True if dark else False, "SWIPE →")
+
+
 def _scene_closer(P, bg, handle, dark=False):
     """CLOSER (last slide) on the post's scene: the Follow → Comment → DM process. No SWIPE here."""
     steps = [("➕", f"1 · Follow {_esc(handle)}", "links go to followers only"),
@@ -1808,7 +1840,8 @@ _TMPL_LABEL = {"cover": "Teaser cover", "spotlight": "Price-Drop Spotlight",
                "deal_cover": "Deals cover", "deal": "Deal card",
                "scene_hero": "AI Scene · Hero", "scene_float": "AI Scene · Float",
                "scene_split": "AI Scene · Split", "scene_flatlay": "AI Scene · Collage cover",
-               "scene_closer": "AI Scene · Get the links", "styled": "AI Stylist · flat-lay"}
+               "scene_closer": "AI Scene · Get the links", "styled": "AI Stylist · flat-lay",
+               "styled_cover": "AI Stylist · collage cover"}
 
 
 def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_dir: Path,
@@ -1890,6 +1923,16 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
     for sp in specs:
         ps = sp["products"]
         t = sp["tmpl"]
+        if styled and t in ("scene_flatlay", "cover"):           # slide 1 = collage of the styled flat-lays
+            cov = [p for p in (sp.get("all") or products) if _src(p) in styled][:6]
+            if len(cov) >= 2:
+                from app.services import scene_store as _ss3
+                htmls.append(_styled_cover(cov, [_ss3.data_uri(Path(styled[_src(p)]), jpeg=True) for p in cov], P, handle,
+                                           title=_cover_hook(sp.get("title", ""), category, len(products)),
+                                           subtitle=str((art or {}).get("concept") or "").strip()[:60], dark=styled_dark,
+                                           nums=[_slide_no.get(id(p), 0) for p in cov]))
+                sp["tmpl"] = "styled_cover"
+                continue
         if styled and ps and (t in _SCENE_LAYOUTS or t in _PROD_TEMPLATES) and _src(ps[0]) in styled:
             from app.services import scene_store as _ss2
             htmls.append(_styled_slide(ps[0], _ss2.data_uri(Path(styled[_src(ps[0])]), jpeg=True), P, handle,
