@@ -972,6 +972,31 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
     } finally { setDesigning(false); }
   };
 
+  // ✨ AI Stylist — styled flat-lays for this post (paid per image). Shows the estimate + today's spend
+  // and asks before spending; images are saved, so re-previewing / posting never pays twice.
+  const [styling, setStyling] = useState(false);
+  const [styleMsg, setStyleMsg] = useState('');
+  const styleWithAi = async () => {
+    setStyleMsg('');
+    try {
+      const art = getArt ? await getArt(g) : null;
+      if (!art?.id) { setStyleMsg('Preview the design first'); return; }
+      const dark = ['noir', 'mono'].includes(art.palette || '');          // dark looks → the stone surface
+      const est = await api.skStylistEstimate(pins, art.id, dark);
+      if (!est.to_style) { setStyleMsg('All products are already styled — no cost'); await renderDesign(); return; }
+      const left = est.credit_left_usd != null ? ` · ≈$${est.credit_left_usd.toFixed(2)} credit left` : '';
+      if (!window.confirm(`Style ${est.to_style} product(s) with ${est.model}?\n\nEstimated cost: ≈$${est.estimate_usd.toFixed(3)} (max)\nToday: $${est.today_usd.toFixed(3)} of $${est.daily_cap_usd.toFixed(2)} cap${left}`)) return;
+      setStyling(true);
+      const r = await api.skStylistStyle(pins, art.id, dark);
+      if (!r.ok) { setStyleMsg(r.error || 'Not styled'); return; }
+      const bad = (r.results || []).filter((x) => !['styled', 'cached'].includes(x.status));
+      setStyleMsg(`✨ ${r.styled} styled · spent $${(r.spent_usd || 0).toFixed(3)} · today $${r.today_usd.toFixed(3)}/${r.daily_cap_usd.toFixed(2)}` +
+        (bad.length ? ` · ${bad.length} kept the free design (${bad[0].status}${bad[0].why ? ': ' + bad[0].why : ''})` : ''));
+      await renderDesign();
+    } catch (e) {
+      setStyleMsg(e?.response?.data?.detail || e?.message || 'Style failed');
+    } finally { setStyling(false); }
+  };
   // No auto-render: the card shows the real product photos until YOU press "Preview post design"
   // (rendering costs AI-direction tokens + GPU time, so it only happens when asked).
   // The post got a NEW plan (a "fresh design" re-roll in the big preview) → show that one here too,
@@ -1017,6 +1042,10 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
           : <button className="btn btn-sm btn-ghost" onClick={() => { setDesign(null); setIdx(0); }}>Show products</button>}
         {slides && <span className="text-xs" style={{ color: 'var(--faint)' }}>Preview = exactly what posts · {total} slides</span>}
         {designErr && <span className="text-xs" style={{ color: '#f85149' }}>{designErr}</span>}
+        {slides && <button className="btn btn-sm btn-ghost" onClick={styleWithAi} disabled={styling || designing}
+          title="AI Stylist: each product as a styled flat-lay (paid per image — shows the cost and asks first)">
+          {styling ? <><Spinner size={12} /> Styling…</> : '✨ Style with AI'}</button>}
+        {styleMsg && <span className="text-xs" style={{ color: 'var(--muted)' }}>{styleMsg}</span>}
         {artInfo && <button className="btn btn-sm btn-ghost" onClick={() => setShowArt((v) => !v)}>✨ AI direction</button>}
         {cost && cost.lines?.length > 0 && (
           <span className="text-xs" style={{ color: 'var(--faint)' }} title="LLM tokens this post used, priced at the model's list rates">

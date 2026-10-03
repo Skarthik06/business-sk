@@ -1491,6 +1491,34 @@ def _scene_flatlay(products, cuts, bg, P, handle, *, title, subtitle, chip, dark
     return _scene_page(P, bg, inner, handle, dark)
 
 
+def _styled_slide(p, img, P, handle, dark=False, num=0, foot="SWIPE →"):
+    """AI Stylist slide: the styled flat-lay fills the slide; the template's product details sit in one
+    compact band at the bottom (store · brand · number, name, rating, price / MRP / % off)."""
+    price = _money(p.get("price")); mrp = _money(p.get("orig_price") or p.get("mrp")); off = _discount_pct(p) or 0
+    r = _num(p.get("rating"))
+    rate = f'<span class="yrate">★ {r:g}</span>' if r and r > 0 else ""
+    eyebrow = _scene_eyebrow(p, "", num)
+    inner = f"""<style>
+.ybar{{position:absolute;left:56px;right:56px;bottom:100px;z-index:5;display:flex;align-items:center;justify-content:space-between;
+   gap:20px;background:{P['card']}EB;border-radius:20px;padding:16px 24px;box-shadow:0 14px 34px rgba(0,0,0,.22)}}
+.yl{{min-width:0;display:flex;flex-direction:column;gap:4px}}
+.yeye{{font-family:{_MONO};font-size:17px;letter-spacing:.16em;text-transform:uppercase;color:{P['muted']};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.yname{{font-family:{_SERIF};font-size:32px;line-height:1.05;color:{P['text']};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.yrate{{font-family:{_SANS};font-size:20px;color:{P['muted']}}}
+.yr{{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px}}
+.yprice{{font-family:{_SANS};font-weight:800;font-size:46px;letter-spacing:-.02em;line-height:.95;color:{P['text']}}}
+.ysub{{display:flex;align-items:center;gap:10px}}
+.ymrp{{font-family:{_SANS};font-size:22px;font-weight:600;color:{P['muted']};text-decoration:line-through}}
+.yoff{{font-family:{_MONO};font-weight:700;font-size:19px;color:#fff;background:{P['tint']};padding:5px 11px;border-radius:9px}}
+</style>
+    <div class="ybar">
+      <div class="yl"><div class="yeye">{eyebrow}</div><div class="yname">{_esc(_clean_title(p, limit=60))}</div>{rate}</div>
+      <div class="yr">{f'<div class="yprice">{price}</div>' if price else ''}
+        <div class="ysub">{f'<span class="ymrp">{mrp}</span>' if mrp and mrp != price else ''}{f'<span class="yoff">{off}% OFF</span>' if off > 0 else ''}</div></div>
+    </div>"""
+    return _scene_page(P, img, inner, handle, dark, foot)
+
+
 def _scene_closer(P, bg, handle, dark=False):
     """CLOSER (last slide) on the post's scene: the Follow → Comment → DM process. No SWIPE here."""
     steps = [("➕", f"1 · Follow {_esc(handle)}", "links go to followers only"),
@@ -1780,7 +1808,7 @@ _TMPL_LABEL = {"cover": "Teaser cover", "spotlight": "Price-Drop Spotlight",
                "deal_cover": "Deals cover", "deal": "Deal card",
                "scene_hero": "AI Scene · Hero", "scene_float": "AI Scene · Float",
                "scene_split": "AI Scene · Split", "scene_flatlay": "AI Scene · Collage cover",
-               "scene_closer": "AI Scene · Get the links"}
+               "scene_closer": "AI Scene · Get the links", "styled": "AI Stylist · flat-lay"}
 
 
 def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_dir: Path,
@@ -1841,6 +1869,16 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
         _apply_art(specs, products, art, scene, templates)
     chip = str((art or {}).get("chip") or "Comment “LINK” for this look")
     dark = bool(art and art.get("palette") == "noir")
+    # AI Stylist: styled flat-lays exist for this post → those product slides use them
+    styled: Dict[str, str] = {}
+    styled_dark = dark
+    if art and art.get("id"):
+        try:
+            from app.services import ai_stylist, scene_store as _ss
+            styled = ai_stylist.styled_for(str(art["id"]))
+            styled_dark = ((_ss.plan_get(str(art["id"])) or {}).get("styled_surface") in ai_stylist.DARK_SURFACES)
+        except Exception:
+            styled = {}
 
     # product number = its slide order ("01", "02"…) — shown on the cover tile AND its slide
     _slide_no: Dict[int, int] = {}
@@ -1852,6 +1890,13 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
     for sp in specs:
         ps = sp["products"]
         t = sp["tmpl"]
+        if styled and ps and (t in _SCENE_LAYOUTS or t in _PROD_TEMPLATES) and _src(ps[0]) in styled:
+            from app.services import scene_store as _ss2
+            htmls.append(_styled_slide(ps[0], _ss2.data_uri(Path(styled[_src(ps[0])]), jpeg=True), P, handle,
+                                       styled_dark, num=_slide_no.get(id(ps[0]), 0),
+                                       foot=("FOLLOW · COMMENT · DM" if sp is specs[-1] else "SWIPE →")))
+            sp["tmpl"] = "styled"
+            continue
         imgs = [] if t.startswith("scene_") else [prep(p) for p in ps]
         if t in _SCENE_LAYOUTS:
             fn = {"scene_hero": _scene_hero, "scene_float": _scene_float, "scene_split": _scene_split}[t]

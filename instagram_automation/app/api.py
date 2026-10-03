@@ -856,6 +856,36 @@ def gpu_device_result(body: DeviceResultReq, x_worker_token: str = Header("", al
     return res
 
 
+# ── AI Stylist (app/agents/ai-stylist.agents.md): styled flat-lays, only when YOU press the button ──
+class StylistReq(BaseModel):
+    products: list
+    art_id: str = ""
+    dark: bool = True
+
+
+@app.get("/api/sk/stylist/budget")
+def sk_stylist_budget():
+    from app.services import ai_stylist
+    return {"success": True, **ai_stylist.budget()}
+
+
+@app.post("/api/sk/stylist/estimate")
+def sk_stylist_estimate(body: StylistReq):
+    """What pressing "Style with AI" would cost for this post (nothing is spent)."""
+    from app.services import ai_stylist
+    surface = ai_stylist.pick_surface(body.art_id, body.dark)
+    return {"success": True, "surface": surface, **ai_stylist.estimate(body.products[:10], surface)}
+
+
+@app.post("/api/sk/stylist/style")
+def sk_stylist_style(body: StylistReq):
+    """Style every product of a post (money guards checked before each paid image)."""
+    from app.services import ai_stylist
+    if not body.art_id:
+        raise HTTPException(400, "Preview the post first (the styled slides belong to its design plan)")
+    return {"success": True, **ai_stylist.style_post(body.products[:10], body.art_id, body.dark)}
+
+
 @app.post("/api/sk/render-preview")
 def sk_render_preview(body: SkRenderReq):
     """Render the Still Set slides for a set of products and return preview URLs WITHOUT
