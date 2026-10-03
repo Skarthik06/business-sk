@@ -1144,9 +1144,14 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
           : <button className="btn btn-sm btn-ghost" onClick={() => { setDesign(null); setIdx(0); }}>Show products</button>}
         {slides && <span className="text-xs" style={{ color: 'var(--faint)' }}>Preview = exactly what posts · {total} slides</span>}
         {designErr && <span className="text-xs" style={{ color: '#f85149' }}>{designErr}</span>}
-        {slides && <button className="btn btn-sm btn-ghost" onClick={styleWithAi} disabled={styling || designing}
+        {slides && <button className="btn btn-sm" onClick={styleWithAi} disabled={styling || designing}
+          style={{ background: 'linear-gradient(135deg,#e2b45c,#c8873a)', color: '#141414', fontWeight: 700, borderColor: 'transparent' }}
           title="AI Stylist: each product as a styled flat-lay (paid per image — shows the cost and asks first)">
           {styling ? <><Spinner size={12} /> Styling…</> : '✨ Style with AI'}</button>}
+        {slides && !styling && !styleMsg && (
+          <span className="text-xs" style={{ color: 'var(--muted)' }}>
+            These are the free designs. <b style={{ color: 'var(--text)' }}>✨ Style with AI</b> turns every product into an AI-styled flat-lay (shows the cost first).
+          </span>)}
         {styleMsg && <span className="text-xs" style={{ color: 'var(--muted)' }}>{styleMsg}</span>}
         {artInfo && <button className="btn btn-sm btn-ghost" onClick={() => setShowArt((v) => !v)}>✨ AI direction</button>}
         {cost && cost.lines?.length > 0 && (
