@@ -72,6 +72,12 @@ def _skin_lab(lab: np.ndarray) -> np.ndarray:
     return (L > 20) & (L < 92) & (a > 7) & (a < 42) & (b > 11) & (b < 62) & (b > 0.7 * a)
 
 
+def _border_lab(lab: np.ndarray) -> np.ndarray:
+    """The photo's background colour (median of the outer frame)."""
+    border = np.concatenate([lab[:4].reshape(-1, 3), lab[-4:].reshape(-1, 3), lab[:, :4].reshape(-1, 3), lab[:, -4:].reshape(-1, 3)])
+    return np.median(border, axis=0)
+
+
 def _foreground(bgr: np.ndarray, alpha: Optional[np.ndarray]) -> np.ndarray:
     """The product (+ wearer): cut-out alpha if we have it, else 'differs from the border colour'."""
     if alpha is not None:
@@ -148,7 +154,7 @@ def _colours(lab: np.ndarray, mask: np.ndarray) -> List[Tuple[np.ndarray, float]
 
 # ── 1 · emblem detector ─────────────────────────────────────────────────────────────────────────
 def find_marks(bgr: np.ndarray, region: np.ndarray, skin: Optional[np.ndarray] = None,
-               cloth: Optional[np.ndarray] = None) -> List[Dict[str, Any]]:
+               cloth: Optional[np.ndarray] = None, bg_lab: Optional[np.ndarray] = None) -> List[Dict[str, Any]]:
     """Compact, contrasting marks on smooth fabric inside `region` (bool mask). Best first.
     cloth = pixels of the garment's own colours: a logo's surroundings must be mostly cloth
     (a watch on a wrist, a hand in a pocket, the T-shirt under an open jacket are not)."""
@@ -169,8 +175,11 @@ def find_marks(bgr: np.ndarray, region: np.ndarray, skin: Optional[np.ndarray] =
     out = []
     for i in range(1, n):
         x, y, w, h, a = (int(v) for v in st[i])
-        if a < max(25, area_ref * 4e-5) or a > area_ref * 0.06:
-            continue
+        if a < max(40, area_ref * 1.2e-4) or a > area_ref * 0.06:
+            continue                                                      # specks: stitching, fluff, gaps
+        ys_r, xs_r = np.nonzero(region)
+        if max(w, h) < 0.012 * max(1, xs_r.max() - xs_r.min()):
+            continue                                                      # smaller than any real logo
         if max(w, h) / max(1, min(w, h)) > 3.2 or a / (w * h) < 0.2:      # long/thin/scribbly: zip, cord, seam, stitching
             continue
         comp = lbl == i
@@ -183,6 +192,9 @@ def find_marks(bgr: np.ndarray, region: np.ndarray, skin: Optional[np.ndarray] =
         if float(np.std(rl[:, 0])) > 9 or float(np.std(rl[:, 1:], axis=0).max()) > 7:
             continue                                                      # textured surroundings: hair, prints of the scene
         fab, mk = np.median(rl, axis=0), np.median(lab[comp], axis=0)
+        if bg_lab is not None and float(np.linalg.norm(mk - bg_lab)) < 9:
+            continue                                                      # the photo's background seen through a gap
+                                                                          # (sleeve/hand, arm/body) — not a logo
         dab, dl = float(np.linalg.norm(mk[1:] - fab[1:])), abs(float(mk[0] - fab[0]))
         if dab < 18 and dl < 32:                                          # same hue, mild lightness: fold, shadow, zip pull
             continue
@@ -240,7 +252,7 @@ def analyse(raw: bytes, alpha_raw: Optional[bytes] = None) -> Dict[str, Any]:
         if share >= 0.22 or c is garment_lab:
             cloth |= _colour_match(lab, c)
     skin = skin | (_skin_lab(lab) & ~cloth)
-    marks = find_marks(bgr, fg, skin, cloth)
+    marks = find_marks(bgr, fg, skin, cloth, _border_lab(lab) if alpha is None else None)
     worn = bool((skin & fg).sum() > 0.015 * fg.sum())
     res: Dict[str, Any] = {"colour": colour_name(garment_lab), "garment_lab": [round(float(v), 1) for v in garment_lab],
                            "worn": worn, "quality": "low", "box": [], "marks": 0, "size": [W, H],
