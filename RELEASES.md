@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.20.4** (2026-10-03) — AI Stylist: no invented logos from background gaps/specks
 - **v2.20.3** (2026-10-03) — Fix: Style with AI now shows in the preview and is what gets posted
 - **v2.20.2** (2026-10-03) — Content Studio: ✨ Style with AI moved to the top publish bar
 - **v2.20.1** (2026-10-03) — Content Studio: ✨ Style with AI button made prominent after a preview
