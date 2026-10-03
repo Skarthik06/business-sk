@@ -155,10 +155,10 @@ def _key(*parts: str) -> str:
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:24]
 
 
-def _vision(content: List[Dict[str, Any]], label: str) -> Dict[str, Any]:
-    """One structured vision call (cheap model, minimal reasoning). Charged to the ledger."""
+def _vision(content: List[Dict[str, Any]], label: str, effort: str = "minimal") -> Dict[str, Any]:
+    """One structured vision call (cheap model, little reasoning). Charged to the ledger."""
     resp = _client().chat.completions.create(
-        model=VISION_MODEL, response_format={"type": "json_object"}, reasoning_effort="minimal",
+        model=VISION_MODEL, response_format={"type": "json_object"}, reasoning_effort=effort,
         messages=[{"role": "user", "content": content}])
     u = getattr(resp, "usage", None)
     usd = ((getattr(u, "prompt_tokens", 0) or 0) * P_V_IN + (getattr(u, "completion_tokens", 0) or 0) * P_V_OUT) / 1e6
@@ -181,11 +181,14 @@ def describe(src: str, raw: Optional[bytes] = None) -> Dict[str, Any]:
     except Exception:
         pass
     raw = raw or _download(src)
+    # Small embroidered logos are easy to miss: a sharper image + a little reasoning (≈$0.0003 more,
+    # once per product) — a missed logo means low quality and a lost logo (measured).
     d = _vision([{"type": "text", "text": (
-        "Product photo. JSON only: {\"item\": the main product in 3-6 words (e.g. \"dark green zip hoodie\"), "
-        "\"worn\": true if a person/mannequin wears or holds it, \"marks\": exact description of any logo, emblem, "
-        "print or text on the product incl. colour + position, or \"\" if none}")},
-        _img_part(_small_jpeg(raw, 768), "auto")], "describe")
+        "Product photo. Look closely at the chest, sleeves, hood, pockets and hem for ANY logo, emblem, "
+        "embroidery, print or text, even tiny ones. JSON only: {\"item\": the main product in 3-6 words "
+        "(e.g. \"dark green zip hoodie\"), \"worn\": true if a person/mannequin wears or holds it, \"marks\": exact "
+        "description of every logo/emblem/print/text incl. shape, colour and position, or \"\" if truly none}")},
+        _img_part(_small_jpeg(raw, 1024), "high")], "describe", effort="low")
     d = {"item": str(d.get("item") or "product")[:60], "worn": bool(d.get("worn")), "marks": str(d.get("marks") or "")[:160]}
     d["quality"] = "medium" if d["marks"] else "low"
     path.write_text(json.dumps(d), "utf-8")
