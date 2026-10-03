@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.17.2** (2026-10-03) — AI Stylist: a logo the model drops is reported, never pasted at a guessed spot
 - **v2.17.1** (2026-10-03) — AI Stylist: half-zip item names
 - **v2.17.0** (2026-10-03) — AI Stylist: deterministic emblem detector decides medium vs low, free fidelity check, real logo restored when the model draws a different one
 - **v2.16.2** (2026-10-03) — AI Stylist: real-logo reference + styled collage cover
