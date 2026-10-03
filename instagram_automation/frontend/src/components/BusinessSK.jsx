@@ -665,7 +665,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
         media_id = res.ig_media_id; permalink = res.permalink; status = 'posted';
       }
       const rec = await skApi.recordPost({ category: g.category, products: pins, media_id, permalink, caption, status, content_style: g.content_style || '' });
-      if (!dryRun) { inflight.current.delete(key); api.skPostAck([key]).catch(() => {}); }
+      if (!dryRun) { inflight.current.delete(key); api.skPostAck([key]).catch(() => {}); loadPlan(); }
       setSt(g.id, { phase: 'done', status, label: rec.post?.label, permalink });
       if (!dryRun && refresh) { try { await api.skPublishStorefront(); } catch { /* non-fatal */ } }
       if (!dryRun && status === 'posted') {
@@ -693,6 +693,11 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   // while a post publishes (home screen and back) — then the answer never reached this page and the
   // live post stayed queued. So whenever the Studio opens or comes back, ask the server: live posts
   // leave the queue (and get recorded if this page missed it), posts still publishing show as such.
+  // 🗓 Post Timing: today's 2 best times + how many are posted (the server enforces the 2-a-day limit)
+  const [plan, setPlan] = useState(null);
+  const loadPlan = useCallback(() => { api.skPostPlan().then(setPlan).catch(() => {}); }, []);
+  useEffect(() => { loadPlan(); const t = setInterval(loadPlan, 60000); return () => clearInterval(t); }, [loadPlan]);
+  const capReached = !!(plan && plan.left_today === 0);
   const inflight = useRef(new Set());              // keys this page is publishing right now
   const queueRef = useRef(queue);
   queueRef.current = queue;
@@ -725,6 +730,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     }
     setServerPosting(still);
     if (live) {
+      loadPlan();
       say(`${live} post${live === 1 ? '' : 's'} went live while the app was in the background — moved to Posted ✓`);
       try { await api.skPublishStorefront(); } catch { /* non-fatal */ }
     }
@@ -746,6 +752,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   // One REAL post (with a confirm — it publishes public content to the live account).
   const postOneReal = async (g) => {
     if (!account) return say('Pick an Instagram account first', 'error');
+    if (capReached) return say(`Daily limit reached — ${plan.cap} posts today. Next best time: tomorrow ${plan.next?.label || ''}`, 'error');
     if (!window.confirm(`Post "${g.label}" (${Math.min(g.products?.length || 0, 10)} products) to Instagram ${acctHandle} — for real?`)) return;
     await publishOne(g, false);
   };
@@ -757,7 +764,9 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     if (!dryRun && !window.confirm(`Post ALL ${queue.length} carousels to Instagram ${acctHandle} — for real, one after another?`)) return;
     setBusyAll(true);
     let ok = 0;
+    const room = dryRun ? Infinity : Math.max(0, (plan?.left_today ?? 2));      // strictly 2 a day
     for (const g of queue) {
+      if (!dryRun && ok >= room) { say(`Stopped at the daily limit (${plan?.cap || 2} posts a day) — the rest stay queued for tomorrow`); break; }
       if (['done', 'posting'].includes(statuses[g.id]?.phase)) continue;      // skip already-posted / still publishing
       if (await publishOne(g, dryRun, false)) ok++;
     }
@@ -771,6 +780,36 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   return (
     <div className="post-layout">
       <div className="post-main">
+      {/* 🗓 posting plan — 2 best times a day (Post Timing agent) + the strict 2-a-day limit */}
+      {plan && (() => {
+        const today = (plan.slots || []).filter((s) => s.day === (plan.slots[0] || {}).day);
+        const nx = plan.next;
+        const remindAt = nx ? new Date((nx.at - plan.lead_min * 60) * 1000).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '';
+        return (
+          <div className="panel p-4 mb-4" style={{ borderColor: plan.left_today ? 'var(--line)' : '#3fb95055' }}>
+            <div className="flex items-center justify-between flex-wrap gap-2">
+              <div>
+                <div className="eyebrow">🗓 Today's posting plan · {plan.posts_today}/{plan.cap} posted</div>
+                <div className="flex gap-2 flex-wrap" style={{ marginTop: 8 }}>
+                  {today.map((s) => (
+                    <span key={s.id} className={cx('mini', s.state === 'done' && 'on')} title={`Post ${s.n} of ${plan.cap}`}
+                      style={{ opacity: s.state === 'missed' ? 0.55 : 1 }}>
+                      {s.state === 'done' ? '✓ ' : s.state === 'missed' ? '⏱ ' : '⏰ '}{s.label}
+                    </span>
+                  ))}
+                </div>
+              </div>
+              <div className="text-xs" style={{ color: 'var(--muted)', maxWidth: 360, textAlign: 'right' }}>
+                {plan.left_today
+                  ? (nx ? <>Next best time <b style={{ color: 'var(--text)' }}>{nx.day === today[0]?.day ? '' : 'tomorrow '}{nx.label}</b> · phone reminder at {remindAt}</> : 'No slots left today')
+                  : <>✓ Done for today — {plan.cap} posts is the daily limit. Next: <b style={{ color: 'var(--text)' }}>tomorrow {nx?.label || ''}</b></>}
+              </div>
+            </div>
+            <div className="text-xs" style={{ color: 'var(--faint)', marginTop: 6 }}>Times from: {(plan.basis || []).join(' + ')}</div>
+          </div>
+        );
+      })()}
+
       {/* publish controls */}
       <div className="panel p-5 mb-5">
         <div className="flex items-center justify-between flex-wrap gap-3 mb-4">
@@ -841,7 +880,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                     <a className="btn btn-sm btn-accent" href={colab.notebook} target="_blank" rel="noreferrer">Open Colab ↗</a>
                     <button className="btn btn-sm btn-ghost" onClick={() => setColab(null)}>Close</button>
                   </div>
-                  <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>In Colab: Runtime → Run all → paste the code. Keep the tab open; it stops itself after 15 idle minutes.</div>
+                  <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>In Colab (phone or laptop): put the code in SESSION_CODE and tap ▶. Keep the tab open.</div>
                 </div>)}
             </div>
             <div className="flex flex-wrap items-end gap-4 mb-2">
@@ -975,7 +1014,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       {queue.length > 0 && (
         <div className="flex flex-col gap-4">
           {queue.map((g) => (
-            <IgPostCard key={g.id + ':' + look + ':' + styles} g={g} st={statuses[g.id] || {}} posting={busyId === g.id || statuses[g.id]?.phase === 'posting'}
+            <IgPostCard key={g.id + ':' + look + ':' + styles} g={g} st={statuses[g.id] || {}} posting={busyId === g.id || statuses[g.id]?.phase === 'posting'} capReached={capReached}
               busyAll={busyAll} accountLabel={acctHandle} getArt={getArt} artId={artPlans[g.id] ? `${artPlans[g.id].id}:${artPlans[g.id].rev}` : ''}
               onPost={() => postOneReal(g)} onDry={() => publishOne(g, true)} />
           ))}
@@ -993,7 +1032,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
 }
 
 // ── Instagram-style post preview card — swipe the carousel, read the caption, publish ──
-function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getArt, artId }) {
+function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getArt, artId, capReached = false }) {
   const pins = (g.products || []).slice(0, 10);
   const [idx, setIdx] = useState(0);
   const [showCap, setShowCap] = useState(false);
@@ -1175,8 +1214,9 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
 
       {/* publish — REAL post + dry test */}
       <div className="ig-foot">
-        <button className="btn btn-post" onClick={onPost} disabled={posting || busyAll || done} style={{ minWidth: 190, justifyContent: 'center' }}>
-          {posting ? <><Spinner size={14} /> Posting…</> : done ? <><Icon name="check" size={14} /> Posted ✓</> : <><Icon name="pin" size={15} /> Post to Instagram</>}
+        <button className="btn btn-post" onClick={onPost} disabled={posting || busyAll || done || capReached} style={{ minWidth: 190, justifyContent: 'center' }}
+          title={capReached ? 'Daily limit reached (2 posts a day) — post this tomorrow' : ''}>
+          {posting ? <><Spinner size={14} /> Posting…</> : done ? <><Icon name="check" size={14} /> Posted ✓</> : capReached ? <>Daily limit reached · tomorrow</> : <><Icon name="pin" size={15} /> Post to Instagram</>}
         </button>
         {!done && <button className="btn btn-sm btn-ghost" onClick={onDry} disabled={posting || busyAll} title="Record without posting">dry test</button>}
         {st.permalink && <a className="text-xs" href={st.permalink} target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>view on Instagram ↗</a>}
@@ -1673,7 +1713,7 @@ function RenderGpuPanel({ active }) {
       </div>
       {!st ? <p className="text-sm" style={{ color: 'var(--muted)' }}><Spinner size={14} /></p> : <>
         {row(st.laptop_online, '💻 Laptop GPU', st.laptop_online ? `online · ${gpu(st.laptop_gpu)} · renders laptop posts` : 'offline')}
-        {row(st.colab_online, '☁️ Google Colab', st.colab_online ? `online · ${st.colab_gpu || 'GPU'} · renders phone posts` : 'not running — Get Colab code, then Run all in the notebook')}
+        {row(st.colab_online, '☁️ Google Colab', st.colab_online ? `online · ${st.colab_gpu || 'GPU'} · renders phone posts` : 'not running — open the notebook and tap ▶ (phone or laptop)')}
         {row(st.phone_cutouts_online, '📱 Phone cut-outs', st.phone_cutouts_online ? 'ready (ML Kit) · used when no GPU is on' : 'offline')}
         <div className="text-xs mt-1" style={{ color: 'var(--faint)' }}>
           {(st.rendering || []).length ? `Rendering now on: ${st.rendering.join(', ')}` : 'Idle'} · {st.queued || 0} queued · {st.library_ready} saved backdrops
@@ -1695,7 +1735,7 @@ function RenderGpuPanel({ active }) {
       </>}
       {key && (
         <div className="panel p-3 mt-3" style={{ background: 'var(--panel-2)', maxWidth: 620 }}>
-          <div className="text-xs mb-1" style={{ color: 'var(--muted)' }}>Your Colab key — <b>shown only now</b>. Save it once in Colab, then just Open → Run all (no codes):</div>
+          <div className="text-xs mb-1" style={{ color: 'var(--muted)' }}>Your Colab key — <b>shown only now</b>. Save it once in Colab 🔑 Secrets, then just open the notebook and tap ▶ — on your phone too (no codes):</div>
           <div className="font-mono text-xs" style={{ wordBreak: 'break-all', padding: '8px 10px', background: 'var(--bg)', borderRadius: 8 }}>{key.key}</div>
           <div className="flex flex-wrap gap-2 mt-2">
             <button className="btn btn-sm" onClick={() => navigator.clipboard?.writeText(key.key)}>Copy key</button>
@@ -1705,7 +1745,7 @@ function RenderGpuPanel({ active }) {
           <ol className="text-xs mt-2" style={{ color: 'var(--faint)', paddingLeft: 18, listStyle: 'decimal' }}>
             <li>In Colab, click the 🔑 <b>Secrets</b> icon on the left → <b>Add new secret</b>.</li>
             <li>Name: <b>{key.secret_name}</b> · Value: paste the key · switch <b>Notebook access</b> on.</li>
-            <li>Runtime → Run all. From now on that's all it takes. Valid {key.days} days (the watchdog reminds you before it expires).</li>
+            <li>Tap ▶ on the notebook's one cell (phone or laptop). From now on that's all it takes. Valid {key.days} days (the watchdog reminds you before it expires).</li>
           </ol>
         </div>)}
       {err && <p className="text-xs mt-2" style={{ color: 'var(--danger)' }}>{err}</p>}
@@ -1719,7 +1759,7 @@ function RenderGpuPanel({ active }) {
             <a className="btn btn-sm btn-accent" href={colab.notebook} target="_blank" rel="noreferrer">Open Colab ↗</a>
             <button className="btn btn-sm btn-ghost" onClick={() => setColab(null)}>Close</button>
           </div>
-          <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>In Colab: paste the code into <b>SESSION_CODE</b> (step 3) → Runtime → Run all. Keep the tab open.</div>
+          <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>In Colab (phone or laptop): paste the code into <b>SESSION_CODE</b> and tap ▶. Keep the tab open.</div>
         </div>)}
     </div>
   );

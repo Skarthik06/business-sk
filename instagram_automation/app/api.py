@@ -391,9 +391,12 @@ def sk_carousel(body: SkCarouselReq):
     """Publish one Post-to-IG carousel, recorded server-side under body.post_key (see post_ledger):
     the post leaves the Studio queue even if the phone paused/reloaded the page while it ran, and
     the same post can never be published twice."""
-    from app.services import post_ledger
+    from app.services import post_ledger, post_timing
+    over = post_timing.check_cap(body.account_id)           # strictly SK_MAX_POSTS_PER_DAY (2) a day
+    if over:
+        raise HTTPException(409, over)
     try:
-        post_ledger.begin(body.post_key, body.category)
+        post_ledger.begin(body.post_key, body.category, body.account_id)
     except post_ledger.AlreadyPosted as e:
         raise HTTPException(409, "This post is already live on Instagram" if e.rec.get("state") == "posted"
                             else "This post is still being published — wait for it to finish")
@@ -414,6 +417,13 @@ def sk_post_status(body: SkPostKeysReq):
     """{post_key: {state: posting|posted|failed, media_id, permalink, recorded}} for the Studio queue."""
     from app.services import post_ledger
     return {"success": True, "posts": post_ledger.status(body.keys)}
+
+
+@app.get("/api/sk/post-plan")
+def sk_post_plan(account_id: int | None = None):
+    """Today's 2 best posting times (+ the next 2 days), posts done today and the daily limit."""
+    from app.services import post_timing
+    return post_timing.plan(account_id)
 
 
 @app.post("/api/sk/post-ack")
@@ -877,7 +887,25 @@ def gpu_device_jobs(n: int = 2, ver: str = "", x_worker_token: str = Header("", 
     jobs = scene_store.take_cutout_jobs(n, {"worker": wid, "ver": ver}) if n > 0 else []
     # the laptop does laptop-started work → the phone polls less; phone-started work → poll fast
     return {"jobs": jobs, "laptop_gpu": scene_store.laptop_online() and scene_store.render_target() != "colab",
-            "alerts": gpu_watchdog.alerts(actionable_only=True)}          # SK Helper turns these into notifications
+            "alerts": gpu_watchdog.alerts(actionable_only=True),          # SK Helper turns these into notifications
+            "post_plan": _post_plan_safe()}                                # → the phone schedules the post reminders
+
+
+def _post_plan_safe() -> dict | None:
+    try:
+        from app.services import post_timing
+        return post_timing.plan()
+    except Exception as e:                                                 # noqa: BLE001 — never break the poll
+        print(f"[post-timing] plan failed: {e}", flush=True)
+        return None
+
+
+@app.get("/api/gpu/device/post-plan")
+def gpu_device_post_plan(x_worker_token: str = Header("", alias="X-Worker-Token")):
+    """The phone re-checks right before a reminder (did you already post?) — no jobs, no side effects."""
+    if not _device_worker(x_worker_token):
+        raise HTTPException(401, "bad device token")
+    return _post_plan_safe() or {"success": False}
 
 
 @app.post("/api/gpu/device/result")

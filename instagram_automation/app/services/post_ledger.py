@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import threading
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app import settings
 
@@ -53,7 +53,7 @@ def _clean(key: str) -> str:
     return "".join(c for c in (key or "") if c.isalnum() or c in "-_:.")[:80]
 
 
-def begin(key: str, label: str = "") -> None:
+def begin(key: str, label: str = "", account_id: Optional[int] = None) -> None:
     key = _clean(key)
     if not key:
         return
@@ -63,7 +63,7 @@ def begin(key: str, label: str = "") -> None:
         if cur and (cur.get("state") == "posted"
                     or (cur.get("state") == "posting" and time.time() - cur.get("at", 0) < STALE_POSTING)):
             raise AlreadyPosted(cur)
-        d[key] = {"state": "posting", "at": time.time(), "label": label[:80]}
+        d[key] = {"state": "posting", "at": time.time(), "label": label[:80], "acct": account_id}
         _save(d)
 
 
@@ -112,3 +112,11 @@ def ack(key: str) -> bool:
         d[key]["recorded"] = True
         _save(d)
         return True
+
+
+def in_flight(account_id: int) -> int:
+    """Posts of this account being published right now (counted toward the daily limit, so two
+    posts started together can't slip past it)."""
+    now = time.time()
+    return sum(1 for v in _load().values() if v.get("state") == "posting" and v.get("acct") == account_id
+               and now - float(v.get("at", 0)) < STALE_POSTING)

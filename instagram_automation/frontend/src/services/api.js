@@ -64,6 +64,8 @@ export default {
   // Server-side record of Post-to-IG publishes (survives the phone pausing/reloading the page).
   skPostStatus: (keys) => http.post('/sk/post-status', { keys }).then(data),
   skPostAck: (keys) => http.post('/sk/post-ack', { keys }).then(data),
+  // Post Timing agent: today's 2 best posting times + posts done today (strict 2-a-day limit).
+  skPostPlan: () => http.get('/sk/post-plan').then(data),
 
   // Business-SK — render the Still Set designed slides for a set of products WITHOUT posting.
   // Returns { images:[cdn urls], plan:[{tmpl,label,n,product}], count, palette } — the real post preview.
