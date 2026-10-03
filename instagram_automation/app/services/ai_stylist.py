@@ -6,15 +6,18 @@ photo, like premium fashion Instagram posts:
   FREE  — the flat-lay SURFACE (stone / oak / linen / marble) is painted by our own Z-Image model on
           the laptop GPU or Colab, once, and reused by every post.
   PAID  — OpenAI's image model (SK_STYLIST_MODEL, default gpt-image-1-mini) builds the product into
-          that surface. Quality is chosen per product: medium only when a logo/print/text must be
-          kept, otherwise low.
+          that surface — the ONLY paid step.
+  FREE  — everything else is our own deterministic image analysis (app/services/stylist_cv.py):
+          · item = colour (measured from the photo) + garment type (from the product title)
+          · emblem/logo detector → "medium" ONLY when the product carries an emblem or symbol, else
+            "low" (stripes, colour blocks and plain garments come out right at low — measured)
+          · fidelity: the garment colour must survive, and the logo must be the REAL one — if the
+            model drew a different emblem it is erased and the real logo is put back (no re-buy)
 
 Money guards (nothing runs by itself — only when you press "Style with AI"):
-  · one cheap vision look per product (cached forever) decides the quality and writes the logo note
   · inputs are downscaled (input image tokens were ~70 % of the cost), prompts are short
   · every styled image is saved per (surface, product) and reused — never paid twice
   · daily cap + reserve floor on an exact local spend ledger (OpenAI has no balance API)
-  · a fidelity check rejects an image whose product changed → that slide uses the free design
 """
 from __future__ import annotations
 
@@ -23,13 +26,14 @@ import hashlib
 import io
 import json
 import os
+import re
 import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app import settings
-from app.services import scene_store
+from app.services import scene_store, stylist_cv
 
 
 def _env(name: str, default: str) -> str:
@@ -44,21 +48,18 @@ def _fenv(name: str, default: float) -> float:
 
 
 MODEL = _env("SK_STYLIST_MODEL", "gpt-image-1-mini")
-VISION_MODEL = _env("SK_STYLIST_VISION_MODEL", "gpt-5-nano")
 DAILY_CAP = _fenv("SK_STYLIST_DAILY_CAP_USD", 0.30)
 RESERVE = _fenv("SK_STYLIST_RESERVE_USD", 0.50)
 CREDIT = _fenv("SK_STYLIST_CREDIT_USD", 0.0)            # balance when set up (0 = reserve check off)
 CREDIT_SINCE = _env("SK_STYLIST_CREDIT_SINCE", "")      # YYYY-MM-DD the balance above was read
 INPUT_PX = int(_fenv("SK_STYLIST_INPUT_PX", 640))       # long side of images sent to OpenAI
 SIZE = _env("SK_STYLIST_SIZE", "1024x1536")
-CHECK = _env("SK_STYLIST_FIDELITY_CHECK", "1") != "0"
+CHECK = _env("SK_STYLIST_FIDELITY_CHECK", "1") != "0"     # free deterministic check + logo restore
 # list prices per 1M tokens (override in .env if OpenAI changes them)
 P_TEXT = _fenv("SK_STYLIST_PRICE_TEXT_IN", 2.0)
 P_IMG_IN = _fenv("SK_STYLIST_PRICE_IMAGE_IN", 2.5)
 P_IMG_OUT = _fenv("SK_STYLIST_PRICE_IMAGE_OUT", 8.0)
-P_V_IN = _fenv("SK_STYLIST_PRICE_VISION_IN", 0.05)
-P_V_OUT = _fenv("SK_STYLIST_PRICE_VISION_OUT", 0.40)
-EST = {"low": 0.009, "medium": 0.019}                   # measured, with downscaled inputs (upper-ish)
+EST = {"low": 0.006, "medium": 0.016}                   # measured 0.0043 / 0.0139 with downscaled inputs (+ margin)
 
 ROOT = scene_store.ROOT
 OUT = ROOT / "styled"
@@ -155,45 +156,67 @@ def _key(*parts: str) -> str:
     return hashlib.sha1("|".join(parts).encode("utf-8")).hexdigest()[:24]
 
 
-def _vision(content: List[Dict[str, Any]], label: str, effort: str = "minimal") -> Dict[str, Any]:
-    """One structured vision call (cheap model, little reasoning). Charged to the ledger."""
-    resp = _client().chat.completions.create(
-        model=VISION_MODEL, response_format={"type": "json_object"}, reasoning_effort=effort,
-        messages=[{"role": "user", "content": content}])
-    u = getattr(resp, "usage", None)
-    usd = ((getattr(u, "prompt_tokens", 0) or 0) * P_V_IN + (getattr(u, "completion_tokens", 0) or 0) * P_V_OUT) / 1e6
-    _charge("vision", usd, {"what": label})
-    try:
-        return json.loads(resp.choices[0].message.content or "{}")
-    except Exception:
-        return {}
+# ── 1 · read the product (free, deterministic, cached per photo) ──────────────────────────────
+_TYPES = [  # (title pattern, item name) — most specific first
+    (r"zip\w*[- ]?(up )?hood|hood\w*.*\bzip", "zip hoodie"), (r"half[- ]zip|quarter[- ]zip", "half-zip sweatshirt"),
+    (r"hood(ie|y|ed)", "hoodie"), (r"sweat ?shirt", "sweatshirt"), (r"polo", "polo t-shirt"), (r"t[- ]?shirt|\btee\b", "t-shirt"),
+    (r"overshirt|shacket", "overshirt"), (r"\bshirt", "shirt"), (r"blazer", "blazer"), (r"jacket|bomber|windcheater", "jacket"),
+    (r"cardigan", "cardigan"), (r"sweater|pullover|jumper", "sweater"), (r"kurta", "kurta"), (r"dress", "dress"),
+    (r"co[- ]?ord", "co-ord set"), (r"jogger|track ?pant", "joggers"), (r"jeans|denim", "jeans"), (r"chino", "chinos"),
+    (r"cargo", "cargo pants"), (r"trouser|pant", "trousers"), (r"shorts", "shorts"), (r"skirt", "skirt"), (r"saree|\bsari\b", "saree"),
+    (r"\btop\b", "top"), (r"sneaker|shoe|trainer", "sneakers"), (r"sandal|slider|flip[- ]?flop", "sandals"), (r"watch", "watch"),
+    (r"backpack", "backpack"), (r"\bbag\b|tote|sling", "bag"), (r"wallet", "wallet"), (r"\bcap\b|\bhat\b", "cap"),
+    (r"sunglass", "sunglasses"), (r"\bbelt\b", "belt"),
+]
+_PRINT_WORDS = re.compile(r"\b(print(ed)?|graphic|typograph\w*|slogan|logo|embroider\w*|badge|patch|marvel|disney|"
+                          r"spider[- ]?man|batman|superman|avengers|anime|naruto|mickey|cartoon|character|artwork)\b", re.I)
+_PLAIN_WORDS = re.compile(r"\b(all[- ]?over|stripe[ds]?|check(ed|s)?|plaid|floral|camo\w*|polka)\b", re.I)   # pattern ≠ emblem → low is fine
+_STOP = {"men", "mens", "women", "womens", "for", "with", "and", "the", "regular", "slim", "fit", "cotton", "solid", "pack"}
 
 
-def _img_part(jpeg: bytes, detail: str = "auto") -> Dict[str, Any]:
-    return {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + base64.b64encode(jpeg).decode(), "detail": detail}}
+def _title(p: Dict[str, Any]) -> str:
+    return (p.get("product_title") or p.get("title") or p.get("name") or "").strip()
 
 
-# ── 1 · describe the product once (cached forever per photo) ─────────────────────────────────
-def describe(src: str, raw: Optional[bytes] = None) -> Dict[str, Any]:
-    path = DESC / f"{_key(src)}.json"
+def item_name(title: str, colour: str) -> str:
+    """'<measured colour> <garment type from the title>' — e.g. 'dark green zip hoodie'."""
+    t = (title or "").lower()
+    for pat, name in _TYPES:
+        if re.search(pat, t):
+            return f"{colour} {name}".strip()
+    words = [w for w in re.findall(r"[a-z][a-z-]+", t) if w not in _STOP]
+    return f"{colour} {' '.join(words[-3:]) or 'product'}".strip()
+
+
+def _photo(src: str):
+    """(photo bytes, our cut-out PNG or None) — the cut-out (original pixels + mask) saves a download."""
+    cp = scene_store.cutout_path(src)
+    cut = cp.read_bytes() if cp else None
+    return (cut or _download(src)), cut
+
+
+def describe(src: str, title: str = "", raw: Optional[bytes] = None, cut: Optional[bytes] = None) -> Dict[str, Any]:
+    """item / colour / quality (medium ONLY for an emblem or symbol) — no AI call, cached per photo."""
+    path = DESC / f"{_key(src)}.cv.json"
     try:
         return json.loads(path.read_text("utf-8"))
     except Exception:
         pass
-    raw = raw or _download(src)
-    # Small embroidered logos are easy to miss: a sharper image + a little reasoning (≈$0.0003 more,
-    # once per product) — a missed logo means low quality and a lost logo (measured).
-    d = _vision([{"type": "text", "text": (
-        "Product photo. Look closely at the chest, sleeves, hood, pockets and hem for ANY logo, emblem, "
-        "embroidery, print or text, even tiny ones. JSON only: {\"item\": the main product in 3-6 words "
-        "(e.g. \"dark green zip hoodie\"), \"worn\": true if a person/mannequin wears or holds it, \"marks\": exact "
-        "description of every logo/emblem/print/text incl. shape, colour and position, or \"\" if truly none, "
-        "\"box\": [x0, y0, x1, y1] fractions 0-1 of the image around the MAIN logo/print, or [] if none}")},
-        _img_part(_small_jpeg(raw, 1024), "high")], "describe", effort="low")
-    box = d.get("box") if isinstance(d.get("box"), list) and len(d.get("box")) == 4 else []
-    d = {"item": str(d.get("item") or "product")[:60], "worn": bool(d.get("worn")), "marks": str(d.get("marks") or "")[:160],
-         "box": [max(0.0, min(1.0, float(v))) for v in box] if box else []}
-    d["quality"] = "medium" if d["marks"] else "low"
+    if raw is None:
+        raw, cut = _photo(src)
+    try:
+        a = stylist_cv.analyse(raw, cut)
+        d = {k: v for k, v in a.items() if not k.startswith("_")}
+    except Exception as e:  # noqa: BLE001 — unreadable photo: be safe, keep details
+        d = {"colour": "", "quality": "medium", "box": [], "error": str(e)[:80]}
+    d["item"] = item_name(title, d.get("colour") or "")
+    # a chest-wide graphic has no plain fabric around it, so the pixel detector can't call it a
+    # mark — but the listing title says so ("Printed", "Graphic", "Marvel" …) → medium keeps it
+    title_print = bool(_PRINT_WORDS.search(title or "")) and not _PLAIN_WORDS.search(title or "")
+    if d.get("quality") == "low" and title_print:
+        d["quality"] = "medium"
+    d["why"] = ("emblem/logo found in the photo" if d.get("box") else "print/graphic in the title" if title_print
+                else "unreadable photo — kept details" if d.get("error") else "plain — no emblem")
     path.write_text(json.dumps(d), "utf-8")
     return d
 
@@ -222,42 +245,20 @@ def styled_path(surface: str, src: str) -> Path:
 
 
 def estimate(products: List[Dict[str, Any]], surface: str) -> Dict[str, Any]:
-    todo, cost = [], 0.0
+    todo, cost, qs = [], 0.0, []
     for p in products:
         src = _src(p)
         if not src or styled_path(surface, src).exists():
             continue
-        d = None
         try:
-            d = json.loads((DESC / f"{_key(src)}.json").read_text("utf-8"))
-        except Exception:
-            pass
-        q = (d or {}).get("quality") or "medium"                       # unknown → assume the dearer one
-        cost += EST[q] + (0 if d else 0.0008) + (0.0006 if CHECK else 0)
+            q = describe(src, _title(p)).get("quality") or "medium"    # free → the estimate is exact per product
+        except Exception:  # noqa: BLE001
+            q = "medium"                                               # unreadable now → assume the dearer one
+        cost += EST[q]
         todo.append(src)
+        qs.append(q)
     return {"to_style": len(todo), "already_styled": len(products) - len(todo), "estimate_usd": round(cost, 4),
-            **budget()}
-
-
-def _logo_crop(raw: bytes, box: List[float]) -> Optional[bytes]:
-    """The real logo, cut from the original photo (padded, upscaled) — shown to the image model."""
-    if not box:
-        return None
-    from PIL import Image
-    im = Image.open(io.BytesIO(raw)).convert("RGB")
-    W, H = im.size
-    x0, y0, x1, y1 = box
-    if x1 <= x0 or y1 <= y0:
-        return None
-    pad = 0.35 * max(x1 - x0, y1 - y0)                           # a little cloth around it for context
-    b = (int(max(0, x0 - pad) * W), int(max(0, y0 - pad) * H), int(min(1, x1 + pad) * W), int(min(1, y1 + pad) * H))
-    if b[2] - b[0] < 12 or b[3] - b[1] < 12:
-        return None
-    c = im.crop(b)
-    c = c.resize((256, max(32, int(256 * c.height / max(1, c.width)))), Image.LANCZOS)
-    out = io.BytesIO()
-    c.save(out, "JPEG", quality=90)
-    return out.getvalue()
+            "medium": qs.count("medium"), "low": qs.count("low"), **budget()}
 
 
 def _src(p: Dict[str, Any]) -> str:
@@ -272,17 +273,18 @@ def style_product(p: Dict[str, Any], surface: str) -> Dict[str, Any]:
     sp = surface_path(surface)
     if not sp:
         return {"src": src, "status": "no_surface"}
-    raw = _download(src)
-    d = describe(src, raw)
+    raw, cut = _photo(src)
+    d = describe(src, _title(p), raw, cut)
     q = d["quality"]
     _guard(EST[q])
-    item = d["item"]
-    logo = _logo_crop(raw, d.get("box") or [])
+    a = stylist_cv.analyse(raw, cut) if (q == "medium" or CHECK) else None   # pixels + logo mask (free, <1 s)
+    logo = stylist_cv.logo_png(a) if a and q == "medium" else None
+    side = {"image-right": "on the right side of the chest as seen in image 1",
+            "image-left": "on the left side of the chest as seen in image 1"}.get((a or {}).get("side"), "at the same spot as in image 1")
     prompt = (f"Image 1: product photo. Image 2: empty surface. Create a top-down flat-lay product photo of ONLY the "
-              f"{item} from image 1{' (no person, body, face, hands or mannequin)' if d['worn'] else ''}, laid on the "
-              f"surface from image 2 with natural folds and soft realistic shadows. Keep its exact colours and details"
-              f"{'; ' + d['marks'] if d['marks'] else ''}."
-              f"{' Image 3 is a close-up of its logo: reproduce exactly this design, same shape, colour and position (never another emblem).' if logo else ''}"
+              f"{d.get('item') or 'product'} from image 1 (no person, body, face, hands or mannequin), laid on the surface "
+              f"from image 2 with natural folds and soft realistic shadows. Keep its exact colours, panels, stripes and details."
+              f"{f' Image 3 is a close-up of its small logo: reproduce exactly this design, {side}.' if logo else ''}"
               f" Keep the surface decor. Photorealistic.")
     images = [("product.jpg", _small_jpeg(raw), "image/jpeg"),
               ("surface.jpg", _small_jpeg(sp.read_bytes(), INPUT_PX), "image/jpeg")]
@@ -293,24 +295,18 @@ def style_product(p: Dict[str, Any], surface: str) -> Dict[str, Any]:
     det = getattr(u, "input_tokens_details", None)
     tin, iin, iout = (getattr(det, "text_tokens", 0) or 0), (getattr(det, "image_tokens", 0) or 0), (getattr(u, "output_tokens", 0) or 0)
     usd = (tin * P_TEXT + iin * P_IMG_IN + iout * P_IMG_OUT) / 1e6
-    _charge("image", usd, {"what": item[:40], "quality": q, "tokens": [tin, iin, iout]})
+    _charge("image", usd, {"what": (d.get("item") or "")[:40], "quality": q, "tokens": [tin, iin, iout]})
     img = base64.b64decode(res.data[0].b64_json)
+    note: Dict[str, Any] = {}
+    if CHECK and a is not None:                                     # free: colour survived? the REAL logo?
+        chk = stylist_cv.check_and_fix(img, a)
+        if not chk["ok"]:
+            return {"src": src, "status": "rejected", "why": chk["why"], "usd": round(usd, 5)}
+        img = chk.get("image") or img
+        note = {"logo": chk.get("logo", "-")}
     from PIL import Image
-    im = Image.open(io.BytesIO(img)).convert("RGB")
-    if CHECK:                                                       # same product? (colour / logo / shape)
-        parts = [{"type": "text", "text": (
-            "Image A is the original product photo, image B the styled photo of the " + item +
-            (", image C a close-up of the original logo" if logo else "") + ". JSON only: {\"same\": true only if B "
-            "shows the same product: same colour, same shape" + (", and the SAME logo design as C (a different emblem, "
-            "e.g. a wreath instead of antlers, means false)" if logo else "") + ", \"why\": short}")},
-            _img_part(_small_jpeg(raw, 512), "low"), _img_part(_small_jpeg(img, 768 if logo else 512), "auto" if logo else "low")]
-        if logo:
-            parts.append(_img_part(logo, "low"))
-        v = _vision(parts, "fidelity")
-        if v.get("same") is False:
-            return {"src": src, "status": "rejected", "why": str(v.get("why") or "")[:120], "usd": round(usd, 5)}
-    im.save(out, "JPEG", quality=90, optimize=True)
-    return {"src": src, "status": "styled", "quality": q, "usd": round(usd, 5)}
+    Image.open(io.BytesIO(img)).convert("RGB").save(out, "JPEG", quality=90, optimize=True)
+    return {"src": src, "status": "styled", "quality": q, "usd": round(usd, 5), **note}
 
 
 def style_post(products: List[Dict[str, Any]], post_id: str, dark: bool) -> Dict[str, Any]:

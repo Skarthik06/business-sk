@@ -985,12 +985,15 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
       const est = await api.skStylistEstimate(pins, art.id, dark);
       if (!est.to_style) { setStyleMsg('All products are already styled — no cost'); await renderDesign(); return; }
       const left = est.credit_left_usd != null ? ` · ≈$${est.credit_left_usd.toFixed(2)} credit left` : '';
-      if (!window.confirm(`Style ${est.to_style} product(s) with ${est.model}?\n\nEstimated cost: ≈$${est.estimate_usd.toFixed(3)} (max)\nToday: $${est.today_usd.toFixed(3)} of $${est.daily_cap_usd.toFixed(2)} cap${left}`)) return;
+      const mix = `\n${est.medium || 0} with a logo/emblem → medium · ${est.low || 0} plain → low (picked by our own free image check)`;
+      if (!window.confirm(`Style ${est.to_style} product(s) with ${est.model}?${mix}\n\nEstimated cost: ≈$${est.estimate_usd.toFixed(3)} (max)\nToday: $${est.today_usd.toFixed(3)} of $${est.daily_cap_usd.toFixed(2)} cap${left}`)) return;
       setStyling(true);
       const r = await api.skStylistStyle(pins, art.id, dark);
       if (!r.ok) { setStyleMsg(r.error || 'Not styled'); return; }
       const bad = (r.results || []).filter((x) => !['styled', 'cached'].includes(x.status));
+      const fixed = (r.results || []).filter((x) => x.logo === 'restored').length;
       setStyleMsg(`✨ ${r.styled} styled · spent $${(r.spent_usd || 0).toFixed(3)} · today $${r.today_usd.toFixed(3)}/${r.daily_cap_usd.toFixed(2)}` +
+        (fixed ? ` · ${fixed} logo(s) corrected to the real one` : '') +
         (bad.length ? ` · ${bad.length} kept the free design (${bad[0].status}${bad[0].why ? ': ' + bad[0].why : ''})` : ''));
       await renderDesign();
     } catch (e) {
