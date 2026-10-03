@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.18.0** (2026-10-03) — Post to IG: a post that went live while the phone app was in the background leaves the queue; no double posting
 - **v2.17.2** (2026-10-03) — AI Stylist: a logo the model drops is reported, never pasted at a guessed spot
 - **v2.17.1** (2026-10-03) — AI Stylist: half-zip item names
 - **v2.17.0** (2026-10-03) — AI Stylist: deterministic emblem detector decides medium vs low, free fidelity check, real logo restored when the model draws a different one
