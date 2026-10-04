@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.24.2** (2026-10-04) — Cuelinks: Step 2 is driven only by the Step-1 AI plan
 - **v2.24.1** (2026-10-04) — Cuelinks AI planner: Clear button
 - **v2.24.0** (2026-10-04) — Cuelinks Affiliate: AI planner suggests stores + product searches, tap one to generate (like Amazon); own scraper only
 - **v2.23.6** (2026-10-04) — Cuelinks wired end to end: Flipkart/Shopsy fetched free via your phone/laptop; DMs and slides name the real store

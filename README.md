@@ -1,6 +1,6 @@
 # BUSINESS_SK — Agentic Instagram Affiliate Autopilot
 
-**Current stable version:** v2.24.1
+**Current stable version:** v2.24.2
 
 An end-to-end, agent-driven marketing system for the Instagram account **@lostinframes0605.exe**
 ("Aura Picks"). It **finds products** (Amazon, Flipkart, Shopsy, 16 Shopify brands, Cuelinks
@@ -36,7 +36,7 @@ Private project — all rights reserved.
 
 | | |
 |---|---|
-| **Version** | v2.24.1 (production runs this tag) · Android app **SK Helper 1.7.0** |
+| **Version** | v2.24.2 (production runs this tag) · Android app **SK Helper 1.7.0** |
 | **Server** | Oracle Cloud ARM (2 vCPU, 11 GB RAM), Docker Compose — 7 services |
 | **Workers** | Laptop RTX 5050 (GPU + scraping) · Google Colab T4 (GPU) · Android phone (scraping, cut-outs, reminders) |
 | **Database** | PostgreSQL 18 on the server (`sk_studio`, `affiliate_rag_bot`, `scraper_api`) + pgvector · Redis |
