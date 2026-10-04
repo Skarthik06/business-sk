@@ -105,7 +105,9 @@ class PinBatch(BaseModel):
 # ─── Prompts (system is fully static → cache-friendly) ───────────────────────
 
 SYSTEM = (
-    "You are an Amazon affiliate + Instagram copywriter. In ONE response you PICK the "
+    "You are an affiliate + Instagram copywriter (the STORE is given with each request — every "
+    "product is sold on that store; never name another store in the caption, cover or hashtags). "
+    "In ONE response you PICK the "
     "best products for a single Instagram CAROUSEL of ONE category, and write ONE "
     "category-themed caption for the whole carousel (NOT one per product).\n\n"
     "PICK by: strong social proof (high rating, many reviews, high recent demand, a "
@@ -154,6 +156,7 @@ SYSTEM = (
 )
 
 HUMAN = (
+    "STORE: {store}\n"
     "CATEGORY: {category}\n"
     "Pick the {count} best {category} products for one carousel and write ONE "
     "SHORT {category}-themed caption (the slides already show each price/discount — do "
@@ -302,7 +305,9 @@ async def compose_pins(
     chain = ChatPromptTemplate.from_messages([("system", SYSTEM), ("human", HUMAN)]) | structured
 
     category = (products[0].get("category") or "product").strip() or "product"
+    store = (products[0].get("source") or "amazon").strip().lower() or "amazon"
     inputs = {
+        "store":      {"amazon": "Amazon.in", "flipkart": "Flipkart", "shopsy": "Shopsy"}.get(store, store.title()),
         "count":      count,
         "category":   category,
         "candidates": _candidates_block(products),
@@ -344,7 +349,7 @@ async def compose_pins(
 
     # Phase 4: curated hashtag bank merge (consistent reach spine) + #ad disclosure.
     tags = merge_hashtags(category, batch.hashtags or [],
-                          use_bank=cfg.content.use_tag_bank, cap=25)
+                          use_bank=cfg.content.use_tag_bank, cap=25, store=store)
 
     # Phase 4: record the style used (normalise to a known value; else UNKNOWN).
     style = (batch.style or "").strip().upper()

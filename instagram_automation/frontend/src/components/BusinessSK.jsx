@@ -105,7 +105,7 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
       <div style={show('winners')}><WinnersPanel active={tab === 'winners'} say={say} /></div>
       <div style={show('trends')}><TrendsPanel active={tab === 'trends'} cats={cats} /></div>
       <div style={show('intel')}><IntelligencePanel active={tab === 'intel'} /></div>
-      <div style={show('attribution')}><AttributionPanel active={tab === 'attribution'} say={say} queue={queue} setQueue={setQueue} cats={cats} /></div>
+      <div style={show('attribution')}><AttributionPanel active={tab === 'attribution'} say={say} queue={queue} setQueue={setQueue} cats={cats} goPost={() => onNavigate?.('sk-post')} /></div>
       <div style={show('revenue')}><RevenuePanel active={tab === 'revenue'} say={say} /></div>
       <div style={show('calendar')}><CalendarPanel active={tab === 'calendar'} say={say} /></div>
       <div style={show('agents')}><AgentsPanel active={tab === 'agents'} say={say} /></div>
@@ -2352,7 +2352,7 @@ function FlipkartGenerate({ say, setQueue }) {
 const NICHE_TO_CAT = { Fashion: 'fashion', Beauty: 'beauty', Grooming: 'beauty', Electronics: 'electronics', Home: 'home' };
 const slugId = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'post';
 
-function StoreGenerate({ markets, cats = DEFAULT_CATS, say, queue, setQueue, constraints, plan, pickReq }) {
+function StoreGenerate({ markets, cats = DEFAULT_CATS, say, queue, setQueue, constraints, plan, pickReq, goPost }) {
   // Step 2 is driven ONLY by the Step-1 AI plan: its stores are the plan's picks (plan order, never
   // paused ones). No plan (or Clear) → nothing to pick; a new plan → its first store opens.
   const active = ((plan && plan.picks) || [])
@@ -2635,6 +2635,15 @@ function StoreGenerate({ markets, cats = DEFAULT_CATS, say, queue, setQueue, con
             </div>
           )}
 
+          {live.length > 0 && (
+            <div className="panel p-3 flex items-center gap-3 flex-wrap" style={{ border: '1.5px solid #3fb950', background: 'rgba(63,185,80,.08)' }}>
+              <div style={{ flex: 1, minWidth: 220 }}>
+                <b style={{ fontSize: 14 }}>✓ {live.length} post{live.length === 1 ? '' : 's'} ready in Post to IG</b>
+                <div className="text-xs" style={{ color: 'var(--muted)' }}>Next: open Content Studio → ✨ Style with AI → Post to Instagram.</div>
+              </div>
+              <button className="btn btn-post" onClick={() => goPost?.()} style={{ minWidth: 200, justifyContent: 'center' }}><Icon name="pin" size={14} /> Go to Post to IG →</button>
+            </div>
+          )}
           {live.map((g) => (
             <div key={g.id} className="panel p-3" style={{ background: 'var(--panel-2)' }}>
               <div className="flex items-center gap-2 mb-2 flex-wrap">
@@ -2673,7 +2682,7 @@ function StoreGenerate({ markets, cats = DEFAULT_CATS, say, queue, setQueue, con
   );
 }
 
-function CuelinksPanel({ say, queue, setQueue, cats: productCats }) {
+function CuelinksPanel({ say, queue, setQueue, cats: productCats, goPost }) {
   const [d, setD] = useState(null);            // catalogue payload {markets, categories, constraints, earnings…}
   const [c, setC] = useState(null);            // local editable constraints
   const [plan, setPlan] = useState(null);      // AI plan result
@@ -2815,7 +2824,7 @@ function CuelinksPanel({ say, queue, setQueue, cats: productCats }) {
       </div>
 
       {/* Step 2 · per-store product generator — opened from a planner pick → AI filters → real products */}
-      {setQueue && <StoreGenerate markets={d.markets} cats={productCats} say={say} queue={queue} setQueue={setQueue} constraints={d.constraints} plan={plan} pickReq={pickReq} />}
+      {setQueue && <StoreGenerate markets={d.markets} cats={productCats} goPost={goPost} say={say} queue={queue} setQueue={setQueue} constraints={d.constraints} plan={plan} pickReq={pickReq} />}
 
       {/* markets catalogue */}
       <div>
@@ -2844,11 +2853,11 @@ function CuelinksPanel({ say, queue, setQueue, cats: productCats }) {
   );
 }
 
-function AttributionPanel({ active, say, queue, setQueue, cats }) {
+function AttributionPanel({ active, say, queue, setQueue, cats, goPost }) {
   return (
     <div className="mb-24 flex flex-col gap-4">
       <MyShopifyPanel say={say} queue={queue} setQueue={setQueue} />
-      <CuelinksPanel say={say} queue={queue} setQueue={setQueue} cats={cats} />
+      <CuelinksPanel say={say} queue={queue} setQueue={setQueue} cats={cats} goPost={goPost} />
       <NetworksSection say={say} />
     </div>
   );

@@ -1355,6 +1355,38 @@ async def cuelinks_generate(count: int = Query(default=8, ge=2, le=10,
     return await _build_deal_items(merchants, count, cats, prefer_active=True)
 
 
+_CAT_WORDS = {
+    "fashion": ["shirt", "t-shirt", "tshirt", "hoodie", "sweatshirt", "jacket", "jeans", "pant", "trouser",
+                "kurta", "kurti", "saree", "dress", "top", "skirt", "shoe", "sneaker", "sandal", "slipper",
+                "boot", "sock", "watch", "sunglass", "wallet", "bag", "backpack", "belt", "cap", "jewel",
+                "earring", "necklace", "bracelet", "ring", "co-ord", "shorts", "blazer", "sweater"],
+    "beauty": ["serum", "lipstick", "sunscreen", "face wash", "moisturi", "cream", "makeup", "kajal",
+               "perfume", "deodorant", "trimmer", "beard", "shampoo", "hair oil", "nail", "lotion"],
+    "electronics": ["earbud", "headphone", "earphone", "speaker", "smartwatch", "power bank", "charger",
+                    "cable", "mouse", "keyboard", "phone", "tablet", "laptop", "camera", "selfie", "tripod"],
+    "kitchen": ["kitchen", "cookware", "pan", "kadai", "bottle", "lunch box", "mixer", "kettle", "knife"],
+    "home": ["lamp", "bedsheet", "curtain", "cushion", "decor", "clock", "organiser", "organizer", "rack",
+             "mat", "towel", "light"],
+    "fitness": ["yoga", "dumbbell", "gym", "fitness", "resistance band", "skipping"],
+    "toys": ["toy", "puzzle", "lego", "doll", "game"],
+    "books": ["book", "notebook", "stationery", "pen", "diary"],
+}
+
+
+def _infer_category(text: str) -> str:
+    """The base category a search belongs to ('men hoodie' → 'fashion'); '' when unsure."""
+    t = (text or "").lower()
+    if not t:
+        return ""
+    best, best_len = "", 0                           # the LONGEST match wins ('smartwatch' ≠ 'watch')
+    for table in (getattr(_discovery, "SUBCATEGORIES", {}), _CAT_WORDS):
+        for base, words in table.items():
+            for w in [base, *words]:
+                if w in t and len(w) > best_len:
+                    best, best_len = base, len(w)
+    return best
+
+
 def _goal_rank(items: list, goal: Optional[str]) -> list:
     """The generator's Goal: 'commission' → pricier items first (same store %, bigger payout per sale);
     'volume' → most-reviewed first (proven sellers); 'balanced' → keep the quality ranking."""
@@ -1484,6 +1516,10 @@ async def cuelinks_store_generate(
         return JSONResponse(status_code=200, content={"ok": True, "status": "empty", "engine": engine,
                             "market": mk.get("id"), "store": name, "items": [],
                             "note": f"No fresh {name} products (all recently posted, or nothing matched) — try another search."})
+    cat_guess = _infer_category(query)
+    for p in picks:                                  # store pages carry no category → from the search
+        if not p.get("category"):
+            p["category"] = cat_guess or _infer_category(p.get("title", ""))
     items = await _build_product_items(picks, content, mk.get("id"), angle=(angle or "").strip())
     return JSONResponse(status_code=200, content={
         "ok": len(items) > 0, "status": "done" if items else "empty", "engine": engine,
@@ -1863,7 +1899,10 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
     for p in products:
         s = (p.get("source") or "amazon").strip().lower()
         by_src[s] = by_src.get(s, 0) + 1
-    _src_label = {"amazon": "Amazon", "flipkart": "Flipkart"}
+    _src_label = {"amazon": "Amazon", "flipkart": "Flipkart", "shopsy": "Shopsy"}
+    # the stores actually in the hub, biggest first → title + intro name them (never "Amazon" only)
+    _names = [_src_label.get(k, k.title()) for k, _ in sorted(by_src.items(), key=lambda kv: -kv[1])] or ["Amazon"]
+    stores_txt = _names[0] if len(_names) == 1 else ", ".join(_names[:-1]) + " & " + _names[-1]
     src_chips = ""
     if len(by_src) > 1:
         src_chips = ('<button class="schip on" data-s="all">All stores</button>'
@@ -1873,7 +1912,7 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
 
     html = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Lost in Frames · SK Store — Amazon Picks</title>
+<title>Lost in Frames · SK Store — {escape(stores_txt)} Picks</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Hanken+Grotesk:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <style>
@@ -1970,7 +2009,7 @@ def hub_page(category: Optional[str] = None) -> HTMLResponse:
 <div class="hero">
   <div class="brand shiny">SK LostInFrames</div>
   <h1 class="gradtext">Today's Best Finds</h1>
-  <p>Handpicked deals on Amazon — updated live. Tap any product to shop.</p>
+  <p>Handpicked deals on {escape(stores_txt)} — updated live. Tap any product to shop.</p>
   <div class="search"><input id="q" type="search" placeholder="Search {len(products)} products…" autocomplete="off"></div>
 </div>
 <div class="bar"><div class="chips">{chips}</div></div>

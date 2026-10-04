@@ -31,32 +31,64 @@ BANK: dict[str, list[str]] = {
 GENERIC = ["amazonindia", "amazonfinds", "musthaves", "shopnow", "dealsoftheday",
            "founditonamazon", "trending"]
 
+# Per-store reach tags. The bank above is written for Amazon; for another store every
+# store-named tag is swapped for that store's own (a Flipkart post never says #amazonfinds).
+STORE_GENERIC = {
+    "amazon":   GENERIC,
+    "flipkart": ["flipkart", "flipkartfinds", "flipkartsale", "musthaves", "shopnow",
+                 "dealsoftheday", "trending"],
+    "shopsy":   ["shopsy", "shopsyfinds", "flipkartfinds", "budgetfinds", "shopnow",
+                 "dealsoftheday", "trending"],
+}
+_STORES = ("amazon", "flipkart", "shopsy", "myntra", "ajio", "meesho", "nykaa")
 
-def bank_for(category: str, n: int = 8) -> list[str]:
+
+def _store_key(store: str) -> str:
+    s = (store or "amazon").strip().lower()
+    return s if s in STORE_GENERIC else "amazon"
+
+
+def _for_store(tag: str, store: str) -> str:
+    """Re-point a store-named tag at `store` (amazonfinds → flipkartfinds); drop it ("") when it
+    names another store and has no sensible swap."""
+    t = (tag or "").lower()
+    other = next((x for x in _STORES if x in t and x != store), None)
+    if not other:
+        return t
+    if other == "amazon" and store in STORE_GENERIC:
+        swapped = t.replace("founditonamazon", f"foundon{store}").replace("amazon", store)
+        return swapped
+    return ""
+
+
+def bank_for(category: str, n: int = 8, store: str = "amazon") -> list[str]:
+    st = _store_key(store)
     cat = (category or "").lower().strip()
-    tags = BANK.get(cat, [])[:]
-    for g in GENERIC:
+    tags = [x for x in (_for_store(t, st) for t in BANK.get(cat, [])) if x]
+    for g in STORE_GENERIC[st]:
         if g not in tags:
             tags.append(g)
     return tags[:n]
 
 
 def merge_hashtags(category: str, llm_tags: list[str], use_bank: bool = True,
-                   cap: int = 25) -> list[str]:
+                   cap: int = 25, store: str = "amazon") -> list[str]:
     """Blend LLM tags with the category bank; lowercase, strip '#', dedupe, cap, force 'ad'.
-    LLM tags come first (they reference the actual products), then the bank fills reach."""
+    LLM tags come first (they reference the actual products), then the bank fills reach.
+    Every tag matches the post's REAL store (`store` = the products' source)."""
+    st = _store_key(store)
     out: list[str] = []
     seen: set = set()
 
     def add(t: str):
-        t = (t or "").lstrip("#").strip().lower().replace(" ", "")
+        t = _for_store((t or "").lstrip("#").strip().lower().replace(" ", ""), st)
         if t and t not in seen:
             seen.add(t); out.append(t)
 
     for t in (llm_tags or []):
         add(t)
     if use_bank:
-        for t in bank_for(category):
+        for t in bank_for(category, store=st):
             if len(out) >= cap:
                 break
             add(t)
