@@ -391,10 +391,8 @@ def sk_carousel(body: SkCarouselReq):
     """Publish one Post-to-IG carousel, recorded server-side under body.post_key (see post_ledger):
     the post leaves the Studio queue even if the phone paused/reloaded the page while it ran, and
     the same post can never be published twice."""
-    from app.services import post_ledger, post_timing
-    over = post_timing.check_cap(body.account_id)           # strictly SK_MAX_POSTS_PER_DAY (2) a day
-    if over:
-        raise HTTPException(409, over)
+    from app.services import post_ledger
+    # no daily posting limit: the 2 best times (post_timing) are reminders, not a block
     try:
         post_ledger.begin(body.post_key, body.category, body.account_id)
     except post_ledger.AlreadyPosted as e:

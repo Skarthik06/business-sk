@@ -57,6 +57,7 @@ import contextvars  # noqa: E402
 _DEVICE: contextvars.ContextVar = contextvars.ContextVar("sk_render_device", default="")
 _LAST_DEVICE = {"device": "", "at": 0.0}
 COLAB_GRACE = float(os.getenv("SK_COLAB_GRACE_SECS", "300"))   # a phone job waits this long for Colab
+COLAB_ALIVE_SECS = float(os.getenv("SK_COLAB_ALIVE_SECS", "300"))
 LAPTOP_HELPS_PHONE = os.getenv("SK_LAPTOP_HELPS_PHONE", "0") == "1"   # off: phone work is Colab-only
 
 
@@ -594,6 +595,9 @@ def status() -> Dict[str, Any]:
     waiting_colab = sum(1 for j in q if j.get("target") == "colab" and not j.get("lease") and not colab_online())
     return {"worker_online": worker_online() or busy, "worker_busy": busy and not worker_online(),
             "laptop_online": laptop_online(), "colab_online": colab_online(),
+            # Colab running = polled lately OR painting right now (a busy worker doesn't poll) → the
+            # Studio must not open a second copy of the notebook (that drops the connected runtime)
+            "colab_alive": colab_online(COLAB_ALIVE_SECS) or "colab" in rendering,
             "laptop_gpu": (lp.get("info") or {}).get("gpu") or "", "colab_gpu": (cp.get("info") or {}).get("gpu") or "",
             "worker_kind": "colab" if colab_online() and not laptop_online() else "laptop",
             "worker_gpu": ((cp if colab_online() and not laptop_online() else lp).get("info") or {}).get("gpu") or "",

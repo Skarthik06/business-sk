@@ -362,7 +362,7 @@ def style_post(products: List[Dict[str, Any]], post_id: str, dark: bool) -> Dict
     """Style every product of a post (sequential: each one re-checks the money guards)."""
     surface = pick_surface(post_id, dark)
     # the Studio opened Colab for you: give it time to start (~3 min) and paint (grace while offline)
-    if not surface_path(surface, wait_secs=600, grace=240):
+    if not surface_path(surface, wait_secs=900, grace=480):
         return {"ok": False, "error": "The free background isn't painted yet — tap ▶ in Colab (or start the laptop "
                                       "GPU), then press Style with AI again (nothing was charged).", **budget()}
     results = []

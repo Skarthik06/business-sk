@@ -707,14 +707,14 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     setStyleAllMsg('');
     const posts = queue.filter((g) => (g.products || []).length);
     if (!posts.length) { setStyleAllMsg('No queued posts to style.'); return; }
-    // The background is painted on THIS device's GPU (phone → Colab). If it's off, open the Colab
-    // notebook now (still inside your tap, so the browser allows it) — you only tap ▶ there.
+    // The background is painted on THIS device's GPU (phone → Colab). If Colab isn't running, the
+    // confirm button opens the notebook (inside that tap, so the browser allows it) — AFTER you've
+    // answered, so nothing jumps away mid-dialog. A Colab that is busy painting (not polling) still
+    // counts as running, so a connected runtime is never replaced by a fresh copy.
     // Pressing ▶ for you isn't possible: Colab's free tier forbids automated control of notebooks.
-    const needColab = st && !myGpuOn && myGpu === 'colab';
-    if (needColab) {
-      window.open(COLAB_NOTEBOOK, '_blank', 'noopener');
-      say('☁️ Opened Colab — tap ▶ there. Styling continues by itself once the background is painted.');
-    }
+    const now = (await api.skScenes().catch(() => null))?.status || st;
+    const colabUp = !!(now && (now.colab_alive ?? now.colab_online));
+    const needColab = !!now && myGpu === 'colab' && !colabUp;
     try {
       setStylingAll(true);
       setStyleAllMsg('Reading the products (free)…');
@@ -735,12 +735,14 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       const ok = await askUser({ title: `✨ Style ${todo} product${todo === 1 ? '' : 's'} in ${jobs.length} post${jobs.length === 1 ? '' : 's'} with ${est.model}?`,
         lines: [`${med} with a logo/emblem → medium · ${low} plain → low (picked by our own free image check)`,
                 `Estimated cost ≈$${usd.toFixed(3)} (max) · today $${est.today_usd.toFixed(3)} of $${est.daily_cap_usd.toFixed(2)} cap${left}`,
-                capWarn].filter(Boolean), ok: 'Style now', gold: true });
+                needColab && '☁️ Colab isn’t running — the button opens it in your browser: tap ▶ there, then come back here. Styling waits for it (up to ~8 min) and runs by itself.',
+                capWarn].filter(Boolean), ok: needColab ? '☁️ Open Colab & style' : 'Style now', gold: true, sticky: true,
+        onOk: needColab ? () => window.open(COLAB_NOTEBOOK, '_blank', 'noopener') : null });
       if (!ok) { setStyleAllMsg('Cancelled — nothing was spent.'); return; }
       let styled = 0, spent = 0, fixed = 0, kept = 0, why = '', r = null;
       for (const [i, j] of jobs.entries()) {
         setStyleAllMsg(needColab && i === 0
-          ? '☁️ Waiting for Colab — tap ▶ in the Colab tab. It paints this post’s unique background (~3 min), then styling starts by itself…'
+          ? '☁️ Waiting for Colab — tap ▶ in the Colab tab (wait for “Connected” first). It paints this post’s unique background (~3 min), then styling starts by itself…'
           : `✨ Styling post ${i + 1} of ${jobs.length} — a unique background is painted first, then ~20 s per product…`);
         r = await api.skStylistStyle(j.pins, j.art.id, j.dark);
         if (!r.ok) { why = r.error || 'not styled'; break; }
@@ -764,7 +766,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   const [plan, setPlan] = useState(null);
   const loadPlan = useCallback(() => { api.skPostPlan().then(setPlan).catch(() => {}); }, []);
   useEffect(() => { loadPlan(); const t = setInterval(loadPlan, 60000); return () => clearInterval(t); }, [loadPlan]);
-  const capReached = !!(plan && plan.left_today === 0);
+  const capReached = false;                        // no posting limit — the 2 best times are reminders only
   const inflight = useRef(new Set());              // keys this page is publishing right now
   const queueRef = useRef(queue);
   queueRef.current = queue;
@@ -819,7 +821,6 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   // One REAL post (with a confirm — it publishes public content to the live account).
   const postOneReal = async (g) => {
     if (!account) return say('Pick an Instagram account first', 'error');
-    if (capReached) return say(`Daily limit reached — ${plan.cap} posts today. Next best time: tomorrow ${plan.next?.label || ''}`, 'error');
     if (!(await askUser({ title: `Post “${g.label}” to Instagram ${acctHandle}?`,
       lines: [`${Math.min(g.products?.length || 0, 10)} products · this publishes for real.`], ok: 'Post to Instagram', green: true }))) return;
     await publishOne(g, false);
@@ -830,12 +831,10 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     if (!queue.length) return say('Nothing queued — find products in Affiliate first', 'error');
     if (!dryRun && !account) return say('Pick an Instagram account', 'error');
     if (!dryRun && !(await askUser({ title: `Post all ${queue.length} carousel${queue.length === 1 ? '' : 's'} to Instagram ${acctHandle}?`,
-      lines: ['For real, one after another (stops at the 2-a-day limit).'], ok: 'Post all', green: true }))) return;
+      lines: ['For real, one after another.'], ok: 'Post all', green: true }))) return;
     setBusyAll(true);
     let ok = 0;
-    const room = dryRun ? Infinity : Math.max(0, (plan?.left_today ?? 2));      // strictly 2 a day
     for (const g of queue) {
-      if (!dryRun && ok >= room) { say(`Stopped at the daily limit (${plan?.cap || 2} posts a day) — the rest stay queued for tomorrow`); break; }
       if (['done', 'posting'].includes(statuses[g.id]?.phase)) continue;      // skip already-posted / still publishing
       if (await publishOne(g, dryRun, false)) ok++;
     }
@@ -849,7 +848,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   return (
     <div className="post-layout">
       {ask && (
-        <div onClick={() => ask.resolve(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 80, display: 'grid', placeItems: 'center', padding: 16 }}>
+        <div onClick={() => !ask.sticky && ask.resolve(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 80, display: 'grid', placeItems: 'center', padding: 16 }}>
           <div className="panel p-5" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520, width: '100%', borderColor: ask.gold ? '#e2b45c88' : 'var(--line)' }}>
             <div style={{ fontWeight: 700, fontSize: 17 }}>{ask.title}</div>
             {(ask.lines || []).map((l, i) => (
@@ -857,7 +856,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
             ))}
             <div className="flex gap-2 justify-end" style={{ marginTop: 16 }}>
               <button className="btn btn-sm btn-ghost" onClick={() => ask.resolve(false)}>Cancel</button>
-              <button className={cx('btn btn-sm', ask.green && 'btn-post')} autoFocus onClick={() => ask.resolve(true)}
+              <button className={cx('btn btn-sm', ask.green && 'btn-post')} autoFocus onClick={() => { ask.onOk?.(); ask.resolve(true); }}
                 style={ask.gold ? { background: 'linear-gradient(135deg,#e2b45c,#c8873a)', color: '#141414', fontWeight: 700, borderColor: 'transparent' } : undefined}>
                 {ask.ok || 'OK'}</button>
             </div>
@@ -874,7 +873,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
           <div className="panel p-4 mb-4" style={{ borderColor: plan.left_today ? 'var(--line)' : '#3fb95055' }}>
             <div className="flex items-center justify-between flex-wrap gap-2">
               <div>
-                <div className="eyebrow">🗓 Today's posting plan · {plan.posts_today}/{plan.cap} posted</div>
+                <div className="eyebrow">🗓 Today's best times · {plan.posts_today} posted today</div>
                 <div className="flex gap-2 flex-wrap" style={{ marginTop: 8 }}>
                   {today.map((s) => (
                     <span key={s.id} className={cx('mini', s.state === 'done' && 'on')} title={`Post ${s.n} of ${plan.cap}`}
@@ -887,7 +886,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
               <div className="text-xs" style={{ color: 'var(--muted)', maxWidth: 360, textAlign: 'right' }}>
                 {plan.left_today
                   ? (nx ? <>Next best time <b style={{ color: 'var(--text)' }}>{nx.day === today[0]?.day ? '' : 'tomorrow '}{nx.label}</b> · phone reminder at {remindAt}</> : 'No slots left today')
-                  : <>✓ Done for today — {plan.cap} posts is the daily limit. Next: <b style={{ color: 'var(--text)' }}>tomorrow {nx?.label || ''}</b></>}
+                  : <>✓ Both best times used — you can still post more anytime. Next best: <b style={{ color: 'var(--text)' }}>tomorrow {nx?.label || ''}</b></>}
               </div>
             </div>
             <div className="text-xs" style={{ color: 'var(--faint)', marginTop: 6 }}>Times from: {(plan.basis || []).join(' + ')}</div>
