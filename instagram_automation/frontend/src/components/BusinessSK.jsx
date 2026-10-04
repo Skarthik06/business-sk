@@ -2601,6 +2601,12 @@ function CuelinksPanel({ say, queue, setQueue }) {
       else say?.('Plan failed', 'error');
     } catch { say?.('Plan failed', 'error'); } finally { setPlanning(false); }
   };
+  // Clear: forget the plan (here AND on the server, so a reload doesn't bring it back)
+  const clearPlan = async () => {
+    setPlan(null); setPickReq(null);
+    try { await skApi.cuelinksPlanClear(); say?.('AI plan cleared — pick niches and run a new one'); }
+    catch { say?.('Cleared here — could not clear the saved plan', 'error'); }
+  };
   if (!d || !c) return <div className="panel p-4"><div className="eyebrow">Cuelinks · AI affiliate markets</div><div className="text-xs mt-2 flex items-center gap-2" style={{ color: 'var(--muted)' }}><Spinner size={12} /> Loading catalogue…</div></div>;
   const e = d.earnings || {};
   const cats = d.categories || [];
@@ -2666,6 +2672,7 @@ function CuelinksPanel({ say, queue, setQueue }) {
             {plan?.tokens?.total ? <span className="text-xs font-mono" style={{ color: 'var(--muted)' }}>🧠 {plan.tokens.total} tok</span> : null}
             <button className="btn btn-sm btn-ghost" onClick={() => runPlan(false)} disabled={planning}>{planning ? <Spinner size={12} /> : <Icon name="spark" size={12} />} AI plan</button>
             <button className="btn btn-sm" onClick={() => runPlan(true)} disabled={planning} title="Run the AI plan and set its picks as the active markets">Plan &amp; apply</button>
+            {plan && <button className="btn btn-sm btn-ghost" onClick={clearPlan} disabled={planning} title="Clear this plan (your niches, constraints and active stores stay)">✕ Clear</button>}
           </div>
         </div>
         {!plan && <div className="text-xs" style={{ color: 'var(--faint)' }}>Pick your niches in Focus categories, then AI plan: it ranks the stores that can give real products right now and suggests product searches for each. Tap one to open it in Step 2. One small AI call.</div>}

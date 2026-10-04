@@ -1066,6 +1066,14 @@ async def cuelinks_plan(apply: bool = Query(default=False, description="If true,
             "applied_active": applied}
 
 
+@app.delete("/api/cuelinks/plan")
+def cuelinks_plan_clear() -> dict:
+    """Clear the saved AI plan (the panel's Clear button). Active stores and constraints stay."""
+    from performance import cuelinks_markets as cm
+    cm.clear_plan()
+    return {"ok": True}
+
+
 @app.post("/api/cuelinks/ping")
 def cuelinks_ping() -> dict:
     """Verify the Cuelinks v3 API key + identity (@ping)."""

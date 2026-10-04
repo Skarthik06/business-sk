@@ -237,6 +237,11 @@ def save_plan(plan: dict) -> None:
     _write("last_plan", {**(plan or {}), "at": datetime.now(timezone.utc).isoformat()})
 
 
+def clear_plan() -> None:
+    """Forget the last AI plan (the panel's Clear button) — the next page load shows none."""
+    _write("last_plan", None)
+
+
 def catalog() -> dict:
     """The full panel payload: markets (with active flag), categories, and current constraints —
     one clean JSON shape the frontend renders and the AI planner reasons over. Uses the LIVE
