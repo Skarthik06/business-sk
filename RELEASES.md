@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.22.1** (2026-10-04) — Nightly DB backup schedule installs on a fresh server
 - **v2.22.0** (2026-10-04) — Studio database moved to the server's own Postgres (no egress limits) + nightly backups
 - **v2.21.1** (2026-10-04) — Cut Supabase egress: light queries + short caches
 - **v2.21.0** (2026-10-04) — Styled slides: full readable product details (our template, no AI text); cover without prices
