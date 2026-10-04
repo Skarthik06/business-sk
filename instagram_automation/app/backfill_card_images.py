@@ -34,7 +34,7 @@ def _existing_raw(hi_url: str) -> str | None:
 
 
 def main() -> None:
-    posts = store.list_affiliate_posts(ACCOUNT_ID)
+    posts = store.list_affiliate_posts(ACCOUNT_ID, with_products=True)
     print(f"[backfill] account={ACCOUNT_ID} posts={len(posts)}")
     for post in posts:
         prods = post.get("products")

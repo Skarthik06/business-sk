@@ -151,6 +151,11 @@ def active_amazon_tag() -> Optional[str]:
 
 
 def list_accounts(niche: Optional[str] = None, active_only: bool = False) -> List[Dict[str, Any]]:
+    from app import cache                      # hot path (every poll / comment) → cached 60 s
+    return cache.get(("accounts", "list", niche, active_only), 60, lambda: _list_accounts(niche, active_only))
+
+
+def _list_accounts(niche: Optional[str] = None, active_only: bool = False) -> List[Dict[str, Any]]:
     with connect() as conn:
         cur = conn.cursor()
         clauses, params = [], []
@@ -166,6 +171,12 @@ def list_accounts(niche: Optional[str] = None, active_only: bool = False) -> Lis
 
 
 def get_account(account_id: int, *, with_secret: bool = False) -> Optional[Dict[str, Any]]:
+    from app import cache                      # read ~380k times a month → cached 60 s
+    return cache.get(("accounts", "one", int(account_id), bool(with_secret)), 60,
+                     lambda: _get_account(account_id, with_secret=with_secret))
+
+
+def _get_account(account_id: int, *, with_secret: bool = False) -> Optional[Dict[str, Any]]:
     with connect() as conn:
         cur = conn.cursor()
         cur.execute("SELECT * FROM accounts WHERE id = ?", (account_id,))
@@ -201,6 +212,8 @@ def add_account(
              crypto.encrypt(ig_access_token.strip()), int(is_active)),
         )
         new_id = int(cur.fetchone()["id"])
+    from app import cache
+    cache.invalidate("accounts")
     return get_account(new_id)  # type: ignore[return-value]
 
 
@@ -229,6 +242,8 @@ def update_account(account_id: int, **fields: Any) -> Optional[Dict[str, Any]]:
     params.append(account_id)
     with connect() as conn:
         conn.execute(f"UPDATE accounts SET {', '.join(sets)} WHERE id = ?", params)
+    from app import cache
+    cache.invalidate("accounts")
     return get_account(account_id)
 
 
@@ -251,7 +266,10 @@ def delete_account(account_id: int) -> bool:
     with connect() as conn:
         cur = conn.cursor()
         cur.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+    from app import cache
+    cache.invalidate("accounts")
+    return ok
 
 
 # ===================== APP SETTINGS =====================

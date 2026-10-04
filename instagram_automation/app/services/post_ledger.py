@@ -41,6 +41,8 @@ def _load() -> Dict[str, Dict[str, Any]]:
 
 
 def _save(d: Dict[str, Dict[str, Any]]) -> None:
+    from app import cache
+    cache.invalidate("post_plan")                     # posts today changed → the plan re-counts
     now = time.time()
     d = {k: v for k, v in d.items() if now - float(v.get("at", now)) < KEEP}
     PATH.parent.mkdir(parents=True, exist_ok=True)

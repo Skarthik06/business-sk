@@ -204,17 +204,7 @@ def posts_today(account_id: Optional[int]) -> int:
     from app.engagement import store
     from app.services import post_ledger
     start = datetime.combine(_today(), datetime.min.time(), tzinfo=TZ)
-    n = 0
-    for p in store.list_affiliate_posts(int(account_id)):
-        ts = p.get("published_at")
-        try:
-            dt = ts if isinstance(ts, datetime) else datetime.fromisoformat(str(ts))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            if dt >= start:
-                n += 1
-        except Exception:
-            pass
+    n = store.affiliate_posts_since(int(account_id), start)       # one tiny COUNT
     return n + post_ledger.in_flight(int(account_id))
 
 
@@ -227,7 +217,13 @@ def check_cap(account_id: int) -> Optional[str]:
 
 
 def plan(account_id: Optional[int] = None) -> Dict[str, Any]:
-    """Today + the next 2 days' slots, today's count and the next slot — for the Studio and the phone."""
+    """Today + the next 2 days' slots, today's count and the next slot — for the Studio and the phone.
+    Cached 30 s: the phone asks every 20 s; a publish drops the cache."""
+    from app import cache
+    return cache.get(("post_plan", account_id), 30, lambda: _plan(account_id))
+
+
+def _plan(account_id: Optional[int] = None) -> Dict[str, Any]:
     dat = data()
     if account_id is None:
         account_id = dat.get("account_id")

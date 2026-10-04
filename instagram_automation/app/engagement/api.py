@@ -540,7 +540,7 @@ def engagement_posts(account_id: int):
         out.append({**p, "project_name": name, "comment_count": c, "dms_sent": dms, "replies_sent": replies})
     # Business-SK affiliate posts for this account (so switching to the affiliate account
     # shows ITS posts + lets you scope rules to them). Synthetic negative campaign_id.
-    for ap in store.list_affiliate_posts(account_id):
+    for ap in store.list_affiliate_posts(account_id, with_products=True):
         mid = ap.get("ig_media_id")
         if not mid:
             continue
@@ -563,7 +563,7 @@ def engagement_post_detail(account_id: int, campaign_id: int, live: bool = True)
     from app.business import store as bstore
     # Affiliate posts use a synthetic NEGATIVE campaign_id (= -eng_post id).
     if campaign_id < 0:
-        aff = next((a for a in store.list_affiliate_posts(account_id) if int(a["id"]) == -campaign_id), None)
+        aff = next((a for a in store.list_affiliate_posts(account_id, with_products=True) if int(a["id"]) == -campaign_id), None)
         if not aff:
             raise HTTPException(404, "Post not found")
         media_id = aff.get("ig_media_id")
@@ -894,6 +894,14 @@ def ensure_affiliate_automation(account_id: int, ig_media_id: str, *, category: 
             "products": len(products)}
 
 
+def _published_posts_cached():
+    """Real-estate published posts (their 'contract' JSON is big) — re-read at most every 2 min
+    instead of every 30-second poll."""
+    from app import cache
+    from app.business import store as bstore
+    return cache.get(("re_posts",), 120, bstore.list_published_posts)
+
+
 _TICKS: Dict[int, int] = {}
 _COUNTS: Dict[Any, int] = {}
 _SWEEP_EVERY = 20                                           # ticks (×30 s ≈ 10 min)
@@ -929,7 +937,7 @@ def run_account_sync(account_id: int, run_rules: bool = True, light: bool = Fals
     want_insights = not light
     # PER-ACCOUNT ISOLATION: only sync real-estate posts published BY THIS account, so the
     # affiliate account never touches real-estate media (no clash, no cross-account errors).
-    posts = [p for p in bstore.list_published_posts() if p.get("account_id") == account_id]
+    posts = [p for p in _published_posts_cached() if p.get("account_id") == account_id]
     per_post, totals = [], {"new_comments": 0, "rules_fired": 0, "posts": 0, "skipped_idle": 0}
     # SCALE: one call returns every post's comment count; only posts with NEW activity are read
     # (newest-first pages until known comments). Every ~10 min a sweep re-reads posts from the last

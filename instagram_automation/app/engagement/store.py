@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, List, Optional
 
+from app import cache
 from app.business.store import Jsonb, connect
 from app.engagement import rules as R
 
@@ -127,7 +128,9 @@ def create_rule(account_id: int, data: Dict[str, Any]) -> int:
              data.get("enabled", True), data.get("trigger_type", "COMMENT_RECEIVED"),
              data.get("match_mode", "all"), int(data.get("priority", 100)),
              Jsonb(data.get("conditions", [])), Jsonb(data.get("actions", []))))
-        return int(cur.fetchone()["id"])
+        rid = int(cur.fetchone()["id"])
+    cache.invalidate("rules")
+    return rid
 
 
 def list_rules(account_id: int) -> List[Dict[str, Any]]:
@@ -179,18 +182,27 @@ def update_rule(account_id: int, rule_id: int, data: Dict[str, Any]) -> bool:
         cur = c.cursor()
         cur.execute(f"UPDATE eng_rules SET {', '.join(cols)} WHERE id = ? AND social_account_id = ?",
                     (*vals, rule_id, account_id))
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+    cache.invalidate("rules")
+    return ok
 
 
 def delete_rule(account_id: int, rule_id: int) -> bool:
     with connect() as c:
         cur = c.cursor()
         cur.execute("DELETE FROM eng_rules WHERE id = ? AND social_account_id = ?", (rule_id, account_id))
-        return cur.rowcount > 0
+        ok = cur.rowcount > 0
+    cache.invalidate("rules")
+    return ok
 
 
 def load_engine_rules(account_id: int) -> List[R.Rule]:
-    """Load a workspace's enabled rules as engine Rule objects (isolated per account)."""
+    """Load a workspace's enabled rules as engine Rule objects (isolated per account).
+    Cached 60 s (every comment runs this) and dropped the moment a rule is saved/deleted."""
+    return cache.get(("rules", account_id), 60, lambda: _load_engine_rules(account_id))
+
+
+def _load_engine_rules(account_id: int) -> List[R.Rule]:
     out: List[R.Rule] = []
     for row in list_rules(account_id):
         if not row.get("enabled"):
@@ -547,12 +559,19 @@ def register_affiliate_post(account_id: int, ig_media_id: str, *, category: str 
             RETURNING id""",
             (_DEFAULT_WS, account_id, ig_media_id, media_type, caption, permalink,
              category, Jsonb(products or [])))
-        return int(cur.fetchone()["id"])
+        pk = int(cur.fetchone()["id"])
+    cache.invalidate("aff_posts")
+    cache.invalidate("aff_products")
+    return pk
 
 
-def list_affiliate_posts(account_id: int) -> List[Dict[str, Any]]:
+def list_affiliate_posts(account_id: int, with_products: bool = False) -> List[Dict[str, Any]]:
     """Affiliate posts for this account (for the poller + Posts view). Real-estate
-    posts (source='business' or NULL) are deliberately excluded."""
+    posts (source='business' or NULL) are deliberately excluded.
+    Light by default (no products/caption — ~12 KB a post of database egress): the poller and the
+    posting plan only need ids + dates. Cached 60 s; a new post drops the cache."""
+    if not with_products:
+        return cache.get(("aff_posts", account_id), 60, lambda: _list_affiliate_posts_light(account_id))
     with connect() as c:
         cur = c.cursor()
         cur.execute("""SELECT id, ig_media_id, media_type, caption, permalink, category,
@@ -562,11 +581,35 @@ def list_affiliate_posts(account_id: int) -> List[Dict[str, Any]]:
         return [dict(r) for r in cur.fetchall()]
 
 
+def _list_affiliate_posts_light(account_id: int) -> List[Dict[str, Any]]:
+    with connect() as c:
+        cur = c.cursor()
+        cur.execute("""SELECT id, ig_media_id, media_type, permalink, category, published_at
+            FROM eng_posts WHERE social_account_id=? AND source='affiliate'
+            ORDER BY id DESC""", (account_id,))
+        return [dict(r) for r in cur.fetchall()]
+
+
+def affiliate_posts_since(account_id: int, since) -> int:
+    """How many affiliate posts went live since `since` (one tiny COUNT — the 2-a-day rule)."""
+    with connect() as c:
+        cur = c.cursor()
+        cur.execute("""SELECT COUNT(*) AS n FROM eng_posts
+            WHERE social_account_id=? AND source='affiliate' AND published_at >= ?""", (account_id, since))
+        return int(cur.fetchone()["n"])
+
+
 def affiliate_products_for_media(account_id: int, ig_media_id: str) -> List[Dict[str, Any]]:
     """The stored products for an affiliate post (by media id) — used to build the
-    product-card DM. [] if the post isn't ours/affiliate."""
+    product-card DM. [] if the post isn't ours/affiliate. Cached 10 min (a post's products
+    never change after posting; re-registering drops the cache)."""
     if not ig_media_id:
         return []
+    return cache.get(("aff_products", account_id, str(ig_media_id)), 600,
+                     lambda: _affiliate_products_for_media(account_id, ig_media_id))
+
+
+def _affiliate_products_for_media(account_id: int, ig_media_id: str) -> List[Dict[str, Any]]:
     with connect() as c:
         cur = c.cursor()
         cur.execute("""SELECT products FROM eng_posts
@@ -649,6 +692,8 @@ def prune_to_live_posts(account_id: int, live_media_ids: List[str], *,
             cur.execute("""INSERT INTO eng_audit (workspace_id, social_account_id, action, entity, detail)
                            VALUES (?,?,'PRUNE','eng_posts',?)""",
                         (_DEFAULT_WS, account_id, Jsonb({"kept": keep, "removed_posts": gone, "counts": counts})))
+            for k in ("rules", "aff_posts", "aff_products"):
+                cache.invalidate(k)
         return {"dry_run": dry_run, "kept_posts": keep, "removed_posts": gone,
                 "dm_threads": convs, "counts": counts}
 
