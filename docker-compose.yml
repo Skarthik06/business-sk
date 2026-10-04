@@ -63,10 +63,11 @@ services:
     command: ["uvicorn", "app.api:app", "--host", "0.0.0.0", "--port", "8000",
               "--reload", "--reload-dir", "/app/app"]
     environment:
-      # Shared DB: Supabase (set SUPABASE_DB_URL in the git-ignored root .env). Falls back to
-      # the local db container if unset. Engagement (comment→DM automation) runs here on the
-      # server via the built-in 30s poller — no separate phone/mobile service any more.
-      DATABASE_URL: ${SUPABASE_DB_URL:-postgresql://instagram:instagram@db:5432/instagram_business}
+      # The Studio's database lives on THIS server's Postgres (db container, database sk_studio) —
+      # moved off Supabase 2026-10-04 (no egress quota; backed up nightly by scripts/db_backup.sh).
+      # STUDIO_DATABASE_URL in the root .env overrides it (e.g. to point back at a hosted DB).
+      # Engagement (comment→DM automation) runs here via the built-in 30 s poller.
+      DATABASE_URL: ${STUDIO_DATABASE_URL:-postgresql://instagram:instagram@db:5432/sk_studio}
       LEGACY_SQLITE_DB: /app/legacy/posts.db
       BUSINESS_USE_DOCLING: "1"
       REDIS_URL: redis://redis:6379/0        # follow-gate pending-unlock store (scales across users)
