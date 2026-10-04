@@ -57,6 +57,7 @@ import contextvars  # noqa: E402
 _DEVICE: contextvars.ContextVar = contextvars.ContextVar("sk_render_device", default="")
 _LAST_DEVICE = {"device": "", "at": 0.0}
 COLAB_GRACE = float(os.getenv("SK_COLAB_GRACE_SECS", "300"))   # a phone job waits this long for Colab
+LAPTOP_HELPS_PHONE = os.getenv("SK_LAPTOP_HELPS_PHONE", "0") == "1"   # off: phone work is Colab-only
 
 
 def set_render_device(d: str) -> None:
@@ -405,11 +406,13 @@ def render_gpu_online() -> bool:
 
 
 def _eligible(j: Dict[str, Any], kind: str, now: float) -> bool:
-    """Who may take a job: phone-started work is reserved for Colab (the laptop only helps once no
-    Colab showed up within COLAB_GRACE); laptop-started work goes to Colab only when the laptop is off."""
+    """Who may take a job: phone-started work is Colab's alone (work started on the phone stays on the
+    phone's GPU — the laptop never takes it, unless SK_LAPTOP_HELPS_PHONE=1 and no Colab showed up
+    within COLAB_GRACE); laptop-started work goes to Colab only when the laptop is off."""
     tgt = j.get("target") or ""
     if kind == "laptop" and tgt == "colab":
-        return not colab_online() and now - float(j.get("queued") or now) > COLAB_GRACE
+        return (LAPTOP_HELPS_PHONE and not colab_online()
+                and now - float(j.get("queued") or now) > COLAB_GRACE)
     if kind == "colab" and tgt == "laptop":
         return not laptop_online()
     return True

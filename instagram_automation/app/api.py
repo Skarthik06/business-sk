@@ -802,9 +802,11 @@ def sk_gpu_colab(force: bool = False):
     it and press Run — Colab can't be started for you)."""
     from app.services import scene_store
     # on the laptop with its GPU on → nothing to do; on the phone (or laptop GPU off) → a Colab code
-    if not force and scene_store.render_target() != "colab" and scene_store.laptop_online():
+    # on the phone → always a Colab code: phone work renders only on Colab, never on the laptop
+    laptop_renders = scene_store.render_target() != "colab" and scene_store.laptop_online()
+    if not force and laptop_renders:
         return {"success": True, "laptop_online": True}
-    return {"success": True, "laptop_online": scene_store.laptop_online(), "colab_online": scene_store.colab_online(),
+    return {"success": True, "laptop_online": laptop_renders, "colab_online": scene_store.colab_online(),
             "notebook": COLAB_NOTEBOOK, **scene_store.new_colab_code()}
 
 

@@ -592,7 +592,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     setColabBusy(true);
     try {
       const r = await api.skGpuColab();
-      if (r.laptop_online) { setColab(null); say('Laptop GPU is online — rendering there, no Colab needed'); }
+      if (r.laptop_online && DEVICE !== 'phone') { setColab(null); say('Laptop GPU is online — rendering there, no Colab needed'); }
       else setColab(r);
       tickScenes.current?.();
     } catch { say('Could not start a Colab session', 'error'); } finally { setColabBusy(false); }
@@ -740,7 +740,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       let styled = 0, spent = 0, fixed = 0, kept = 0, why = '', r = null;
       for (const [i, j] of jobs.entries()) {
         setStyleAllMsg(needColab && i === 0
-          ? '☁️ Waiting for Colab — tap ▶ in the Colab tab. It paints this post's unique background (~3 min), then styling starts by itself…'
+          ? '☁️ Waiting for Colab — tap ▶ in the Colab tab. It paints this post’s unique background (~3 min), then styling starts by itself…'
           : `✨ Styling post ${i + 1} of ${jobs.length} — a unique background is painted first, then ~20 s per product…`);
         r = await api.skStylistStyle(j.pins, j.art.id, j.dark);
         if (!r.ok) { why = r.error || 'not styled'; break; }
@@ -955,7 +955,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                     {colabBusy ? '…' : '☁️ Render with Colab'}
                   </button>)}
               </div>
-              {colab && !colab.laptop_online && (
+              {colab && (DEVICE === 'phone' || !colab.laptop_online) && (
                 <div className="panel p-3 mt-2" style={{ background: 'var(--panel-2)', maxWidth: 520 }}>
                   <div className="text-xs mb-1" style={{ color: 'var(--muted)' }}>{DEVICE === 'phone' ? 'You\'re on the phone → your posts render on Google Colab\'s free GPU:' : 'Laptop GPU is off → use Google Colab\'s free GPU:'}</div>
                   <div className="font-mono" style={{ fontSize: 22, letterSpacing: '.12em', fontWeight: 700 }}>{colab.code}</div>
@@ -1815,7 +1815,7 @@ function RenderGpuPanel({ active }) {
       {err && <p className="text-xs mt-2" style={{ color: 'var(--danger)' }}>{err}</p>}
       {colab && (
         <div className="panel p-3 mt-3" style={{ background: 'var(--panel-2)', maxWidth: 560 }}>
-          {colab.laptop_online && <div className="text-xs mb-1" style={{ color: 'var(--muted)' }}>Your laptop GPU is online, so Colab isn't needed for laptop posts right now — here's a code anyway:</div>}
+          {colab.laptop_online && DEVICE !== 'phone' && <div className="text-xs mb-1" style={{ color: 'var(--muted)' }}>Your laptop GPU is online, so Colab isn't needed for laptop posts right now — here's a code anyway:</div>}
           <div className="font-mono" style={{ fontSize: 24, letterSpacing: '.12em', fontWeight: 700 }}>{colab.code}</div>
           <div className="text-xs mb-2" style={{ color: 'var(--faint)' }}>One-time code · valid {Math.round((colab.expires_in || 1800) / 60)} min · Colab then renders for up to 12 h</div>
           <div className="flex flex-wrap gap-2">
