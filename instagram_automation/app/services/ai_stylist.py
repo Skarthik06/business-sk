@@ -158,6 +158,22 @@ def _key(*parts: str) -> str:
 
 # ── 1 · read the product (free, deterministic, cached per photo) ──────────────────────────────
 _TYPES = [  # (title pattern, item name) — most specific first
+    # non-clothing first (their titles often mention clothes-ish words: "watch for men", "gift set")
+    (r"smart ?watch|fitness band", "smartwatch"), (r"ear ?buds|\btws\b|earphone|neckband|airdopes", "wireless earbuds"),
+    (r"headphone|headset", "headphones"), (r"speaker|soundbar", "speaker"), (r"power ?bank", "power bank"),
+    (r"charger|charging cable|usb cable", "charger"), (r"keyboard", "keyboard"), (r"\bmouse\b", "mouse"),
+    (r"phone (case|cover)|back cover", "phone case"), (r"perfume|eau de|fragrance|body mist|deodorant|\battar\b", "perfume"),
+    (r"lipstick|lip ?gloss|kajal|eyeliner|foundation|makeup", "makeup product"),
+    (r"serum|face ?wash|moisturi[sz]er|sunscreen|lotion|shampoo|conditioner|hair oil|face cream", "skincare product"),
+    (r"photo ?frame|picture frame", "photo frame set"), (r"wall (decor|hanging|art)|painting|poster", "wall decor"),
+    (r"fairy lights|string lights|led lights|curtain lights", "string lights"), (r"\blamp\b", "lamp"),
+    (r"\bclock\b", "clock"), (r"mirror", "mirror"), (r"candle", "candle"), (r"planter|plant pot|vase", "planter"),
+    (r"cushion|pillow", "cushion"), (r"bed ?sheet|bedspread|comforter|blanket|dohar", "bedsheet"),
+    (r"\bcurtains?\b", "curtains"), (r"\bmug\b|coffee cup", "mug"), (r"water bottle|\bflask\b", "bottle"),
+    (r"earring|jhumka", "earrings"), (r"necklace|pendant", "necklace"), (r"bracelet|bangle", "bracelet"),
+    (r"heels|stiletto", "heels"), (r"\bboots?\b", "boots"), (r"loafer", "loafers"), (r"slipper|flip[- ]?flop|slider", "slippers"),
+    (r"lehenga", "lehenga"), (r"dupatta|\bstole\b", "dupatta"), (r"pyjama|pajama|night ?suit|nightwear", "nightwear"),
+    (r"track ?suit", "tracksuit"), (r"kurti", "kurta"),
     (r"(half|quarter)[- ]?zip.*hood|hood\w*.*(half|quarter)[- ]?zip", "half-zip hoodie"),
     (r"(half|quarter)[- ]?zip", "half-zip sweatshirt"), (r"zip\w*[- ]?(up )?hood|hood\w*.*\bzip", "zip hoodie"),
     (r"hood(ie|y|ed)", "hoodie"), (r"sweat ?shirt", "sweatshirt"), (r"polo", "polo t-shirt"), (r"t[- ]?shirt|\btee\b", "t-shirt"),
@@ -165,7 +181,7 @@ _TYPES = [  # (title pattern, item name) — most specific first
     (r"cardigan", "cardigan"), (r"sweater|pullover|jumper", "sweater"), (r"kurta", "kurta"), (r"dress", "dress"),
     (r"co[- ]?ord", "co-ord set"), (r"jogger|track ?pant", "joggers"), (r"jeans|denim", "jeans"), (r"chino", "chinos"),
     (r"cargo", "cargo pants"), (r"trouser|pant", "trousers"), (r"shorts", "shorts"), (r"skirt", "skirt"), (r"saree|\bsari\b", "saree"),
-    (r"\btop\b", "top"), (r"sneaker|shoe|trainer", "sneakers"), (r"sandal|slider|flip[- ]?flop", "sandals"), (r"watch", "watch"),
+    (r"\btop\b", "top"), (r"sneaker|shoe|trainer", "sneakers"), (r"sandal", "sandals"), (r"watch", "watch"),
     (r"backpack", "backpack"), (r"\bbag\b|tote|sling", "bag"), (r"wallet", "wallet"), (r"\bcap\b|\bhat\b", "cap"),
     (r"sunglass", "sunglasses"), (r"\bbelt\b", "belt"),
 ]
@@ -175,18 +191,30 @@ _PLAIN_WORDS = re.compile(r"\b(all[- ]?over|stripe[ds]?|check(ed|s)?|plaid|flora
 _STOP = {"men", "mens", "women", "womens", "for", "with", "and", "the", "regular", "slim", "fit", "cotton", "solid", "pack"}
 
 
+# clothing lies flat with folds; everything else (watch, bottle, frame…) is placed at its real proportions
+APPAREL = {"half-zip hoodie", "half-zip sweatshirt", "zip hoodie", "hoodie", "sweatshirt", "polo t-shirt", "t-shirt",
+           "overshirt", "shirt", "blazer", "jacket", "cardigan", "sweater", "kurta", "dress", "co-ord set", "joggers",
+           "jeans", "chinos", "cargo pants", "trousers", "shorts", "skirt", "saree", "top", "lehenga", "dupatta",
+           "nightwear", "tracksuit"}
+
+
 def _title(p: Dict[str, Any]) -> str:
     return (p.get("product_title") or p.get("title") or p.get("name") or "").strip()
 
 
-def item_name(title: str, colour: str) -> str:
-    """'<measured colour> <garment type from the title>' — e.g. 'dark green zip hoodie'."""
+def item_type(title: str) -> str:
+    """The product type from the listing title ('' when unknown)."""
     t = (title or "").lower()
     for pat, name in _TYPES:
         if re.search(pat, t):
-            return f"{colour} {name}".strip()
-    words = [w for w in re.findall(r"[a-z][a-z-]+", t) if w not in _STOP]
-    return f"{colour} {' '.join(words[-3:]) or 'product'}".strip()
+            return name
+    return ""
+
+
+def item_name(title: str, colour: str) -> str:
+    """'<measured colour> <type from the title>' — e.g. 'dark green zip hoodie'. Unknown type →
+    'black product' (never random title words: this text goes into the image model's prompt)."""
+    return f"{colour} {item_type(title) or 'product'}".strip()
 
 
 def _photo(src: str):
@@ -211,6 +239,7 @@ def describe(src: str, title: str = "", raw: Optional[bytes] = None, cut: Option
     except Exception as e:  # noqa: BLE001 — unreadable photo: be safe, keep details
         d = {"colour": "", "quality": "medium", "box": [], "error": str(e)[:80]}
     d["item"] = item_name(title, d.get("colour") or "")
+    d["apparel"] = item_type(title) in APPAREL
     # a chest-wide graphic has no plain fabric around it, so the pixel detector can't call it a
     # mark — but the listing title says so ("Printed", "Graphic", "Marvel" …) → medium keeps it
     title_print = bool(_PRINT_WORDS.search(title or "")) and not _PLAIN_WORDS.search(title or "")
@@ -283,8 +312,11 @@ def style_product(p: Dict[str, Any], surface: str) -> Dict[str, Any]:
     side = {"image-right": "on the right side of the chest as seen in image 1",
             "image-left": "on the left side of the chest as seen in image 1"}.get((a or {}).get("side"), "at the same spot as in image 1")
     prompt = (f"Image 1: product photo. Image 2: empty surface. Create a top-down flat-lay product photo of ONLY the "
-              f"{d.get('item') or 'product'} from image 1 (no person, body, face, hands or mannequin), laid on the surface "
-              f"from image 2 with natural folds and soft realistic shadows. Keep its exact colours, panels, stripes and details."
+              f"{d.get('item') or 'product'} from image 1 (no person, body, face, hands or mannequin), "
+              + ("laid on the surface from image 2 with natural folds and soft realistic shadows. "
+                 if d.get("apparel", True) else
+                 "placed on the surface from image 2 at its real proportions, arranged naturally with soft realistic shadows. ")
+              + "Keep its exact colours, shape, panels, stripes and details."
               f"{' Light the dark fabric so its folds, seams and texture stay clearly visible (not flat pure black).' if (a or d).get('garment_lab', [50])[0] < 25 else ''}"
               f"{f' Image 3 is a close-up of its small logo: reproduce exactly this design, {side}.' if logo else ''}"
               f" Keep the surface decor. Photorealistic.")

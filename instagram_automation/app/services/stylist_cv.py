@@ -349,7 +349,8 @@ def check_and_fix(styled_jpeg: bytes, a: Dict[str, Any]) -> Dict[str, Any]:
     gm = _garment_mask(lab, g)
     share = float(gm.mean())
     chroma = float(np.hypot(g[1], g[2]))
-    if chroma > 10 and share < 0.06:                       # the garment's own colour is (almost) gone
+    if chroma > 10 and share < 0.015:                      # the product's own colour is (almost) gone
+                                                           # (low bar: a watch / frame / bottle is small)
         return {"ok": False, "why": f"garment colour changed ({a['colour']} covers {share:.0%})", "logo": "-"}
     res = {"ok": True, "why": "", "logo": "-", "image": styled_jpeg, "garment_share": round(share, 3)}
     if not a.get("box") or "_mask" not in a:

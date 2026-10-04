@@ -1525,11 +1525,11 @@ def _styled_cover(products, imgs, P, handle, *, title, subtitle="", dark=True, n
     post title; each tile carries only its number — the cover never shows names or prices
     (Art Director rule: the cover is a collage of the products, no names/prices)."""
     n = len(imgs)
-    cols = 2 if n in (2, 4) else 3 if n >= 5 else n
-    rows = (n + cols - 1) // cols
+    cols = 2 if n in (2, 3, 4) else 3 if n >= 5 else n
+    rows = 2 if n == 3 else (n + cols - 1) // cols             # 3 → one big tile + two small
     nums = nums or list(range(1, n + 1))
     tiles = "".join(
-        f"""<div class="ytile"><img src="{img}"><span class="ytn">{(nums[i] if i < len(nums) and nums[i] else i + 1):02d}</span></div>"""
+        f"""<div class="ytile"{' style="grid-row:span 2"' if n == 3 and i == 0 else ''}><img src="{img}"><span class="ytn">{(nums[i] if i < len(nums) and nums[i] else i + 1):02d}</span></div>"""
         for i, (p, img) in enumerate(zip(products, imgs)))
     bg = "#111214" if dark else P["g2"]
     inner = f"""<style>
