@@ -17,6 +17,7 @@ Everything in / out is plain JSON — no noise — so the frontend and the AI ag
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 
 from sqlalchemy import Column, String, Text, DateTime
@@ -30,7 +31,7 @@ from utils.logger import log
 # commission = typical payout % (indicative); aov = average-order-value band (₹); cookie = days.
 # ONLY the stores we can actually SCRAPE real products from (product photos + prices). Everything
 # else was deals-only (no product photo) and has been removed — this panel is products-only now.
-#   • flipkart → Flipkart product scrape (official JSON via premium proxy)
+#   • flipkart → Flipkart product scrape (official JSON via our own scraper)
 #   • boAt / Noise / Mamaearth → the merchant's PUBLIC Shopify feed (/products.json) — verified live
 MARKETS: list[dict] = [
     # Free public Shopify product feeds (no proxy/ScraperAPI needed) — verified live.
@@ -51,16 +52,16 @@ MARKETS: list[dict] = [
     {"id": "chumbak",        "name": "Chumbak",         "category": "Home",        "commission": 10.0, "aov": "₹700–2.5k","cookie": 30, "note": "Quirky decor & lifestyle — free Shopify feed."},
     {"id": "sleepycat",      "name": "SleepyCat",       "category": "Home",        "commission": 8.0,  "aov": "₹8k–25k",  "cookie": 30, "note": "Mattresses & sleep — free Shopify feed."},
     # Shopsy (Flipkart's app) — FREE direct scrape (no proxy); resells the Flipkart catalogue.
-    {"id": "shopsy",         "name": "Shopsy",          "category": "Marketplace", "commission": 6.0,  "aov": "₹200–1.5k","cookie": 30, "note": "Flipkart's value marketplace — FREE direct scrape, Cuelinks-monetised."},
+    {"id": "shopsy",         "name": "Shopsy",          "category": "Marketplace", "commission": 6.0,  "aov": "₹200–1.5k","cookie": 30, "note": "Flipkart's value marketplace — via our own scraper, Cuelinks-monetised."},
     # Amazon + Flipkart — fetched by your residential scrape worker (PC/phone), FREE, no proxy.
     {"id": "amazon",         "name": "Amazon",          "category": "Marketplace", "commission": 4.0,  "aov": "₹1k–5k",   "cookie": 1,  "note": "Widest catalogue — via your residential scrape worker (Amazon Associates tag)."},
-    {"id": "flipkart",       "name": "Flipkart",        "category": "Marketplace", "commission": 6.0,  "aov": "₹1k–3k",   "cookie": 30, "note": "Widest catalogue — via your residential scrape worker (or ScraperAPI)."},
+    {"id": "flipkart",       "name": "Flipkart",        "category": "Marketplace", "commission": 6.0,  "aov": "₹1k–3k",   "cookie": 30, "note": "Widest catalogue — via our own scraper (your phone/laptop), Cuelinks-monetised."},
 ]
 _CATEGORIES = sorted({m["category"] for m in MARKETS})
 _IDS = {m["id"] for m in MARKETS}
 
 # ── which SCRAPE ENGINE backs each store ─────────────────────────────────────────────────────
-#   • flipkart → Flipkart product scrape (official JSON via premium proxy)
+#   • flipkart → Flipkart product scrape (official JSON via our own scraper)
 #   • shopify  → the merchant's PUBLIC Shopify feed (/products.json) — boAt, Noise, Mamaearth
 _ENGINES: dict[str, tuple[str, str]] = {
     "amazon":         ("amazon",   "amazon.in"),
@@ -98,6 +99,16 @@ for _m in MARKETS:
     _m["engine"] = _market_engine(_m["id"])
     _m["domain"] = _market_domain(_m["id"])
     _m["can_products"] = _m["engine"] in ("flipkart", "shopify", "shopsy", "amazon")
+
+
+# Engines switched off for now (CUELINKS_PAUSED_ENGINES, comma list). Shopify feeds are parked:
+# Shopify rate-limits the Oracle server's IP (429). Paused stores stay in the catalogue, marked
+# paused; the AI planner never recommends them and the generator explains why.
+PAUSED_ENGINES = {e.strip() for e in os.getenv("CUELINKS_PAUSED_ENGINES", "shopify").split(",") if e.strip()}
+
+
+def is_paused(engine: str) -> bool:
+    return (engine or "") in PAUSED_ENGINES
 
 
 def market_by_id(mid: str) -> dict | None:
@@ -237,7 +248,8 @@ def catalog() -> dict:
     markets = [{**m, "active": m.get("id") in active,
                 "engine": m.get("engine") or _market_engine(m.get("id", "")),
                 "domain": m.get("domain") or _market_domain(m.get("id", "")),
-                "can_products": (m.get("engine") or _market_engine(m.get("id", ""))) in ("flipkart", "shopify", "shopsy", "amazon")}
+                "can_products": (m.get("engine") or _market_engine(m.get("id", ""))) in ("flipkart", "shopify", "shopsy", "amazon"),
+                "paused": is_paused(m.get("engine") or _market_engine(m.get("id", "")))}
                for m in base]
     cats = sorted({m.get("category", "") for m in base if m.get("category")}) or _CATEGORIES
     return {

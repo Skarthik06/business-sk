@@ -1,17 +1,14 @@
 """
-tools/flipkart_scrape.py — Flipkart product scraper (public search, via ScraperAPI premium).
+tools/flipkart_scrape.py — Flipkart product scraper (public search, via OUR scraper service).
 
-Flipkart's own affiliate API is closed, and its site is a "protected domain" that the standard
-proxy tier can't reach — but ScraperAPI's API mode with premium=true DOES return the search HTML.
-Flipkart embeds every product in a `window.__INITIAL_STATE__` JSON blob, so we parse that (robust)
-rather than fragile CSS selectors.
+Flipkart blocks datacenter IPs (the Oracle server), so every page is fetched by our own scraper
+(tools/scrape_bus → the scraper container → your phone / laptop on a home IP). No paid scraping
+API is used. Flipkart embeds every product in a `window.__INITIAL_STATE__` JSON blob, so we parse
+that (robust) rather than fragile CSS selectors.
 
 Products are normalised to the SAME shape as the Amazon scrape (asin/title/price/image/url/rating/
 discount…), so they flow through the exact same dedup → compose → render → publish pipeline. The
 product `url` is later converted to a tracked Cuelinks link (Flipkart is a Cuelinks market).
-
-Cost note: premium requests cost ~10 ScraperAPI credits each (vs 1 for Amazon), so scrape only when
-the user asks — never on a schedule.
 """
 from __future__ import annotations
 
@@ -24,17 +21,13 @@ import requests
 
 from utils.logger import log
 
-_API = "http://api.scraperapi.com/"
-_TIMEOUT = 70
-_ATTEMPTS = 3
-
-
-def _key() -> str:
-    return (os.getenv("SCRAPER_PROXY_PASS") or os.getenv("SCRAPERAPI_KEY") or "").strip()
+_TIMEOUT = 60
 
 
 def configured() -> bool:
-    return bool(_key())
+    """Our own scraper service (phone/laptop on a home IP) can reach Flipkart right now."""
+    from tools import scrape_bus
+    return scrape_bus.online()
 
 
 def search_url(query: str, page: int = 1) -> str:
@@ -45,22 +38,13 @@ def search_url(query: str, page: int = 1) -> str:
 
 
 def _fetch(query: str, page: int = 1) -> str:
-    """Fetch a Flipkart search page via ScraperAPI premium. Premium is slow/flaky, so retry a few
-    times (a fresh attempt usually lands on a faster backend); succeed as soon as the page carries
-    the product JSON."""
-    import time as _t
-    url = search_url(query, page)
-    for attempt in range(1, _ATTEMPTS + 1):
-        try:
-            r = requests.get(_API, timeout=_TIMEOUT, params={
-                "api_key": _key(), "url": url, "country_code": "in", "premium": "true"})
-            if r.ok and "__INITIAL_STATE__" in r.text:
-                return r.text
-            log.warning(f"[flipkart] attempt {attempt}/{_ATTEMPTS}: status {r.status_code}, no product JSON")
-        except Exception as e:
-            log.warning(f"[flipkart] attempt {attempt}/{_ATTEMPTS} failed: {str(e)[:70]}")
-        if attempt < _ATTEMPTS:
-            _t.sleep(2)
+    """Fetch a Flipkart search page through OUR scraper service (tools/scrape_bus → the scraper
+    container → your phone/laptop on a home IP). No paid scraping API. "" when it can't."""
+    from tools import scrape_bus
+    r = scrape_bus.fetch(search_url(query, page), "flipkart", _TIMEOUT)
+    if r.get("ok") and "__INITIAL_STATE__" in (r.get("html") or ""):
+        return r["html"]
+    log.warning(f"[flipkart] own scraper: {str(r.get('error') or 'no product JSON')[:90]}")
     return ""
 
 
@@ -198,7 +182,7 @@ def scrape_products(query: str, count: int = 8, max_pages: int = 2, fetch=None) 
     if len(q) < 2:
         return {"ok": False, "error": "query too short", "items": []}
     if fetch is None and not configured():
-        return {"ok": False, "error": "SCRAPER_PROXY_PASS (ScraperAPI key) not set.", "items": []}
+        return {"ok": False, "error": "Our scraper isn't online — open SK Helper on the phone or start the laptop worker.", "items": []}
     items: list[dict] = []
     seen: set = set()
     try:

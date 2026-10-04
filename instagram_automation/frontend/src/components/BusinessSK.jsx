@@ -2344,9 +2344,13 @@ function FlipkartGenerate({ say, setQueue }) {
 
 // Per-store generator: pick ONE active market → Amazon-style controls → generate. Product-capable
 // stores (Flipkart scrape / Shopify feed) return REAL product photos; the rest build deal cards.
-function StoreGenerate({ markets, say, queue, setQueue, constraints, plan }) {
-  const active = (markets || []).filter((m) => m.active);
+function StoreGenerate({ markets, say, queue, setQueue, constraints, plan, pickReq }) {
+  // the stores you can generate from: active ones + the AI planner's picks (never paused stores)
+  const planIds = ((plan && plan.picks) || []).map((x) => x.id);
+  const active = (markets || []).filter((m) => !m.paused && (m.active || planIds.includes(m.id)));
   const [sel, setSel] = useState('');
+  const boxRef = useRef(null);
+  const pendingQ = useRef('');
   const mk = active.find((m) => m.id === sel) || null;
   // always have a store open (its search + AI filters visible) — the first active one by default,
   // and again after "Plan & apply" swaps the active stores
@@ -2382,7 +2386,14 @@ function StoreGenerate({ markets, say, queue, setQueue, constraints, plan }) {
   useEffect(() => { if (group && queue && !queue.some((x) => x.id === group.id)) { setGroup(null); setSlides(null); } }, [queue, group]);
   const [prev, setPrev] = useState(false);
 
-  useEffect(() => { setQ(''); setDims([]); setPicks({}); setGroup(null); setSlides(null); setPushed(false); }, [sel]);
+  useEffect(() => { setQ(pendingQ.current || ''); pendingQ.current = ''; setDims([]); setPicks({}); setGroup(null); setSlides(null); setPushed(false); }, [sel]);
+  // an AI-planner pick was tapped → open that store with its search; the AI filters load from it
+  useEffect(() => {
+    if (!pickReq) return;
+    if (pickReq.id === sel) setQ(pickReq.q || '');
+    else { pendingQ.current = pickReq.q || ''; setSel(pickReq.id); }
+    setTimeout(() => boxRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+  }, [pickReq]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (!canProd) { setDims([]); return; }
     const s = q.trim();
@@ -2444,10 +2455,10 @@ function StoreGenerate({ markets, say, queue, setQueue, constraints, plan }) {
   const clearAll = () => { setGroup((g) => { if (g && setQueue) setQueue((prevQ) => (prevQ || []).filter((x) => x.id !== g.id)); return null; }); };
 
   return (
-    <div className="panel p-3" style={{ borderColor: 'var(--accent)' }}>
-      <div className="eyebrow" style={{ color: 'var(--accent)' }}>🎯 Generate from a store</div>
-      <div className="text-xs" style={{ color: 'var(--muted)' }}>Pick one active store, set Amazon-style filters, then generate <b style={{ color: '#3fb950' }}>REAL product</b> carousels (photos + prices) — Cuelinks-monetised.</div>
-      {!active.length && <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>Activate a store below to generate from it.</div>}
+    <div ref={boxRef} className="panel p-3" style={{ borderColor: 'var(--accent)', scrollMarginTop: 16 }}>
+      <div className="eyebrow" style={{ color: 'var(--accent)' }}>🎯 Step 2 · Generate from a store</div>
+      <div className="text-xs" style={{ color: 'var(--muted)' }}>Tap a search in the AI plan (or pick a store here), choose the AI filters, then generate <b style={{ color: '#3fb950' }}>REAL product</b> carousels (photos + prices) — Cuelinks-monetised → Post to IG.</div>
+      {!active.length && <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>Run the AI plan above (or activate a store below) to generate from it.</div>}
       {active.length > 0 && (
         <div className="ctrl-chips mt-2">
           {active.map((m) => (
@@ -2462,11 +2473,11 @@ function StoreGenerate({ markets, say, queue, setQueue, constraints, plan }) {
           <div className="flex items-center gap-2 flex-wrap">
             <b style={{ fontSize: 13 }}>{mk.name}</b><span className="style-tag">{mk.category}</span>
             {mk.can_products ? <span className="style-tag" style={{ color: '#3fb950' }}>🖼️ Products</span> : <span className="style-tag" style={{ color: 'var(--muted)' }}>🎟️ Deals</span>}
-            <span className="text-xs" style={{ color: 'var(--faint)' }}>{mk.can_products ? (mk.engine === 'flipkart' ? 'Flipkart product scrape' : 'Shopify product feed') : 'Cuelinks deal cards (no product photo)'}</span>
+            <span className="text-xs" style={{ color: 'var(--faint)' }}>{mk.can_products ? ({ flipkart: 'Flipkart products · our own scraper', shopsy: 'Shopsy products · our own scraper', amazon: 'Amazon products · our own scraper' }[mk.engine] || 'Shopify product feed') : 'Cuelinks deal cards (no product photo)'}</span>
           </div>
           {planPick?.angle && (
             <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)', cursor: 'pointer' }}
-              title="From the AI planner (below). The caption is built around this hook — still only real product facts.">
+              title="From the AI planner (above). The caption is built around this hook — still only real product facts.">
               <input type="checkbox" checked={useAngle} onChange={(e) => setUseAngle(e.target.checked)} />
               <span>💡 AI planner angle: <b style={{ color: '#79c0ff' }}>{planPick.angle}</b></span>
             </label>)}
@@ -2555,6 +2566,8 @@ function CuelinksPanel({ say, queue, setQueue }) {
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [catFilter, setCatFilter] = useState('all');
+  const [pickReq, setPickReq] = useState(null);   // AI-planner pick tapped → {id, q} opens it in Step 2
+  const choose = (id, q = '') => setPickReq({ id, q, n: Date.now() });
 
   const load = () => skApi.cuelinksMarkets(30).then((r) => { setD(r); setC(r.constraints); if (r.plan) setPlan((cur) => cur || r.plan); }).catch(() => setD(null));
   useEffect(() => { load(); }, []);
@@ -2595,8 +2608,6 @@ function CuelinksPanel({ say, queue, setQueue }) {
 
   return (
     <div className="panel p-4 flex flex-col gap-4">
-      {/* Per-store product generator — pick one scrapable store → Amazon-style filters → real products */}
-      {setQueue && <StoreGenerate markets={d.markets} say={say} queue={queue} setQueue={setQueue} constraints={d.constraints} plan={plan} />}
       {/* header */}
       <div className="flex items-center justify-between flex-wrap gap-2">
         <div>
@@ -2650,30 +2661,39 @@ function CuelinksPanel({ say, queue, setQueue }) {
       {/* AI planner */}
       <div className="panel p-3" style={{ borderColor: 'var(--accent)' }}>
         <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
-          <div className="eyebrow" style={{ color: 'var(--accent)' }}>AI planner · cuelinks-planner agent</div>
+          <div className="eyebrow" style={{ color: 'var(--accent)' }}>✨ Step 1 · AI planner · cuelinks-planner agent</div>
           <div className="flex items-center gap-2">
             {plan?.tokens?.total ? <span className="text-xs font-mono" style={{ color: 'var(--muted)' }}>🧠 {plan.tokens.total} tok</span> : null}
             <button className="btn btn-sm btn-ghost" onClick={() => runPlan(false)} disabled={planning}>{planning ? <Spinner size={12} /> : <Icon name="spark" size={12} />} AI plan</button>
             <button className="btn btn-sm" onClick={() => runPlan(true)} disabled={planning} title="Run the AI plan and set its picks as the active markets">Plan &amp; apply</button>
           </div>
         </div>
-        {!plan && <div className="text-xs" style={{ color: 'var(--faint)' }}>Ranks which markets to activate for your constraints — each with a reason and a content angle. One structured AI call, JSON only.</div>}
+        {!plan && <div className="text-xs" style={{ color: 'var(--faint)' }}>Pick your niches in Focus categories, then AI plan: it ranks the stores that can give real products right now and suggests product searches for each. Tap one to open it in Step 2. One small AI call.</div>}
         {plan && (
           <div className="flex flex-col gap-2 mt-1">
             {plan.summary && <div className="text-xs" style={{ color: 'var(--muted)' }}>{plan.ai ? '' : '(deterministic) '}{plan.summary}</div>}
-            {(plan.picks || []).map((p) => (
+            {(plan.picks || []).filter((p) => !(d.markets || []).find((m) => m.id === p.id)?.paused).map((p) => (
               <div key={p.id} className="acct-row" style={{ alignItems: 'flex-start', gap: 10 }}>
                 <span className="prog-badge" style={{ minWidth: 22, textAlign: 'center' }}>{p.priority}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className="flex items-center gap-2 flex-wrap"><b style={{ fontSize: 13 }}>{p.name}</b><span className="style-tag">{p.category}</span><span className="text-xs font-mono" style={{ color: 'var(--accent)' }}>{p.commission}% · {p.aov}</span></div>
                   <div className="text-xs" style={{ color: 'var(--muted)' }}>{p.reason}</div>
                   {p.angle && <div className="text-xs" style={{ color: '#79c0ff' }}>💡 {p.angle}</div>}
+                  <div className="ctrl-chips" style={{ marginTop: 6 }}>
+                    {(p.queries || []).map((qq) => (
+                      <button key={qq} type="button" className="chip-sk" onClick={() => choose(p.id, qq)} title={`Open ${p.name} with this search in Step 2`}>🔍 {qq}</button>
+                    ))}
+                    <button type="button" className="chip-sk" onClick={() => choose(p.id, '')} title="Open this store in Step 2 and type your own search">✏️ My own search</button>
+                  </div>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {/* Step 2 · per-store product generator — opened from a planner pick → AI filters → real products */}
+      {setQueue && <StoreGenerate markets={d.markets} say={say} queue={queue} setQueue={setQueue} constraints={d.constraints} plan={plan} pickReq={pickReq} />}
 
       {/* markets catalogue */}
       <div>
@@ -2688,7 +2708,7 @@ function CuelinksPanel({ say, queue, setQueue }) {
           {markets.map((m) => (
             <div key={m.id} className="panel p-3" style={{ borderColor: m.active ? 'var(--accent)' : 'var(--border)' }}>
               <div className="flex items-center justify-between gap-2 mb-1">
-                <div className="flex items-center gap-2"><b style={{ fontSize: 14 }}>{m.name}</b>{m.live_matched && <span className="style-tag" title="Live Cuelinks data" style={{ color: 'var(--ok)' }}>● live</span>}</div>
+                <div className="flex items-center gap-2"><b style={{ fontSize: 14 }}>{m.name}</b>{m.live_matched && <span className="style-tag" title="Live Cuelinks data" style={{ color: 'var(--ok)' }}>● live</span>}{m.paused && <span className="style-tag" title="Shopify product feeds are parked for now — the AI planner skips this store" style={{ color: 'var(--faint)' }}>⏸ paused</span>}</div>
                 <button className={cx('btn', 'btn-sm', !m.active && 'btn-ghost')} onClick={() => toggleMarket(m.id)}>{m.active ? '✓ Active' : 'Activate'}</button>
               </div>
               <div className="text-xs font-mono" style={{ color: 'var(--muted)' }}>{m.category} · <span style={{ color: 'var(--accent)' }}>{m.commission}%</span>{m.aov ? ` · AOV ${m.aov}` : ''}{m.cookie ? ` · ${typeof m.cookie === 'number' ? m.cookie + 'd' : m.cookie}` : ''}{m.epc && m.epc !== '0.0' ? ` · ₹${m.epc} EPC` : ''}</div>

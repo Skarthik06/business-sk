@@ -1060,6 +1060,7 @@ async def cuelinks_plan(apply: bool = Query(default=False, description="If true,
         m = by_id.get(p["id"], {})
         p["name"] = m.get("name", p["id"]); p["category"] = m.get("category", "")
         p["commission"] = m.get("commission"); p["aov"] = m.get("aov")
+        p["engine"] = m.get("engine", ""); p["can_products"] = m.get("can_products", False)
     cm.save_plan({k: plan.get(k) for k in ("picks", "summary", "ai") if k in plan})   # angles feed generation
     return {"ok": True, "constraints": cat["constraints"], **plan,
             "applied_active": applied}
@@ -1283,7 +1284,7 @@ async def flipkart_generate(
     brands: Optional[str] = Query(default=None),
     attrs: Optional[str] = Query(default=None),
 ) -> JSONResponse:
-    """CUELINKS · FLIPKART product engine — scrape Flipkart (official JSON, via premium proxy) →
+    """CUELINKS · FLIPKART product engine — scrape Flipkart (official JSON, via OUR scraper) →
     soft-rank to the selections (same agentic thresholds as Amazon) → pgvector dedup (only NEW) →
     AI copy → Cuelinks-monetise each link. Returns queue-ready posts for Post to IG. JSON only."""
     from tools import flipkart_scrape
@@ -1294,14 +1295,10 @@ async def flipkart_generate(
 
     aud = (audience or "").strip().lower()
     query = f"{aud} {q.strip()}".strip() if aud and aud not in q.lower() else q.strip()
-    # residential route first (your phone/laptop via the Scraper service — free; Flipkart blocks the
-    # server's datacenter IP), ScraperAPI premium only as the fallback (it needs paid credits)
-    sc = {"ok": False}
-    if _worker_online():
-        sc = await asyncio.to_thread(flipkart_scrape.scrape_products, query, products_per_run * 4, 2,
-                                     lambda u: scrape_via_worker(u, "flipkart").get("html", ""))
-    if not sc.get("items"):
-        sc = await asyncio.to_thread(flipkart_scrape.scrape_products, query, products_per_run * 4, 3)
+    # our own scraper only (your phone/laptop via the scraper service — Flipkart blocks the
+    # server's datacenter IP); no paid scraping API
+    sc = await asyncio.to_thread(flipkart_scrape.scrape_products, query, products_per_run * 4, 2,
+                                 lambda u: scrape_via_worker(u, "flipkart").get("html", ""))
     if not sc.get("ok"):
         return JSONResponse(status_code=200, content={"ok": False, "status": "error",
                             "error": sc.get("error", "Flipkart scrape failed"), "items": []})
@@ -1421,11 +1418,9 @@ async def cuelinks_store_generate(
                                       tag=cfg.amazon.associate_tag, marketplace=cfg.amazon.marketplace)
     elif engine == "flipkart":
         from tools import flipkart_scrape
-        if _worker_online():                                        # residential worker → free, no proxy
-            sc = await asyncio.to_thread(flipkart_scrape.scrape_products, query, products_per_run * 4, 1,
-                                         lambda u: scrape_via_worker(u, "flipkart").get("html", ""))
-        else:                                                       # fall back to ScraperAPI (needs credits)
-            sc = await asyncio.to_thread(flipkart_scrape.scrape_products, query, products_per_run * 4, 3)
+        # our own scraper only (phone/laptop on a home IP) — no paid scraping API
+        sc = await asyncio.to_thread(flipkart_scrape.scrape_products, query, products_per_run * 4, 2,
+                                     lambda u: scrape_via_worker(u, "flipkart").get("html", ""))
     elif engine == "shopsy":
         from tools import shopsy_scrape
         sc = await asyncio.to_thread(shopsy_scrape.scrape_products, query, products_per_run, 2,
