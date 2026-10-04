@@ -22,3 +22,4 @@ catalogue `performance/cuelinks_markets.py` · UI `CuelinksPanel` + `StoreGenera
 | C3 | The model may only return candidate ids; picks ≤ eligible stores; searches are cleaned (2–40 chars, no hashtags, deduped) and topped up to 3 from the niche table. |
 | C4 | Pages are fetched ONLY by our own scraper (scraper service → phone/laptop on a home IP). No paid scraping API. |
 | C5 | Any failure → a deterministic plan (goal-ranked, niche-table searches) — the panel always has picks. |
+| C6 | Step 2 is driven ONLY by the Step-1 plan: its stores are the plan's picks (plan order), the plan's searches are shown in Step 2, a search is required before generating, and Clear resets Step 2. The server refuses paused stores even if called directly. |
