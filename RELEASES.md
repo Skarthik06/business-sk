@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.23.1** (2026-10-04) — Backdrop Composer: no lamps or softboxes painted into studio backdrops
 - **v2.23.0** (2026-10-04) — Backdrop Composer agent: a unique, verified background for every post (own code + own model)
 - **v2.22.1** (2026-10-04) — Nightly DB backup schedule installs on a fresh server
 - **v2.22.0** (2026-10-04) — Studio database moved to the server's own Postgres (no egress limits) + nightly backups
