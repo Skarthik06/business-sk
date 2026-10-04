@@ -77,10 +77,11 @@ STUDIO_PIECE = [
     "the soft shadow of a window frame", "the soft shadow of a palm leaf", "a low travertine bench",
     "no set piece",
 ]
-STUDIO_LIGHT = [
-    "soft large key light from the left", "warm side light with a long soft shadow",
-    "top-down soft light with a gentle vignette", "dappled window light", "low raking golden light",
-    "cool diffused light with crisp soft shadows", "a soft spotlight glow behind the centre",
+STUDIO_LIGHT = [   # described as light FALLING on the set — never the lamp itself (Z-Image paints fixtures)
+    "soft light falling from the left", "warm light from the side casting a long soft shadow",
+    "soft light from above with a gentle vignette", "dappled window light across the wall",
+    "low raking golden light across the wall", "cool diffused light with crisp soft shadows",
+    "a soft glow on the wall behind the centre",
 ]
 
 
@@ -148,7 +149,8 @@ def compose(mode: str, post_id: str, *, dark: bool = False, palette: str = "", c
                 col2 = rng.choice([c for c in cols if c != col] or cols)
                 parts = [col, wall, floor, piece, light]
                 prompt = None                              # assembled by the art director (presets added)
-                fields = {"setting": "elegant minimal photo studio set", "wall": wall.format(col=col),
+                fields = {"setting": "elegant minimal photo studio set, no visible lamps, softboxes or photo equipment",
+                          "wall": wall.format(col=col),
                           "floor": floor.format(col=col2), "light": light,
                           "props": "" if piece == "no set piece" else piece,
                           "camera": "eye-level, straight-on, 35mm, deep focus", "colors": cols[:3]}
