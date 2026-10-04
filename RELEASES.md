@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.20.10** (2026-10-04) — AI Stylist: jacket/hoodie/polo naming
 - **v2.20.9** (2026-10-04) — AI Stylist: product-type naming fixes
 - **v2.20.8** (2026-10-04) — AI Stylist: works for every product type (names, wording, small items, 3-tile cover)
 - **v2.20.7** (2026-10-04) — Content Studio: Style with AI + Post use an in-page confirm (never silently blocked)
