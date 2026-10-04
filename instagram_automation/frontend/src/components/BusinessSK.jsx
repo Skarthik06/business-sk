@@ -2345,17 +2345,20 @@ function FlipkartGenerate({ say, setQueue }) {
 // Per-store generator: pick ONE active market → Amazon-style controls → generate. Product-capable
 // stores (Flipkart scrape / Shopify feed) return REAL product photos; the rest build deal cards.
 function StoreGenerate({ markets, say, queue, setQueue, constraints, plan, pickReq }) {
-  // the stores you can generate from: active ones + the AI planner's picks (never paused stores)
-  const planIds = ((plan && plan.picks) || []).map((x) => x.id);
-  const active = (markets || []).filter((m) => !m.paused && (m.active || planIds.includes(m.id)));
+  // Step 2 is driven ONLY by the Step-1 AI plan: its stores are the plan's picks (plan order, never
+  // paused ones). No plan (or Clear) → nothing to pick; a new plan → its first store opens.
+  const active = ((plan && plan.picks) || [])
+    .map((p) => (markets || []).find((m) => m.id === p.id))
+    .filter((m) => m && !m.paused);
   const [sel, setSel] = useState('');
   const boxRef = useRef(null);
   const pendingQ = useRef('');
   const mk = active.find((m) => m.id === sel) || null;
-  // always have a store open (its search + AI filters visible) — the first active one by default,
-  // and again after "Plan & apply" swaps the active stores
   const activeIds = active.map((m) => m.id).join(',');
-  useEffect(() => { if (!mk && active.length) setSel(active[0].id); }, [activeIds]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (!active.length) { if (sel) setSel(''); return; }
+    if (!mk) setSel(active[0].id);
+  }, [activeIds]); // eslint-disable-line react-hooks/exhaustive-deps
   const canProd = !!(mk && mk.can_products);
   const [q, setQ] = useState('');
   const [count, setCount] = useState(8);
@@ -2434,7 +2437,8 @@ function StoreGenerate({ markets, say, queue, setQueue, constraints, plan, pickR
     } catch { say?.('Push to store failed', 'error'); } finally { setPushing(false); }
   };
   const gen = async () => {
-    if (!mk) return say?.('Pick a store first', 'error');
+    if (!mk) return say?.('Run the AI plan in Step 1 and pick a store first', 'error');
+    if (canProd && q.trim().length < 2) return say?.('Tap one of the AI plan searches (or type a product) first', 'error');
     setRunning(true); setSlides(null); setPushed(false);
     try {
       const opts = { count, content: style, goal, audience: aud, ...(useAngle && planPick?.angle ? { angle: planPick.angle } : {}) };
@@ -2458,7 +2462,7 @@ function StoreGenerate({ markets, say, queue, setQueue, constraints, plan, pickR
     <div ref={boxRef} className="panel p-3" style={{ borderColor: 'var(--accent)', scrollMarginTop: 16 }}>
       <div className="eyebrow" style={{ color: 'var(--accent)' }}>🎯 Step 2 · Generate from a store</div>
       <div className="text-xs" style={{ color: 'var(--muted)' }}>Tap a search in the AI plan (or pick a store here), choose the AI filters, then generate <b style={{ color: '#3fb950' }}>REAL product</b> carousels (photos + prices) — Cuelinks-monetised → Post to IG.</div>
-      {!active.length && <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>Run the AI plan above (or activate a store below) to generate from it.</div>}
+      {!active.length && <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>⬆ Run the AI plan in Step 1 — Step 2 opens with the stores and product searches it recommends.</div>}
       {active.length > 0 && (
         <div className="ctrl-chips mt-2">
           {active.map((m) => (
@@ -2481,6 +2485,13 @@ function StoreGenerate({ markets, say, queue, setQueue, constraints, plan, pickR
               <input type="checkbox" checked={useAngle} onChange={(e) => setUseAngle(e.target.checked)} />
               <span>💡 AI planner angle: <b style={{ color: '#79c0ff' }}>{planPick.angle}</b></span>
             </label>)}
+          {canProd && (planPick?.queries || []).length > 0 && (
+            <div className="ctrl-chips">
+              <span className="text-xs" style={{ color: 'var(--muted)', alignSelf: 'center' }}>AI plan searches:</span>
+              {planPick.queries.map((qq) => (
+                <button key={qq} type="button" className={cx('chip-sk', q.trim().toLowerCase() === qq.toLowerCase() && 'on')} onClick={() => setQ(qq)}>🔍 {qq}</button>
+              ))}
+            </div>)}
           {canProd && (
             <>
               <input className="sk-input" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && gen()} placeholder={`Search ${mk.name} — e.g. ${mk.engine === 'flipkart' ? 'air fryer, running shoes' : 'earbuds, face wash, smart watch'}`} />

@@ -1402,6 +1402,10 @@ async def cuelinks_store_generate(
                             "error": f"Unknown market '{market}'.", "items": [], "deals": []})
     engine = mk.get("engine", "deals")
     name = mk.get("name", market)
+    if cm.is_paused(engine):
+        return JSONResponse(status_code=200, content={"ok": False, "status": "error", "engine": engine,
+                            "market": mk.get("id"), "store": name, "items": [], "deals": [],
+                            "error": f"{name} is paused for now — run the AI plan and pick one of its stores."})
     cats = [c.strip() for c in (categories or "").split(",") if c.strip()]
 
     # ── DEALS-only markets (Nykaa/Myntra/AJIO/…): store-specific Cuelinks coupons ──
