@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.25.0** (2026-10-04) — Cuelinks Step 2 has the full Amazon Affiliate controls (categories, product types, goals, deals, filters, multi-post)
 - **v2.24.2** (2026-10-04) — Cuelinks: Step 2 is driven only by the Step-1 AI plan
 - **v2.24.1** (2026-10-04) — Cuelinks AI planner: Clear button
 - **v2.24.0** (2026-10-04) — Cuelinks Affiliate: AI planner suggests stores + product searches, tap one to generate (like Amazon); own scraper only
