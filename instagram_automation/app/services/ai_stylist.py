@@ -261,7 +261,7 @@ def pick_surface(post_id: str, dark: bool) -> str:
     return backdrop_composer.compose("flatlay", post_id or "x", dark=dark)["key"]
 
 
-def surface_path(key: str, wait_secs: float = 0) -> Optional[Path]:
+def surface_path(key: str, wait_secs: float = 0, grace: float = 0) -> Optional[Path]:
     """The painted surface; queues a FREE paint on the laptop GPU / Colab if it doesn't exist yet."""
     p = scene_store.backdrop_path(key)
     if p:
@@ -276,7 +276,7 @@ def surface_path(key: str, wait_secs: float = 0) -> Optional[Path]:
     else:
         return None
     if wait_secs:
-        scene_store.wait_for([], [key], wait_secs)
+        scene_store.wait_for([], [key], wait_secs, grace=grace)
     return scene_store.backdrop_path(key)
 
 
@@ -361,9 +361,10 @@ def style_product(p: Dict[str, Any], surface: str) -> Dict[str, Any]:
 def style_post(products: List[Dict[str, Any]], post_id: str, dark: bool) -> Dict[str, Any]:
     """Style every product of a post (sequential: each one re-checks the money guards)."""
     surface = pick_surface(post_id, dark)
-    if not surface_path(surface, wait_secs=240):
-        return {"ok": False, "error": "The free background is still being painted — start the laptop GPU or Colab, "
-                                      "then press Style with AI again (nothing was charged).", **budget()}
+    # the Studio opened Colab for you: give it time to start (~3 min) and paint (grace while offline)
+    if not surface_path(surface, wait_secs=600, grace=240):
+        return {"ok": False, "error": "The free background isn't painted yet — tap ▶ in Colab (or start the laptop "
+                                      "GPU), then press Style with AI again (nothing was charged).", **budget()}
     results = []
     for p in products:
         if not _src(p):

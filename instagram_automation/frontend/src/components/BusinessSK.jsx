@@ -37,6 +37,7 @@ const TAB_KICKER = {
   accounts: 'Your affiliate program accounts, stored encrypted with your .ragskey.',
   history: 'Every carousel you have published.',
 };
+const COLAB_NOTEBOOK = 'https://colab.research.google.com/github/Skarthik06/business-sk/blob/main/colab/sk_gpu_worker.ipynb';
 const LS_FAV = 'sk_favorites';
 const LS_QUEUE = 'sk_queue';
 const OTHER_PANEL_POST = /^(clstore-|mystore|flipkart-)/;   // queue ids staged by the store panels, not Find products
@@ -706,6 +707,14 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     setStyleAllMsg('');
     const posts = queue.filter((g) => (g.products || []).length);
     if (!posts.length) { setStyleAllMsg('No queued posts to style.'); return; }
+    // The background is painted on THIS device's GPU (phone → Colab). If it's off, open the Colab
+    // notebook now (still inside your tap, so the browser allows it) — you only tap ▶ there.
+    // Pressing ▶ for you isn't possible: Colab's free tier forbids automated control of notebooks.
+    const needColab = st && !myGpuOn && myGpu === 'colab';
+    if (needColab) {
+      window.open(COLAB_NOTEBOOK, '_blank', 'noopener');
+      say('☁️ Opened Colab — tap ▶ there. Styling continues by itself once the background is painted.');
+    }
     try {
       setStylingAll(true);
       setStyleAllMsg('Reading the products (free)…');
@@ -730,7 +739,9 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       if (!ok) { setStyleAllMsg('Cancelled — nothing was spent.'); return; }
       let styled = 0, spent = 0, fixed = 0, kept = 0, why = '', r = null;
       for (const [i, j] of jobs.entries()) {
-        setStyleAllMsg(`✨ Styling post ${i + 1} of ${jobs.length} — about 20 s per product…`);
+        setStyleAllMsg(needColab && i === 0
+          ? '☁️ Waiting for Colab — tap ▶ in the Colab tab. It paints this post's unique background (~3 min), then styling starts by itself…'
+          : `✨ Styling post ${i + 1} of ${jobs.length} — a unique background is painted first, then ~20 s per product…`);
         r = await api.skStylistStyle(j.pins, j.art.id, j.dark);
         if (!r.ok) { why = r.error || 'not styled'; break; }
         styled += r.styled || 0; spent += r.spent_usd || 0;
