@@ -633,8 +633,13 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   const [busyAll, setBusyAll] = useState(false);
   const [posted, setPosted] = useState(() => load('sk_posted_cards', []));  // small "posted" cards
   const addPosted = (card) => setPosted((p) => { const next = [card, ...p.filter((x) => x.id !== card.id)].slice(0, 30); save('sk_posted_cards', next); return next; });
-  const refresh = () => {
-    if (queue.length && !window.confirm(`Clear the ${queue.length} staged post${queue.length === 1 ? '' : 's'} here? (Run "Find products" in Affiliate to re-stage.)`)) return;
+  // In-page confirm. Browser confirm() boxes can be silently blocked by Chrome ("prevent this page
+  // from creating additional dialogs") → the button just did nothing. This panel always shows.
+  const [ask, setAsk] = useState(null);
+  const askUser = (o) => new Promise((resolve) => setAsk({ ...o, resolve: (v) => { setAsk(null); resolve(v); } }));
+  const refresh = async () => {
+    if (queue.length && !(await askUser({ title: `Clear the ${queue.length} staged post${queue.length === 1 ? '' : 's'}?`,
+      lines: ['Run “Find products” in Affiliate to stage them again.'], ok: 'Clear staged' }))) return;
     setStatuses({});
     setQueue([]);                                   // clear the held/staged queue
     say('Cleared staged posts');
@@ -700,7 +705,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   const styleAll = async () => {
     setStyleAllMsg('');
     const posts = queue.filter((g) => (g.products || []).length);
-    if (!posts.length) return;
+    if (!posts.length) { setStyleAllMsg('No queued posts to style.'); return; }
     try {
       setStylingAll(true);
       setStyleAllMsg('Reading the products (free)…');
@@ -717,11 +722,12 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       }
       if (!todo) { setStyleAllMsg('All products are already styled — no cost'); setStyleRev((r) => r + 1); return; }
       const left = est.credit_left_usd != null ? ` · ≈$${est.credit_left_usd.toFixed(2)} credit left` : '';
-      if (!window.confirm(`Style ${todo} product(s) in ${jobs.length} post(s) with ${est.model}?
-${med} with a logo/emblem → medium · ${low} plain → low (picked by our own free image check)
-
-Estimated cost: ≈$${usd.toFixed(3)} (max)
-Today: $${est.today_usd.toFixed(3)} of $${est.daily_cap_usd.toFixed(2)} cap${left}`)) { setStyleAllMsg(''); return; }
+      const capWarn = usd > (est.today_left_usd ?? usd) ? `⚠ More than today's cap allows ($${(est.today_left_usd || 0).toFixed(3)} left) — it stops safely at the cap; the rest keep the free design.` : '';
+      const ok = await askUser({ title: `✨ Style ${todo} product${todo === 1 ? '' : 's'} in ${jobs.length} post${jobs.length === 1 ? '' : 's'} with ${est.model}?`,
+        lines: [`${med} with a logo/emblem → medium · ${low} plain → low (picked by our own free image check)`,
+                `Estimated cost ≈$${usd.toFixed(3)} (max) · today $${est.today_usd.toFixed(3)} of $${est.daily_cap_usd.toFixed(2)} cap${left}`,
+                capWarn].filter(Boolean), ok: 'Style now', gold: true });
+      if (!ok) { setStyleAllMsg('Cancelled — nothing was spent.'); return; }
       let styled = 0, spent = 0, fixed = 0, kept = 0, why = '', r = null;
       for (const [i, j] of jobs.entries()) {
         setStyleAllMsg(`✨ Styling post ${i + 1} of ${jobs.length} — about 20 s per product…`);
@@ -738,7 +744,8 @@ Today: $${est.today_usd.toFixed(3)} of $${est.daily_cap_usd.toFixed(2)} cap${lef
       setStyleRev((x) => x + 1);                       // every card re-renders with its styled flat-lays
       if (preview) previewSlides(queue[0]);
     } catch (e) {
-      setStyleAllMsg(e?.response?.data?.detail || e?.message || 'Style failed');
+      console.error('[Style with AI]', e);
+      setStyleAllMsg('⚠ ' + (e?.response?.data?.detail || e?.response?.data?.error?.message || e?.message || 'Style failed') + ' — nothing more was spent.');
     } finally { setStylingAll(false); }
   };
 
@@ -802,7 +809,8 @@ Today: $${est.today_usd.toFixed(3)} of $${est.daily_cap_usd.toFixed(2)} cap${lef
   const postOneReal = async (g) => {
     if (!account) return say('Pick an Instagram account first', 'error');
     if (capReached) return say(`Daily limit reached — ${plan.cap} posts today. Next best time: tomorrow ${plan.next?.label || ''}`, 'error');
-    if (!window.confirm(`Post "${g.label}" (${Math.min(g.products?.length || 0, 10)} products) to Instagram ${acctHandle} — for real?`)) return;
+    if (!(await askUser({ title: `Post “${g.label}” to Instagram ${acctHandle}?`,
+      lines: [`${Math.min(g.products?.length || 0, 10)} products · this publishes for real.`], ok: 'Post to Instagram', green: true }))) return;
     await publishOne(g, false);
   };
 
@@ -810,7 +818,8 @@ Today: $${est.today_usd.toFixed(3)} of $${est.daily_cap_usd.toFixed(2)} cap${lef
   const publishAll = async (dryRun) => {
     if (!queue.length) return say('Nothing queued — find products in Affiliate first', 'error');
     if (!dryRun && !account) return say('Pick an Instagram account', 'error');
-    if (!dryRun && !window.confirm(`Post ALL ${queue.length} carousels to Instagram ${acctHandle} — for real, one after another?`)) return;
+    if (!dryRun && !(await askUser({ title: `Post all ${queue.length} carousel${queue.length === 1 ? '' : 's'} to Instagram ${acctHandle}?`,
+      lines: ['For real, one after another (stops at the 2-a-day limit).'], ok: 'Post all', green: true }))) return;
     setBusyAll(true);
     let ok = 0;
     const room = dryRun ? Infinity : Math.max(0, (plan?.left_today ?? 2));      // strictly 2 a day
@@ -828,6 +837,22 @@ Today: $${est.today_usd.toFixed(3)} of $${est.daily_cap_usd.toFixed(2)} cap${lef
 
   return (
     <div className="post-layout">
+      {ask && (
+        <div onClick={() => ask.resolve(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 80, display: 'grid', placeItems: 'center', padding: 16 }}>
+          <div className="panel p-5" onClick={(e) => e.stopPropagation()} style={{ maxWidth: 520, width: '100%', borderColor: ask.gold ? '#e2b45c88' : 'var(--line)' }}>
+            <div style={{ fontWeight: 700, fontSize: 17 }}>{ask.title}</div>
+            {(ask.lines || []).map((l, i) => (
+              <div key={i} className="text-sm" style={{ color: l.startsWith('⚠') ? 'var(--warn)' : 'var(--muted)', marginTop: 8, lineHeight: 1.5 }}>{l}</div>
+            ))}
+            <div className="flex gap-2 justify-end" style={{ marginTop: 16 }}>
+              <button className="btn btn-sm btn-ghost" onClick={() => ask.resolve(false)}>Cancel</button>
+              <button className={cx('btn btn-sm', ask.green && 'btn-post')} autoFocus onClick={() => ask.resolve(true)}
+                style={ask.gold ? { background: 'linear-gradient(135deg,#e2b45c,#c8873a)', color: '#141414', fontWeight: 700, borderColor: 'transparent' } : undefined}>
+                {ask.ok || 'OK'}</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="post-main">
       {/* 🗓 posting plan — 2 best times a day (Post Timing agent) + the strict 2-a-day limit */}
       {plan && (() => {
