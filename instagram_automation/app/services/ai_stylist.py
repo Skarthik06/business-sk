@@ -321,7 +321,7 @@ def style_product(p: Dict[str, Any], surface: str) -> Dict[str, Any]:
               + "Keep its exact colours, shape, panels, stripes and details."
               f"{' Light the dark fabric so its folds, seams and texture stay clearly visible (not flat pure black).' if (a or d).get('garment_lab', [50])[0] < 25 else ''}"
               f"{f' Image 3 is a close-up of its small logo: reproduce exactly this design, {side}.' if logo else ''}"
-              f" Keep the surface decor. Photorealistic.")
+              f" Keep the surface decor. No added text, price tags, labels or watermarks (the post adds its own details). Photorealistic.")
     images = [("product.jpg", _small_jpeg(raw), "image/jpeg"),
               ("surface.jpg", _small_jpeg(sp.read_bytes(), INPUT_PX), "image/jpeg")]
     if logo:

@@ -1499,21 +1499,21 @@ def _styled_slide(p, img, P, handle, dark=False, num=0, foot="SWIPE →"):
     rate = f'<span class="yrate">★ {r:g}</span>' if r and r > 0 else ""
     eyebrow = _scene_eyebrow(p, "", num)
     inner = f"""<style>
-.ybar{{position:absolute;left:56px;right:56px;bottom:100px;z-index:5;display:flex;align-items:center;justify-content:space-between;
-   gap:20px;background:{str(P['card'])[:7]}F2;border-radius:20px;padding:16px 24px;box-shadow:0 14px 34px rgba(0,0,0,.30);
+.ybar{{position:absolute;left:48px;right:48px;bottom:96px;z-index:5;display:flex;align-items:center;justify-content:space-between;
+   gap:24px;background:{str(P['card'])[:7]}F2;border-radius:20px;padding:16px 24px;box-shadow:0 14px 34px rgba(0,0,0,.30);
    -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px)}}
-.yl{{min-width:0;display:flex;flex-direction:column;gap:4px}}
-.yeye{{font-family:{_MONO};font-size:17px;letter-spacing:.16em;text-transform:uppercase;color:{P['muted']};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.yname{{font-family:{_SERIF};font-size:32px;line-height:1.05;color:{P['text']};white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
-.yrate{{font-family:{_SANS};font-size:20px;color:{P['muted']}}}
+.yl{{min-width:0;flex:1;display:flex;flex-direction:column;gap:6px}}
+.yeye{{font-family:{_MONO};font-size:19px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:{P['text']};opacity:.62;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+.yname{{font-family:{_SERIF};font-size:33px;line-height:1.12;color:{P['text']};display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}}
+.yrate{{font-family:{_SANS};font-size:22px;font-weight:600;color:{P['text']};opacity:.72}}
 .yr{{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:6px}}
 .yprice{{font-family:{_SANS};font-weight:800;font-size:46px;letter-spacing:-.02em;line-height:.95;color:{P['text']}}}
 .ysub{{display:flex;align-items:center;gap:10px}}
-.ymrp{{font-family:{_SANS};font-size:22px;font-weight:600;color:{P['muted']};text-decoration:line-through}}
+.ymrp{{font-family:{_SANS};font-size:23px;font-weight:600;color:{P['text']};opacity:.6;text-decoration:line-through}}
 .yoff{{font-family:{_MONO};font-weight:700;font-size:19px;color:#fff;background:{P['tint']};padding:5px 11px;border-radius:9px}}
 </style>
     <div class="ybar">
-      <div class="yl"><div class="yeye">{eyebrow}</div><div class="yname">{_esc(_clean_title(p, limit=60))}</div>{rate}</div>
+      <div class="yl"><div class="yeye">{eyebrow}</div><div class="yname">{_esc(_clean_title(p, limit=96))}</div>{rate}</div>
       <div class="yr">{f'<div class="yprice">{price}</div>' if price else ''}
         <div class="ysub">{f'<span class="ymrp">{mrp}</span>' if mrp and mrp != price else ''}{f'<span class="yoff">{off}% OFF</span>' if off > 0 else ''}</div></div>
     </div>"""
