@@ -45,8 +45,9 @@ def _img_hd(u: str) -> str:
     return u
 
 
-def scrape_products(query: str, count: int = 8, max_pages: int = 2) -> dict:
-    """Scrape Shopsy search for `query`. FREE (no proxy). Returns {ok,count,items:[...]}. Never raises."""
+def scrape_products(query: str, count: int = 8, max_pages: int = 2, fetch=None) -> dict:
+    """Scrape Shopsy search for `query`. FREE (no proxy). Returns {ok,count,items:[...]}. Never raises.
+    `fetch(url)->html` routes through the residential worker (Shopsy blocks the server's IP)."""
     if not query or len(query.strip()) < 2:
         return {"ok": False, "error": "query too short", "items": []}
     out: list[dict] = []
@@ -54,12 +55,19 @@ def scrape_products(query: str, count: int = 8, max_pages: int = 2) -> dict:
     try:
         for pg in range(1, max(1, min(max_pages, 4)) + 1):
             url = f"{_BASE}/search?q={quote_plus(query.strip())}" + (f"&page={pg}" if pg > 1 else "")
-            r = requests.get(url, headers=_UA, timeout=_TIMEOUT)
-            if not r.ok:
-                if pg == 1:
-                    return {"ok": False, "error": f"shopsy {r.status_code}", "items": []}
-                break
-            html = r.text
+            if fetch:
+                html = fetch(url) or ""
+                if not html:
+                    if pg == 1:
+                        return {"ok": False, "error": "shopsy: residential fetch failed", "items": []}
+                    break
+            else:
+                r = requests.get(url, headers=_UA, timeout=_TIMEOUT)
+                if not r.ok:
+                    if pg == 1:
+                        return {"ok": False, "error": f"shopsy {r.status_code}", "items": []}
+                    break
+                html = r.text
             anchors = list(_ANCHOR.finditer(html))
             if not anchors:
                 break

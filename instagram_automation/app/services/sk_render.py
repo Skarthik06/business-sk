@@ -925,8 +925,9 @@ def _chips2(p: Dict[str, Any]) -> str:
 
 
 def _store_name(p: Dict[str, Any]) -> str:
-    """The store a product is live on, from its `source` — so a Flipkart post never says Amazon."""
-    return "Flipkart" if str((p or {}).get("source", "")).lower() == "flipkart" else "Amazon.in"
+    """The store a product is live on, from its `source` — so a Flipkart/Shopsy post never says Amazon."""
+    name = _store_label(p or {})
+    return "Amazon.in" if name == "Amazon" else name
 
 
 def _badges_strip(products: List[Dict[str, Any]]) -> str:

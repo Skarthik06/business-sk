@@ -807,10 +807,12 @@ def _sync_dms(account_id: int, token: str, account: Dict[str, Any], warnings: Li
 
 
 def _affiliate_dm_text(category: str, products: List[Dict[str, Any]]) -> str:
-    """Build the grounded auto-DM for an affiliate post — the ACTUAL Amazon links for the
-    products in THAT post (trust = a real amazon.in/dp link with your tag). {{username}} is
-    filled by the template provider at send time."""
-    lines = [f"Hi {{{{username}}}}! 🛍️ Here's everything from this post on Amazon 👇", ""]
+    """Build the grounded auto-DM for an affiliate post — the ACTUAL affiliate links for the
+    products in THAT post (Amazon: amazon.in/dp with your tag; Flipkart/Shopsy/…: the Cuelinks
+    link). The store named is the products' real store, never assumed. {{username}} is filled
+    by the template provider at send time."""
+    stores = _dm_stores(products[:5])
+    lines = [f"Hi {{{{username}}}}! 🛍️ Here's everything from this post on {stores} 👇", ""]
     for i, p in enumerate(products[:5], 1):
         title = (p.get("product_title") or p.get("title") or "").strip()[:70]
         price = (p.get("price") or "").strip()
@@ -819,9 +821,26 @@ def _affiliate_dm_text(category: str, products: List[Dict[str, Any]]) -> str:
             continue
         head = f"{i}. {title}" + (f" — {price}" if price else "")
         lines += [head, f"🔗 {link}", ""]
-    lines.append("💚 These are Amazon affiliate links — I may earn a small commission at "
-                 "no extra cost to you. Happy shopping!")
+    lines.append(f"💚 These are {'Amazon ' if stores == 'Amazon' else ''}affiliate links — I may earn a "
+                 "small commission at no extra cost to you. Happy shopping!")
     return "\n".join(lines)
+
+
+_DM_STORE = {"amazon": "Amazon", "flipkart": "Flipkart", "shopsy": "Shopsy", "myntra": "Myntra", "ajio": "AJIO"}
+
+
+def _dm_stores(products: List[Dict[str, Any]]) -> str:
+    """'Amazon' / 'Flipkart' / 'Flipkart & Shopsy' — from each product's source, else its link."""
+    out: List[str] = []
+    for p in products:
+        s = str(p.get("store") or p.get("source") or "").strip().lower()
+        if not s:
+            u = str(p.get("affiliate_link") or p.get("link") or "").lower()
+            s = "amazon" if ("amazon." in u or "amzn." in u) else "flipkart" if "flipkart" in u else ""
+        name = _DM_STORE.get(s, s.replace("_", " ").title()) if s else "Amazon"
+        if name not in out:
+            out.append(name)
+    return " & ".join(out[:2]) if out else "Amazon"
 
 
 _WEBHOOK_CALLBACK_URL = os.getenv("META_WEBHOOK_CALLBACK_URL",

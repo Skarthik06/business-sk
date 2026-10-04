@@ -1294,7 +1294,14 @@ async def flipkart_generate(
 
     aud = (audience or "").strip().lower()
     query = f"{aud} {q.strip()}".strip() if aud and aud not in q.lower() else q.strip()
-    sc = flipkart_scrape.scrape_products(query, count=products_per_run * 4, max_pages=3)
+    # residential route first (your phone/laptop via the Scraper service — free; Flipkart blocks the
+    # server's datacenter IP), ScraperAPI premium only as the fallback (it needs paid credits)
+    sc = {"ok": False}
+    if _worker_online():
+        sc = await asyncio.to_thread(flipkart_scrape.scrape_products, query, products_per_run * 4, 2,
+                                     lambda u: scrape_via_worker(u, "flipkart").get("html", ""))
+    if not sc.get("items"):
+        sc = await asyncio.to_thread(flipkart_scrape.scrape_products, query, products_per_run * 4, 3)
     if not sc.get("ok"):
         return JSONResponse(status_code=200, content={"ok": False, "status": "error",
                             "error": sc.get("error", "Flipkart scrape failed"), "items": []})
@@ -1421,7 +1428,10 @@ async def cuelinks_store_generate(
             sc = await asyncio.to_thread(flipkart_scrape.scrape_products, query, products_per_run * 4, 3)
     elif engine == "shopsy":
         from tools import shopsy_scrape
-        sc = await asyncio.to_thread(shopsy_scrape.scrape_products, query, products_per_run, 2)
+        sc = await asyncio.to_thread(shopsy_scrape.scrape_products, query, products_per_run, 2,
+                                     (lambda u: scrape_via_worker(u, "shopsy").get("html", "")) if _worker_online() else None)
+        if not sc.get("items") and _worker_online():                # residential fetch failed → direct
+            sc = await asyncio.to_thread(shopsy_scrape.scrape_products, query, products_per_run, 2)
     else:  # shopify
         from tools import shopify_scrape
         sc = await asyncio.to_thread(shopify_scrape.scrape_products, mk.get("domain", ""), (q or "").strip(),
