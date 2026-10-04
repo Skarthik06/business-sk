@@ -446,3 +446,16 @@ The build history after section 20 (the multi-store engine v2.0, the AI Art Dire
 Scene Prompt Builder and palette Looks v2.3, slash-command style presets and GPU scheduling v2.4,
 verified-follower follow gate and once-per-comment replies) is documented in full in
 [`docs/MASTER.md`](docs/MASTER.md) (§7–§18) and the release log in [`RELEASES.md`](RELEASES.md).
+
+## 22. v2.5 → v2.22 — devices, AI Stylist, scale, data (2026-09-27 → 2026-10-04)
+| Phase | Built | Verified |
+|---|---|---|
+| Scraper API (v2.5–v2.6) | self-hosted multi-route scraper, strategy engine, circuit breakers, worker pool | live scrapes of 10 categories through it |
+| Android (v2.7–v2.13, app 1.0→1.7) | SK Helper + Studio TWA, QR pairing, phone scraping, ML Kit cut-outs, in-app updates, post reminders | builds published + installed, phone paired, phone cut-outs |
+| Colab GPU (v2.12–v2.15, v2.20) | render on Colab when the laptop is off, device-aware routing, GPU Watchdog, one-tap notebook (phone) | T4 renders (cut-out ~36 s), watchdog alerts on the phone |
+| AI Stylist (v2.16–v2.21) | styled flat-lays: one paid gpt-image-1-mini call; deterministic emblem detector, fidelity check, real-logo restore, fabric lift, details card | calibrated on 74 cut-outs; free E2E on 10 product types / 40 products; spend ledger exact |
+| Publishing (v2.18, v2.20) | server-side post ledger, Post Timing agent, strict 2-a-day, phone reminders | double publish → 409; 3rd post refused |
+| Engagement scale (v2.19) | DB pool, activity-driven poller, flood resume, 4-way concurrency, rate-limit cooldown, webhook pool | stress: 1,500 comments → 1,500 replies + DMs, 0 duplicates; 8 DB connections peak |
+| Egress + database (v2.21–v2.22) | light queries + TTL caches; Studio DB moved to the server's Postgres; nightly server backups + laptop copies | traffic ≈ 6.7 → 0.1 MB / 5 min; 27 tables + 22 sequences identical; restore test; checksums identical |
+
+The README's audit table ([`README.md`](README.md#audit--what-was-built-and-how-it-was-verified)) is the summary; [`RELEASES.md`](RELEASES.md) has every release.
