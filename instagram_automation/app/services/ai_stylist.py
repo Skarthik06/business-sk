@@ -158,7 +158,21 @@ def _key(*parts: str) -> str:
 
 # ── 1 · read the product (free, deterministic, cached per photo) ──────────────────────────────
 _TYPES = [  # (title pattern, item name) — most specific first
-    # non-clothing first (their titles often mention clothes-ish words: "watch for men", "gift set")
+    # clothing first: "Sunscreen Jacket" is a jacket, "Kurta with Dupatta" a kurta
+    (r"kurti|kurta", "kurta"), (r"lehenga", "lehenga"), (r"track ?suit", "tracksuit"),
+    (r"pyjama|pajama|night ?suit|nightwear", "nightwear"),
+    (r"(half|quarter)[- ]?zip.*hood|hood\w*.*(half|quarter)[- ]?zip", "half-zip hoodie"),
+    (r"(half|quarter)[- ]?zip", "half-zip sweatshirt"), (r"zip\w*[- ]?(up )?hood|hood\w*.*\bzip", "zip hoodie"),
+    (r"hood(ie|y|ed)", "hoodie"), (r"sweat ?shirt", "sweatshirt"), (r"polo", "polo t-shirt"), (r"t[- ]?shirt|\btee\b", "t-shirt"),
+    (r"overshirt|shacket", "overshirt"), (r"\bshirt", "shirt"), (r"blazer", "blazer"), (r"jacket|bomber|windcheater", "jacket"),
+    (r"cardigan", "cardigan"), (r"sweater|pullover|jumper", "sweater"), (r"kurta", "kurta"), (r"dress", "dress"),
+    (r"co[- ]?ord", "co-ord set"), (r"jogger|track ?pant", "joggers"), (r"jeans|denim", "jeans"), (r"chino", "chinos"),
+    (r"cargo", "cargo pants"), (r"trouser|pant", "trousers"), (r"shorts", "shorts"), (r"skirt", "skirt"), (r"saree|\bsari\b", "saree"),
+    (r"\btop\b", "top"), (r"sneaker|shoe|trainer", "sneakers"), (r"sandal", "sandals"), (r"smart ?watch|fitness band", "smartwatch"), (r"watch", "watch"),
+    (r"backpack", "backpack"), (r"\bbag\b|tote|sling", "bag"), (r"wallet", "wallet"), (r"\bcap\b|\bhat\b", "cap"),
+    (r"sunglass", "sunglasses"), (r"\bbelt\b", "belt"),
+    (r"round neck|half sleeve|drop shoulder|oversized", "t-shirt"), (r"dupatta|\bstole\b", "dupatta"),
+    # then everything else
     (r"smart ?watch|fitness band", "smartwatch"), (r"ear ?buds|\btws\b|earphone|neckband|airdopes", "wireless earbuds"),
     (r"headphone|headset", "headphones"), (r"speaker|soundbar", "speaker"), (r"power ?bank", "power bank"),
     (r"charger|charging cable|usb cable", "charger"), (r"keyboard", "keyboard"), (r"\bmouse\b", "mouse"),
@@ -172,23 +186,10 @@ _TYPES = [  # (title pattern, item name) — most specific first
     (r"\bcurtains?\b", "curtains"), (r"\bmug\b|coffee cup", "mug"), (r"water bottle|\bflask\b", "bottle"),
     (r"earring|jhumka", "earrings"), (r"necklace|pendant", "necklace"), (r"bracelet|bangle", "bracelet"),
     (r"heels|stiletto", "heels"), (r"\bboots?\b", "boots"), (r"loafer", "loafers"), (r"slipper|flip[- ]?flop|slider", "slippers"),
-    (r"lehenga", "lehenga"), (r"dupatta|\bstole\b", "dupatta"), (r"pyjama|pajama|night ?suit|nightwear", "nightwear"),
-    (r"track ?suit", "tracksuit"), (r"kurti", "kurta"),
-    (r"(half|quarter)[- ]?zip.*hood|hood\w*.*(half|quarter)[- ]?zip", "half-zip hoodie"),
-    (r"(half|quarter)[- ]?zip", "half-zip sweatshirt"), (r"zip\w*[- ]?(up )?hood|hood\w*.*\bzip", "zip hoodie"),
-    (r"hood(ie|y|ed)", "hoodie"), (r"sweat ?shirt", "sweatshirt"), (r"polo", "polo t-shirt"), (r"t[- ]?shirt|\btee\b", "t-shirt"),
-    (r"overshirt|shacket", "overshirt"), (r"\bshirt", "shirt"), (r"blazer", "blazer"), (r"jacket|bomber|windcheater", "jacket"),
-    (r"cardigan", "cardigan"), (r"sweater|pullover|jumper", "sweater"), (r"kurta", "kurta"), (r"dress", "dress"),
-    (r"co[- ]?ord", "co-ord set"), (r"jogger|track ?pant", "joggers"), (r"jeans|denim", "jeans"), (r"chino", "chinos"),
-    (r"cargo", "cargo pants"), (r"trouser|pant", "trousers"), (r"shorts", "shorts"), (r"skirt", "skirt"), (r"saree|\bsari\b", "saree"),
-    (r"\btop\b", "top"), (r"sneaker|shoe|trainer", "sneakers"), (r"sandal", "sandals"), (r"watch", "watch"),
-    (r"backpack", "backpack"), (r"\bbag\b|tote|sling", "bag"), (r"wallet", "wallet"), (r"\bcap\b|\bhat\b", "cap"),
-    (r"sunglass", "sunglasses"), (r"\bbelt\b", "belt"),
 ]
 _PRINT_WORDS = re.compile(r"\b(print(ed)?|graphic|typograph\w*|slogan|logo|embroider\w*|badge|patch|marvel|disney|"
                           r"spider[- ]?man|batman|superman|avengers|anime|naruto|mickey|cartoon|character|artwork)\b", re.I)
 _PLAIN_WORDS = re.compile(r"\b(all[- ]?over|stripe[ds]?|check(ed|s)?|plaid|floral|camo\w*|polka)\b", re.I)   # pattern ≠ emblem → low is fine
-_STOP = {"men", "mens", "women", "womens", "for", "with", "and", "the", "regular", "slim", "fit", "cotton", "solid", "pack"}
 
 
 # clothing lies flat with folds; everything else (watch, bottle, frame…) is placed at its real proportions
