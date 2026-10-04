@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.24.0** (2026-10-04) — Cuelinks Affiliate: AI planner suggests stores + product searches, tap one to generate (like Amazon); own scraper only
 - **v2.23.6** (2026-10-04) — Cuelinks wired end to end: Flipkart/Shopsy fetched free via your phone/laptop; DMs and slides name the real store
 - **v2.23.5** (2026-10-04) — Daily posting limit code removed entirely
 - **v2.23.4** (2026-10-04) — No posting limit; Style with AI asks first then opens Colab, never replaces a running Colab
