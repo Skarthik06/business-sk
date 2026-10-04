@@ -255,8 +255,10 @@ def describe(src: str, title: str = "", raw: Optional[bytes] = None, cut: Option
 
 # ── 2 · the free surface (our own model) ──────────────────────────────────────────────────────
 def pick_surface(post_id: str, dark: bool) -> str:
-    keys = [k for k in SURFACES if (k in DARK_SURFACES) == dark] or list(SURFACES)
-    return keys[int(_key(post_id or "x"), 16) % len(keys)]
+    """A UNIQUE surface for this post, composed by the Backdrop Composer agent (no LLM) and painted
+    by our own model — the same post keeps its surface (re-renders stay free)."""
+    from app.services import backdrop_composer
+    return backdrop_composer.compose("flatlay", post_id or "x", dark=dark)["key"]
 
 
 def surface_path(key: str, wait_secs: float = 0) -> Optional[Path]:
@@ -264,8 +266,15 @@ def surface_path(key: str, wait_secs: float = 0) -> Optional[Path]:
     p = scene_store.backdrop_path(key)
     if p:
         return p
-    scene_store.upsert_scene(key, prompt=SURFACES[key], palette="", mood="flat lay surface", tags=["flatlay"])
-    scene_store.enqueue_scene(key, SURFACES[key], seed=11)
+    from app.services import backdrop_composer
+    item = backdrop_composer.get(key)
+    if item:                                                      # composed surface → its own seed
+        backdrop_composer.paint(item)
+    elif key in SURFACES:                                         # a legacy fixed surface
+        scene_store.upsert_scene(key, prompt=SURFACES[key], palette="", mood="flat lay surface", tags=["flatlay"])
+        scene_store.enqueue_scene(key, SURFACES[key], seed=11)
+    else:
+        return None
     if wait_secs:
         scene_store.wait_for([], [key], wait_secs)
     return scene_store.backdrop_path(key)
@@ -369,7 +378,7 @@ def style_post(products: List[Dict[str, Any]], post_id: str, dark: bool) -> Dict
     styled = {r["src"]: str(styled_path(surface, r["src"])) for r in results if r["status"] in ("styled", "cached")}
     if post_id:
         cur = (scene_store.plan_get(post_id) or {}).get("styled") or {}
-        scene_store.plan_update(post_id, styled={**cur, **styled}, styled_surface=surface)
+        scene_store.plan_update(post_id, styled={**cur, **styled}, styled_surface=surface, styled_dark=bool(dark))
     return {"ok": True, "surface": surface, "results": results, "styled": len(styled),
             "spent_usd": round(sum(r.get("usd", 0) for r in results), 5), **budget()}
 

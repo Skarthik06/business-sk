@@ -1910,7 +1910,8 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
         try:
             from app.services import ai_stylist, scene_store as _ss
             styled = ai_stylist.styled_for(str(art["id"]))
-            styled_dark = ((_ss.plan_get(str(art["id"])) or {}).get("styled_surface") in ai_stylist.DARK_SURFACES)
+            _sp = _ss.plan_get(str(art["id"])) or {}
+            styled_dark = bool(_sp["styled_dark"]) if "styled_dark" in _sp else (_sp.get("styled_surface") in ai_stylist.DARK_SURFACES)
         except Exception:
             styled = {}
 

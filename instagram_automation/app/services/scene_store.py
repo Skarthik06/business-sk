@@ -550,6 +550,12 @@ def submit(job_id: str, b64: str, meta: Optional[Dict[str, Any]] = None) -> Dict
     except Exception as e:
         return {"ok": False, "error": f"invalid image: {str(e)[:80]}"}
     path.unlink(missing_ok=True)
+    if job["type"] == "scene" and str(job.get("key", "")).startswith("bd_"):
+        try:                                    # Backdrop Composer: never two look-alike backdrops
+            from app.services import backdrop_composer
+            backdrop_composer.verify(job["key"])
+        except Exception as e:                  # noqa: BLE001 — a check never loses the upload
+            print(f"[backdrop-composer] verify failed: {e}", flush=True)
     return {"ok": True}
 
 

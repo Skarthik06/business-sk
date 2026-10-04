@@ -468,7 +468,7 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "", s
         if cached and cached.get("plan") and time.time() - float(cached.get("t") or 0) < 7 * 86400:
             return cached["plan"]
         old = (cached or scene_store.plan_get(pid) or {}).get("plan") or {}
-        plan = _direct(products, category, look, styles)
+        plan = _direct(products, category, look, styles, pid=pid, fresh=fresh)
         plan["id"] = pid
         plan["rev"] = int(time.time())                    # a re-roll = same post, new revision
         _old_new = ((old.get("scene") or {}).get("new") or {}).get("key")
@@ -478,7 +478,8 @@ def direct(products: List[Dict[str, Any]], category: str = "", look: str = "", s
         return plan
 
 
-def _direct(products: List[Dict[str, Any]], category: str = "", look: str = "", styles: Any = None) -> Dict[str, Any]:
+def _direct(products: List[Dict[str, Any]], category: str = "", look: str = "", styles: Any = None,
+            pid: str = "", fresh: bool = False) -> Dict[str, Any]:
     """Return the art-direction plan for these products and QUEUE the GPU work it needs
     (cut-outs for every photo, plus any new scene). Never raises."""
     products = [p for p in (products or []) if isinstance(p, dict)][:8]
@@ -522,12 +523,16 @@ def _direct(products: List[Dict[str, Any]], category: str = "", look: str = "", 
     metas = {u: scene_store.cutout_meta(u) for u in (_img_url(p) for p in products) if u}
     plan = _fallback_plan(products, category, lib, metas)
     allow_new = (_knob("ART_ALLOW_NEW_SCENES", "1").lower() not in ("0", "false", "off")) and not fixed
+    # Backdrop Composer: the background is composed by OUR code (unique every post, no tokens); the
+    # LLM only analyses the products and picks the look/layout. ART_SCENE_SOURCE=llm restores the old way.
+    composer = _knob("ART_SCENE_SOURCE", "composer").lower() != "llm"
+    llm_new = allow_new and not composer
     err = ""
     if enabled() and settings.OPENAI_API_KEY and products:
         try:
-            _raw, _usage = _call_llm(products, category, lib, metas, allow_new, style_rule,
+            _raw, _usage = _call_llm(products, category, lib, metas, llm_new, style_rule,
                                      " ".join(parse_styles(styles)))
-            plan = _validate(_raw, plan, products, lib, allow_new)
+            plan = _validate(_raw, plan, products, lib, llm_new)
             plan["usage"] = _usage
         except Exception as e:                            # noqa: BLE001 — rules plan stands
             err = str(e)[:160]
@@ -546,6 +551,18 @@ def _direct(products: List[Dict[str, Any]], category: str = "", look: str = "", 
     # deterministically from the palette row + presets, so every post still gets its own
     # preset-built scene painted by the laptop.
     _rows_all = _palette_rows()
+    if allow_new and composer and _rows_all:
+        from app.services import backdrop_composer
+        if plan.get("palette") not in _rows_all:
+            plan["palette"] = "noir" if "noir" in _rows_all else next(iter(_rows_all))
+        _row = _rows_all[plan["palette"]]
+        _item = backdrop_composer.compose("studio", pid or plan_id(products, category, look, styles),
+                                          palette=plan["palette"], fresh=fresh,
+                                          colors=[c.strip() for c in _row["colors"].split(",")])
+        _f = dict(_item["fields"], mood=_row["mood"])
+        plan["scene"]["new"] = {"key": _item["key"], "prompt": _assemble_prompt(_f), "palette": plan["palette"],
+                                "mood": _row["mood"], "niches": [], "tags": ["composer"], "fields": _f,
+                                "seed": _item["seed"]}
     if allow_new and not plan["scene"].get("new") and _rows_all:
         if plan.get("palette") not in _rows_all:
             plan["palette"] = "noir" if "noir" in _rows_all else next(iter(_rows_all))
@@ -578,7 +595,11 @@ def _direct(products: List[Dict[str, Any]], category: str = "", look: str = "", 
     if new:
         scene_store.upsert_scene(new["key"], prompt=new["prompt"], palette=new["palette"], mood=new["mood"],
                                  tags=new["tags"], niches=new["niches"])
-        scene_store.enqueue_scene(new["key"], new["prompt"], seed=len(new["prompt"]))
+        if str(new["key"]).startswith("bd_"):
+            from app.services import backdrop_composer
+            backdrop_composer.set_prompt(new["key"], new["prompt"])   # final prompt (presets added) for re-paints
+        import random as _rnd
+        scene_store.enqueue_scene(new["key"], new["prompt"], seed=new.get("seed") or _rnd.randrange(1, 99999))
         # stand-in while the new scene is painted: a ready library scene in the SAME palette
         _same = sorted((x for x in scene_store.library() if x.get("ready") and x.get("palette") == new["palette"]),
                        key=lambda x: int(x.get("uses") or 0))
