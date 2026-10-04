@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.23.5** (2026-10-04) — Daily posting limit code removed entirely
 - **v2.23.4** (2026-10-04) — No posting limit; Style with AI asks first then opens Colab, never replaces a running Colab
 - **v2.23.3** (2026-10-04) — Phone = Colab only: work started on the phone never goes to the laptop; Studio fix
 - **v2.23.2** (2026-10-04) — Style with AI opens Colab automatically when needed and waits for it
