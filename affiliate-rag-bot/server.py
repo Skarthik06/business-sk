@@ -1367,11 +1367,15 @@ def _goal_rank(items: list, goal: Optional[str]) -> list:
         except ValueError:
             return 0.0
     g = (goal or "").strip().lower()
-    if g == "commission":
+    if g == "commission":                                   # same store %, bigger payout per sale
         return sorted(items, key=lambda p: _num(p.get("price")), reverse=True)
-    if g == "volume":
+    if g in ("volume", "viral", "trending"):                # proven, much-bought sellers
         return sorted(items, key=lambda p: (_num(p.get("reviews")), float(p.get("rating") or 0)), reverse=True)
-    return items
+    if g == "intent":                                       # best-rated first (people trust + buy)
+        return sorted(items, key=lambda p: (float(p.get("rating") or 0), _num(p.get("reviews"))), reverse=True)
+    if g == "value":                                        # biggest real discount first
+        return sorted(items, key=lambda p: (_num(p.get("discount_pct")), float(p.get("rating") or 0)), reverse=True)
+    return items                                            # balanced / fresh → the quality ranking
 
 
 @app.get("/api/cuelinks/store-generate")
@@ -1386,8 +1390,11 @@ async def cuelinks_store_generate(
     brands: Optional[str] = Query(default=None),
     attrs: Optional[str] = Query(default=None),
     categories: Optional[str] = Query(default=None),
-    goal: Optional[str] = Query(default=None, description="balanced | commission | volume"),
+    goal: Optional[str] = Query(default=None, description="balanced | viral | intent | value | trending | fresh | commission | volume"),
     angle: Optional[str] = Query(default=None, max_length=120, description="The AI planner's content angle for this store."),
+    min_reviews: Optional[int] = Query(default=None, ge=0, le=100000),
+    deals: int = Query(default=0, ge=0, le=1, description="Deals mode: only products with a real current offer."),
+    deals_min: Optional[int] = Query(default=None, ge=0, le=90, description="Deals mode: minimum discount %."),
 ) -> JSONResponse:
     """UNIFIED PER-STORE GENERATOR — pick ONE market and generate with Amazon-style controls. Routes
     by the market's engine: flipkart → Flipkart product scrape; shopify → the store's public product
@@ -1457,6 +1464,12 @@ async def cuelinks_store_generate(
             notes.append(f"{name} shows no ratings for this search, so the minimum-rating filter couldn't be applied.")
     if price_max is not None:
         quality["price_max"] = price_max
+    if min_reviews is not None:
+        quality["min_reviews"] = min_reviews
+    if deals:
+        quality["deals"] = True
+        if deals_min is not None:
+            quality["deals_min"] = deals_min
     if brands and brands.strip():
         quality["brands"] = [b.strip() for b in brands.split(",") if b.strip()][:6]
     if attrs and attrs.strip():

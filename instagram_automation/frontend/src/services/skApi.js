@@ -104,7 +104,9 @@ export default {
       ...(opts.angle ? { angle: opts.angle.slice(0, 120) } : {}),            // the AI planner's content angle
       ...(opts.q ? { q: opts.q } : {}),
       ...(opts.min_rating != null ? { min_rating: opts.min_rating } : {}),
+      ...(opts.min_reviews != null ? { min_reviews: opts.min_reviews } : {}),
       ...(opts.price_max != null ? { price_max: opts.price_max } : {}),
+      ...(opts.deals ? { deals: 1, deals_min: opts.deals_min ?? 25 } : {}),     // Deals mode: real offers only
       ...(opts.content && opts.content !== 'auto' ? { content: opts.content } : {}),
       ...(opts.audience ? { audience: opts.audience } : {}),
       ...(opts.brands && opts.brands.length ? { brands: opts.brands.join(',') } : {}),

@@ -105,7 +105,7 @@ export default function BusinessSK({ notify, accounts = [], view = 'sk-affiliate
       <div style={show('winners')}><WinnersPanel active={tab === 'winners'} say={say} /></div>
       <div style={show('trends')}><TrendsPanel active={tab === 'trends'} cats={cats} /></div>
       <div style={show('intel')}><IntelligencePanel active={tab === 'intel'} /></div>
-      <div style={show('attribution')}><AttributionPanel active={tab === 'attribution'} say={say} queue={queue} setQueue={setQueue} /></div>
+      <div style={show('attribution')}><AttributionPanel active={tab === 'attribution'} say={say} queue={queue} setQueue={setQueue} cats={cats} /></div>
       <div style={show('revenue')}><RevenuePanel active={tab === 'revenue'} say={say} /></div>
       <div style={show('calendar')}><CalendarPanel active={tab === 'calendar'} say={say} /></div>
       <div style={show('agents')}><AgentsPanel active={tab === 'agents'} say={say} /></div>
@@ -2344,7 +2344,15 @@ function FlipkartGenerate({ say, setQueue }) {
 
 // Per-store generator: pick ONE active market → Amazon-style controls → generate. Product-capable
 // stores (Flipkart scrape / Shopify feed) return REAL product photos; the rest build deal cards.
-function StoreGenerate({ markets, say, queue, setQueue, constraints, plan, pickReq }) {
+// Step 2 — the Amazon Affiliate controls, on the store the Step-1 AI plan picked. Categories with
+// their product types (each picked type = one post), the plan's searches + AI filters (one more
+// post), and the same Goal / Caption style / Audience / Deals / rating / reviews / price options.
+// Every post is generated from the chosen store via our own scraper, Cuelinks-monetised, deduped,
+// and lands in Post to IG.
+const NICHE_TO_CAT = { Fashion: 'fashion', Beauty: 'beauty', Grooming: 'beauty', Electronics: 'electronics', Home: 'home' };
+const slugId = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'post';
+
+function StoreGenerate({ markets, cats = DEFAULT_CATS, say, queue, setQueue, constraints, plan, pickReq }) {
   // Step 2 is driven ONLY by the Step-1 AI plan: its stores are the plan's picks (plan order, never
   // paused ones). No plan (or Clear) → nothing to pick; a new plan → its first store opens.
   const active = ((plan && plan.picks) || [])
@@ -2360,36 +2368,33 @@ function StoreGenerate({ markets, say, queue, setQueue, constraints, plan, pickR
     if (!mk) setSel(active[0].id);
   }, [activeIds]); // eslint-disable-line react-hooks/exhaustive-deps
   const canProd = !!(mk && mk.can_products);
+  const planPick = ((plan && plan.picks) || []).find((x) => x.id === sel);
+  const [useAngle, setUseAngle] = useState(true);
+
+  // ── categories → product types (Amazon's taxonomy); each picked type = one post ──
+  const [tax, setTax] = useState(null);
+  useEffect(() => { skApi.taxonomy().then(setTax).catch(() => setTax(null)); }, []);
+  const [counts, setCounts] = useState({});                // {category: products per post}
+  const [subs, setSubs] = useState({});                    // {category: [product type, …]}
+  const toggleCat = (n) => setCounts((c) => { const next = { ...c }; if (n in next) { delete next[n]; setSubs((s) => { const x = { ...s }; delete x[n]; return x; }); } else next[n] = 3; return next; });
+  const setCatCount = (n, d) => setCounts((c) => ({ ...c, [n]: Math.max(1, Math.min(10, (c[n] || 3) + d)) }));
+  const toggleSub = (cat, s) => setSubs((x) => { const cur = x[cat] || []; return { ...x, [cat]: cur.includes(s) ? cur.filter((v) => v !== s) : [...cur, s] }; });
+  // a new plan → open the categories that match your Step-1 niches (only if you haven't picked any)
+  const planKey = (plan && (plan.at || (plan.picks || []).map((p) => p.id).join(','))) || '';
+  useEffect(() => {
+    if (!planKey || Object.keys(counts).length) return;
+    const names = new Set((cats || []).map((c) => c.name));
+    const want = [...new Set((constraints?.focus_categories || []).map((n) => NICHE_TO_CAT[n]).filter((n) => n && names.has(n)))];
+    if (want.length) setCounts(Object.fromEntries(want.map((n) => [n, 3])));
+  }, [planKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── universal search (the plan's searches) + AI filters ──
   const [q, setQ] = useState('');
-  const [count, setCount] = useState(8);
-  const [goal, setGoal] = useState('balanced');
-  const [style, setStyle] = useState('auto');
-  const [aud, setAud] = useState('');
-  const [minRating, setMinRating] = useState(0);
-  const [priceMax, setPriceMax] = useState(0);
+  const [count, setCount] = useState(8);                   // 8 → cover + 8 slides + CTA = a full 10-slide carousel
   const [dims, setDims] = useState([]);
   const [picks, setPicks] = useState({});
   const [loadingF, setLoadingF] = useState(false);
-  const [running, setRunning] = useState(false);
-  const [group, setGroup] = useState(null);
-  const [slides, setSlides] = useState(null);
-  // your saved constraints are the starting point (goal / audience / caption style)
-  const seeded = useRef(false);
-  useEffect(() => {
-    if (seeded.current || !constraints) return;
-    seeded.current = true;
-    if (constraints.goal) setGoal(constraints.goal);
-    if (constraints.audience != null) setAud(constraints.audience);
-    if (constraints.content_style) setStyle(constraints.content_style);
-  }, [constraints]);
-  // the AI planner's content angle for this store → the caption is built around it
-  const planPick = ((plan && plan.picks) || []).find((x) => x.id === sel);
-  const [useAngle, setUseAngle] = useState(true);
-  // posted / cleared in Post to IG → the post left the queue → drop this card too
-  useEffect(() => { if (group && queue && !queue.some((x) => x.id === group.id)) { setGroup(null); setSlides(null); } }, [queue, group]);
-  const [prev, setPrev] = useState(false);
-
-  useEffect(() => { setQ(pendingQ.current || ''); pendingQ.current = ''; setDims([]); setPicks({}); setGroup(null); setSlides(null); setPushed(false); }, [sel]);
+  useEffect(() => { setQ(pendingQ.current || ''); pendingQ.current = ''; setDims([]); setPicks({}); }, [sel]);
   // an AI-planner pick was tapped → open that store with its search; the AI filters load from it
   useEffect(() => {
     if (!pickReq) return;
@@ -2405,171 +2410,270 @@ function StoreGenerate({ markets, say, queue, setQueue, constraints, plan, pickR
     const t = setTimeout(() => { skApi.searchFilters(s).then((d) => setDims(d.filters || [])).catch(() => setDims([])).finally(() => setLoadingF(false)); }, 650);
     return () => clearTimeout(t);
   }, [q, canProd]);
-
   const isBrand = (n) => /\b(brand|make|label|manufacturer)\b/i.test(n || '');
   const pick = (dim, opt) => setPicks((p) => { const cur = p[dim] || []; return { ...p, [dim]: cur.includes(opt) ? cur.filter((x) => x !== opt) : [...cur, opt] }; });
   const brandDim = Object.keys(picks).find(isBrand);
   const brandSel = (brandDim ? picks[brandDim] : []).filter(Boolean);
   const attrSel = Object.entries(picks).filter(([k]) => !isBrand(k)).flatMap(([, v]) => v).filter(Boolean);
 
-  const [pushing, setPushing] = useState(false);
-  const [pushed, setPushed] = useState(false);
-  const previewSlides = async () => {
-    if (!group) return;
-    setPrev(true); setSlides(null);
-    try { const res = await api.skRenderPreview(group.products.slice(0, 10), { category: group.category }); setSlides(res.images || res.local || []); if (!(res.images || []).length) say?.('Rendered but no images returned', 'error'); }
-    catch { say?.('Preview render failed', 'error'); } finally { setPrev(false); }
-  };
-  // Pipeline: push these products INTO the owner's Shopify store, then link the IG posts to the store page.
-  const pushToStore = async () => {
-    if (!group) return;
-    setPushing(true);
-    try {
-      const r = await skApi.myStorePush(group.products, true);
-      if (r.ok) {
-        const byId = Object.fromEntries((r.results || []).filter((x) => x.ok && x.shopify_url).map((x) => [x.asin, x.shopify_url]));
-        const ng = { ...group, products: group.products.map((p) => (byId[p.asin] ? { ...p, affiliate_link: byId[p.asin], store_url: byId[p.asin] } : p)) };
-        setGroup(ng);
-        setQueue && setQueue((prevQ) => (prevQ || []).map((x) => (x.id === ng.id ? ng : x)));
-        setPushed(true);
-        say?.(`Pushed ${r.created}/${r.total} into your Shopify store — posts now link to your store`);
-      } else say?.(r.error || 'Push failed — is My Store write connected?', 'error');
-    } catch { say?.('Push to store failed', 'error'); } finally { setPushing(false); }
-  };
+  // ── the Amazon options (your saved constraints are the starting point) ──
+  const [goal, setGoal] = useState('balanced');
+  const [style, setStyle] = useState('auto');
+  const [aud, setAud] = useState('');
+  const [dealsOn, setDealsOn] = useState(false);
+  const [dealsMin, setDealsMin] = useState(25);
+  const [minRating, setMinRating] = useState(3.8);
+  const [minReviews, setMinReviews] = useState(50);
+  const [priceMax, setPriceMax] = useState(5000);
+  const seeded = useRef(false);
+  useEffect(() => {
+    if (seeded.current || !constraints) return;
+    seeded.current = true;
+    if (constraints.goal && GOALS.some((g) => g.k === constraints.goal)) setGoal(constraints.goal);
+    if (constraints.audience != null) setAud(constraints.audience);
+    if (constraints.content_style) setStyle(constraints.content_style);
+  }, [constraints]);
+
+  // ── jobs: each picked product type (or a whole category) + the search = one post each ──
+  const catJobs = Object.keys(counts).flatMap((c) => {
+    const chosen = subs[c] || [];
+    const n = Math.max(2, counts[c] || 3);            // the store generator needs ≥ 2 per post
+    return chosen.length ? chosen.map((s) => ({ label: s, q: s, count: n })) : [{ label: c, q: c, count: n }];
+  });
+  const searchJob = q.trim().length >= 2 ? [{ label: q.trim().slice(0, 28), q: q.trim(), count, brands: brandSel, attrs: attrSel, picks: [...brandSel, ...attrSel] }] : [];
+  const jobs = [...catJobs, ...searchJob];
+
+  const [running, setRunning] = useState(false);
+  const [prog, setProg] = useState([]);
+  const [groups, setGroups] = useState([]);                // the posts this run made (each also in Post to IG)
+  const [busy, setBusy] = useState('');                    // `${action}:${groupId}` while a card button works
+  const [slides, setSlides] = useState({});                // {groupId: [slide urls]}
+
   const gen = async () => {
     if (!mk) return say?.('Run the AI plan in Step 1 and pick a store first', 'error');
-    if (canProd && q.trim().length < 2) return say?.('Tap one of the AI plan searches (or type a product) first', 'error');
-    setRunning(true); setSlides(null); setPushed(false);
-    try {
-      const opts = { count, content: style, goal, audience: aud, ...(useAngle && planPick?.angle ? { angle: planPick.angle } : {}) };
-      if (canProd) { opts.q = q.trim(); opts.brands = brandSel; opts.attrs = attrSel; if (minRating) opts.min_rating = minRating; if (priceMax) opts.price_max = priceMax; }
-      const r = await skApi.cuelinksStoreGenerate(mk.id, opts);
-      const products = r.items || r.deals || [];
-      if (r.ok && products.length) {
-        const isDeals = (r.engine === 'deals');
-        const g = { id: 'clstore-' + mk.id, label: mk.name + (isDeals ? ' · Deals' : ' · Products'), category: isDeals ? 'deals' : mk.id, products, caption: r.caption || '', hashtags: r.hashtags || [], content_style: '', cover_tags: [] };
-        setGroup(g);
-        setQueue && setQueue((prevQ) => [...(prevQ || []).filter((x) => x.id !== g.id), g]);
-        say?.(`Generated ${products.length} ${isDeals ? 'deals' : 'products'} from ${mk.name} → Post to IG`);
-        (r.notes || []).forEach((n) => say?.(n));          // e.g. "Flipkart shows no ratings for this search…"
-      } else say?.(r.note || r.error || 'Nothing generated — try different filters', 'error');
-    } catch { say?.('Generate failed', 'error'); } finally { setRunning(false); }
+    if (!canProd) return say?.(`${mk.name} has no product photos to generate from`, 'error');
+    if (!jobs.length) return say?.('Pick a category / product type, or tap one of the AI plan searches', 'error');
+    if (jobs.length > 10) return say?.('Up to 10 posts at a time — deselect a few product types', 'error');
+    setRunning(true); setGroups([]); setSlides({});
+    const _aud = { men: '👨 Men', women: '👩 Women', kids: '🧒 Kids' };
+    const tags = [];
+    if (aud && _aud[aud]) tags.push(_aud[aud]);
+    if (goal !== 'balanced') tags.push((GOALS.find((g) => g.k === goal) || {}).label || goal);
+    if (dealsOn) tags.push(`🔥 ${dealsMin}%+ off`);
+    if (priceMax) tags.push(`Under ₹${Number(priceMax).toLocaleString()}`);
+    if (minRating) tags.push(`${minRating}★+`);
+    const base = { content: style, goal, audience: aud, min_rating: minRating, min_reviews: minReviews,
+                   price_max: priceMax || undefined, ...(dealsOn ? { deals: 1, deals_min: dealsMin } : {}),
+                   ...(useAngle && planPick?.angle ? { angle: planPick.angle } : {}) };
+    const out = [];
+    setProg(jobs.map((j) => ({ id: j.label, phase: 'queued', n: 0 })));
+    for (const j of jobs) {
+      setProg((p) => p.map((r) => (r.id === j.label ? { ...r, phase: 'generating' } : r)));
+      try {
+        const r = await skApi.cuelinksStoreGenerate(mk.id, { ...base, q: j.q, count: j.count, brands: j.brands, attrs: j.attrs });
+        const products = r.items || [];
+        const g = { id: `clstore-${mk.id}-${slugId(j.label)}`, label: `${mk.name} · ${j.label}`, category: mk.id, products,
+                    caption: r.caption || '', hashtags: r.hashtags || [], content_style: '', cover_tags: [...(j.picks || []).slice(0, 3), ...tags].slice(0, 5) };
+        if (products.length) out.push(g);
+        (r.notes || []).forEach((n) => say?.(n));
+        setProg((p) => p.map((x) => (x.id === j.label ? { ...x, phase: products.length ? 'done' : 'empty', n: products.length, why: products.length ? '' : (r.note || r.error || '') } : x)));
+      } catch {
+        setProg((p) => p.map((x) => (x.id === j.label ? { ...x, phase: 'error', n: 0 } : x)));
+      }
+    }
+    setGroups(out);
+    const ids = new Set(out.map((g) => g.id));
+    setQueue && setQueue((prev) => [...(prev || []).filter((x) => !ids.has(x.id)), ...out]);
+    const total = out.reduce((n, g) => n + g.products.length, 0);
+    say?.(total ? `${total} products → ${out.length} post${out.length === 1 ? '' : 's'} from ${mk.name} → Post to IG`
+                : 'No new products (all recently posted, or nothing matched) — try other types or a search', total ? 'ok' : 'error');
+    setRunning(false);
   };
-  const discard = (asin) => setGroup((g) => { if (!g) return g; const ng = { ...g, products: g.products.filter((p) => p.asin !== asin) }; setQueue && setQueue((prevQ) => (prevQ || []).map((x) => (x.id === ng.id ? ng : x)).filter((x) => x.products.length)); return ng.products.length ? ng : null; });
-  const clearAll = () => { setGroup((g) => { if (g && setQueue) setQueue((prevQ) => (prevQ || []).filter((x) => x.id !== g.id)); return null; }); };
+
+  // Post to IG is the source of truth: a post published / cleared there disappears here too
+  const inQueue = Object.fromEntries((queue || []).map((g) => [g.id, g]));
+  const live = groups.map((g) => inQueue[g.id]).filter((g) => g && (g.products || []).length);
+  const updGroup = (gid, fn) => {
+    setGroups((gs) => gs.map((g) => (g.id === gid ? fn(g) : g)).filter((g) => g.products.length));
+    setQueue && setQueue((prevQ) => (prevQ || []).map((x) => (x.id === gid ? fn(x) : x)).filter((x) => (x.products || []).length));
+  };
+  const discard = (gid, asin) => updGroup(gid, (g) => ({ ...g, products: g.products.filter((p) => p.asin !== asin) }));
+  const discardPost = (gid) => { setGroups((gs) => gs.filter((g) => g.id !== gid)); setQueue && setQueue((prevQ) => (prevQ || []).filter((x) => x.id !== gid)); say?.('Post discarded — it won’t be posted'); };
+  const previewSlides = async (g) => {
+    setBusy('prev:' + g.id);
+    try { const res = await api.skRenderPreview(g.products.slice(0, 10), { category: g.category }); setSlides((s) => ({ ...s, [g.id]: res.images || res.local || [] })); if (!(res.images || []).length) say?.('Rendered but no images returned', 'error'); }
+    catch { say?.('Preview render failed', 'error'); } finally { setBusy(''); }
+  };
+  // push a post's products INTO the owner's Shopify store, then link the IG post to the store page
+  const pushToStore = async (g) => {
+    setBusy('push:' + g.id);
+    try {
+      const r = await skApi.myStorePush(g.products, true);
+      if (r.ok) {
+        const byId = Object.fromEntries((r.results || []).filter((x) => x.ok && x.shopify_url).map((x) => [x.asin, x.shopify_url]));
+        updGroup(g.id, (x) => ({ ...x, pushed: true, products: x.products.map((p) => (byId[p.asin] ? { ...p, affiliate_link: byId[p.asin], store_url: byId[p.asin] } : p)) }));
+        say?.(`Pushed ${r.created}/${r.total} into your Shopify store — this post now links to your store`);
+      } else say?.(r.error || 'Push failed — is My Store write connected?', 'error');
+    } catch { say?.('Push to store failed', 'error'); } finally { setBusy(''); }
+  };
 
   return (
     <div ref={boxRef} className="panel p-3" style={{ borderColor: 'var(--accent)', scrollMarginTop: 16 }}>
       <div className="eyebrow" style={{ color: 'var(--accent)' }}>🎯 Step 2 · Generate from a store</div>
-      <div className="text-xs" style={{ color: 'var(--muted)' }}>Tap a search in the AI plan (or pick a store here), choose the AI filters, then generate <b style={{ color: '#3fb950' }}>REAL product</b> carousels (photos + prices) — Cuelinks-monetised → Post to IG.</div>
+      <div className="text-xs" style={{ color: 'var(--muted)' }}>Same controls as Amazon Affiliate: pick categories &amp; product types (each = one post) and/or tap an AI plan search, set the options, then generate <b style={{ color: '#3fb950' }}>REAL product</b> carousels — Cuelinks-monetised → Post to IG.</div>
       {!active.length && <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>⬆ Run the AI plan in Step 1 — Step 2 opens with the stores and product searches it recommends.</div>}
       {active.length > 0 && (
         <div className="ctrl-chips mt-2">
           {active.map((m) => (
-            <button key={m.id} type="button" className={cx('opt-card', sel === m.id && 'on')} onClick={() => setSel(m.id)} title={m.can_products ? 'Real product photos' : 'Deal cards'}>
-              {m.name} {m.can_products ? '🖼️' : '🎟️'}
-            </button>
+            <button key={m.id} type="button" className={cx('opt-card', sel === m.id && 'on')} onClick={() => setSel(m.id)}>{m.name} 🖼️</button>
           ))}
         </div>
       )}
       {mk && (
-        <div className="mt-3 flex flex-col gap-3">
+        <div className="mt-3 flex flex-col gap-4">
           <div className="flex items-center gap-2 flex-wrap">
             <b style={{ fontSize: 13 }}>{mk.name}</b><span className="style-tag">{mk.category}</span>
-            {mk.can_products ? <span className="style-tag" style={{ color: '#3fb950' }}>🖼️ Products</span> : <span className="style-tag" style={{ color: 'var(--muted)' }}>🎟️ Deals</span>}
-            <span className="text-xs" style={{ color: 'var(--faint)' }}>{mk.can_products ? ({ flipkart: 'Flipkart products · our own scraper', shopsy: 'Shopsy products · our own scraper', amazon: 'Amazon products · our own scraper' }[mk.engine] || 'Shopify product feed') : 'Cuelinks deal cards (no product photo)'}</span>
+            <span className="style-tag" style={{ color: '#3fb950' }}>🖼️ Products</span>
+            <span className="text-xs" style={{ color: 'var(--faint)' }}>{({ flipkart: 'Flipkart', shopsy: 'Shopsy' }[mk.engine] || mk.name) + ' products · our own scraper'}</span>
           </div>
           {planPick?.angle && (
             <label className="flex items-center gap-2 text-xs" style={{ color: 'var(--muted)', cursor: 'pointer' }}
-              title="From the AI planner (above). The caption is built around this hook — still only real product facts.">
+              title="From the AI planner (Step 1). Captions are built around this hook — still only real product facts.">
               <input type="checkbox" checked={useAngle} onChange={(e) => setUseAngle(e.target.checked)} />
               <span>💡 AI planner angle: <b style={{ color: '#79c0ff' }}>{planPick.angle}</b></span>
             </label>)}
-          {canProd && (planPick?.queries || []).length > 0 && (
-            <div className="ctrl-chips">
-              <span className="text-xs" style={{ color: 'var(--muted)', alignSelf: 'center' }}>AI plan searches:</span>
-              {planPick.queries.map((qq) => (
-                <button key={qq} type="button" className={cx('chip-sk', q.trim().toLowerCase() === qq.toLowerCase() && 'on')} onClick={() => setQ(qq)}>🔍 {qq}</button>
-              ))}
-            </div>)}
-          {canProd && (
-            <>
-              <input className="sk-input" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && gen()} placeholder={`Search ${mk.name} — e.g. ${mk.engine === 'flipkart' ? 'air fryer, running shoes' : 'earbuds, face wash, smart watch'}`} />
-              {loadingF && <div className="text-xs flex items-center gap-2" style={{ color: 'var(--muted)' }}><Spinner size={11} /> AI is reading your product…</div>}
-              {dims.length > 0 && (
-                <div className="flex flex-col gap-2">
-                  <div className="text-xs" style={{ color: 'var(--faint)' }}>Refine (optional) — brand = exact, others rank:</div>
-                  {dims.map((dd) => (
-                    <div key={dd.name}>
-                      <div className="ctrl-card-label" style={{ marginBottom: 5 }}>{dd.name}</div>
-                      <div className="ctrl-chips">{dd.options.map((o) => <button key={o} type="button" className={cx('opt-card', (picks[dd.name] || []).includes(o) && 'on')} onClick={() => pick(dd.name, o)}>{o}</button>)}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+
+          {/* categories & product types — each picked type = its own post */}
+          <div>
+            <div className="flex items-center justify-between flex-wrap gap-2 mb-2">
+              <div className="step-head"><span className="step-n">A</span> Categories &amp; products per post</div>
+              <div className="flex gap-2">
+                <button className="mini" onClick={() => setCounts(Object.fromEntries((cats || []).map((c) => [c.name, counts[c.name] || 3])))}>Select all</button>
+                <button className="mini" onClick={() => { setCounts({}); setSubs({}); }}>Clear</button>
+              </div>
+            </div>
+            <CategoryGrid cats={cats} counts={counts} onToggle={toggleCat} onCount={setCatCount} tax={tax} subs={subs} onToggleSub={toggleSub} />
+          </div>
+
+          {/* the AI plan's searches + universal search with AI filters — one more post */}
+          <div className="panel p-3" style={{ border: '1.5px solid var(--accent)' }}>
+            <div className="step-head mb-2"><span className="step-n">B</span> Search {mk.name} <span className="text-xs" style={{ color: 'var(--faint)', fontWeight: 400 }}>(optional · one post)</span></div>
+            {(planPick?.queries || []).length > 0 && (
+              <div className="ctrl-chips mb-2">
+                <span className="text-xs" style={{ color: 'var(--muted)', alignSelf: 'center' }}>AI plan searches:</span>
+                {planPick.queries.map((qq) => (
+                  <button key={qq} type="button" className={cx('chip-sk', q.trim().toLowerCase() === qq.toLowerCase() && 'on')} onClick={() => setQ(q.trim().toLowerCase() === qq.toLowerCase() ? '' : qq)}>🔍 {qq}</button>
+                ))}
+              </div>)}
+            <input className="sk-input" value={q} onChange={(e) => setQ(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && gen()} placeholder={`Search ${mk.name} — e.g. leather jacket, running shoes`} style={{ width: '100%' }} />
+            {loadingF && <div className="text-xs flex items-center gap-2 mt-2" style={{ color: 'var(--muted)' }}><Spinner size={11} /> AI is reading your product…</div>}
+            {dims.length > 0 && (
+              <div className="flex flex-col gap-2 mt-2">
+                <div className="text-xs" style={{ color: 'var(--faint)' }}>Refine (multi-select) — brand = exact, others rank:</div>
+                {dims.map((dd) => (
+                  <div key={dd.name}>
+                    <div className="ctrl-card-label" style={{ marginBottom: 5 }}>{dd.name}</div>
+                    <div className="ctrl-chips">{dd.options.map((o) => <button key={o} type="button" className={cx('opt-card', (picks[dd.name] || []).includes(o) && 'on')} onClick={() => pick(dd.name, o)}>{o}</button>)}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {q.trim().length >= 2 && (
+              <div className="flex items-center gap-2 mt-2">
+                <span className="text-xs" style={{ color: 'var(--faint)' }}>products in this post</span>
+                <button className="mini" onClick={() => setCount((n) => Math.max(3, n - 1))}>−</button>
+                <b style={{ minWidth: 18, textAlign: 'center', display: 'inline-block' }}>{count}</b>
+                <button className="mini" onClick={() => setCount((n) => Math.min(10, n + 1))}>+</button>
+              </div>)}
+          </div>
+
+          {/* the Amazon options */}
+          <div className="flex flex-col gap-3">
+            <div className="step-head"><span className="step-n">C</span> Options</div>
             <div>
               <div className="ctrl-card-label" style={{ marginBottom: 5 }}>Goal</div>
-              <div className="ctrl-chips">{CL_GOALS.map(([k, l]) => <button key={k} type="button" className={cx('chip-sk', goal === k && 'on')} onClick={() => setGoal(k)}>{l}</button>)}</div>
-              <div className="ctrl-card-label" style={{ margin: '10px 0 5px' }}>Audience</div>
-              <div className="ctrl-chips">{CL_AUD.map(([k, l]) => <button key={k || 'all'} type="button" className={cx('chip-sk', aud === k && 'on')} onClick={() => setAud(k)}>{l}</button>)}</div>
+              <div className="ctrl-chips">{GOALS.map((o) => <button key={o.k} type="button" className={cx('opt-card', goal === o.k && 'on')} onClick={() => setGoal(o.k)}>{o.label}</button>)}</div>
             </div>
-            <div className="flex flex-col gap-2">
-              <div className="ctrl-card-label">Caption style</div>
-              <select className="sk-input" style={{ width: '100%' }} value={style} onChange={(e) => setStyle(e.target.value)}>{CL_STYLES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ').toLowerCase()}</option>)}</select>
-              {canProd && <Slider label={`Min rating: ${minRating || 'any'}`} min={0} max={5} step={0.5} value={minRating} onChange={setMinRating} full />}
-              {canProd && <Slider label={`Max price: ${priceMax ? '₹' + priceMax.toLocaleString() : 'any'}`} min={0} max={20000} step={500} value={priceMax} onChange={setPriceMax} full />}
-            </div>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-xs" style={{ color: 'var(--faint)' }}>{canProd ? 'products' : 'deals'}</span>
-            <button className="mini" onClick={() => setCount((n) => Math.max(3, n - 1))}>−</button>
-            <b style={{ minWidth: 18, textAlign: 'center', display: 'inline-block' }}>{count}</b>
-            <button className="mini" onClick={() => setCount((n) => Math.min(10, n + 1))}>+</button>
-            <span className="flex-1" />
-            {group && <button className="btn btn-sm btn-ghost" onClick={gen} disabled={running} title="Regenerate"><Icon name="bolt" size={12} /> Refresh</button>}
-            {group && <button className="btn btn-sm btn-ghost" onClick={clearAll} style={{ color: 'var(--danger)' }} title="Remove from queue"><Icon name="x" size={12} /> Clear</button>}
-            <button className="btn btn-sm" onClick={gen} disabled={running || !setQueue}>{running ? <Spinner size={12} /> : <Icon name="bolt" size={12} />} Generate posts</button>
-          </div>
-          {group && (
             <div>
-              <div className="flex items-center gap-2 mb-2 flex-wrap">
-                <span className="prog-badge">✓ {group.products.length} {canProd ? 'products' : 'deals'} → Post to IG</span>
-                {pushed && <span className="style-tag" style={{ color: '#3fb950' }}>🏪 in your store · posts link here</span>}
-                <span className="flex-1" />
-                <button className="btn btn-sm btn-ghost" onClick={pushToStore} disabled={pushing} title="Create these as products in your Shopify store; the IG posts will then link to your store page">{pushing ? <Spinner size={12} /> : <Icon name="ext" size={12} />} Push to my store</button>
-                <button className="btn btn-sm btn-ghost" onClick={previewSlides} disabled={prev} title="Render the carousel and see the actual slides">{prev ? <Spinner size={12} /> : <Icon name="doc" size={12} />} Preview slides</button>
+              <div className="ctrl-card-label" style={{ marginBottom: 5 }}>Caption style</div>
+              <div className="ctrl-chips">{CAPTION_STYLES.map((s) => <button key={s} type="button" className={cx('opt-card', style === s && 'on')} onClick={() => setStyle(s)}>{s === 'auto' ? 'Auto' : s.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase())}</button>)}</div>
+            </div>
+            <div>
+              <div className="ctrl-card-label" style={{ marginBottom: 5 }}>Audience</div>
+              <div className="ctrl-chips">{AUDIENCE.map((o) => <button key={o.k || 'all'} type="button" className={cx('opt-card', aud === o.k && 'on')} onClick={() => setAud(o.k)}>{o.label}</button>)}</div>
+            </div>
+            <div>
+              <div className="ctrl-card-label" style={{ marginBottom: 5 }}>Deals mode</div>
+              <div className="ctrl-chips" style={{ alignItems: 'center' }}>
+                <button type="button" className={cx('opt-card', dealsOn && 'on')} onClick={() => setDealsOn((v) => !v)}>🔥 {dealsOn ? 'On' : 'Off'}</button>
+                <span className="text-xs" style={{ color: 'var(--faint)' }}>{dealsOn ? 'only real offers' : 'all products'}</span>
+                {dealsOn && [10, 25, 40, 60].map((d) => <button key={d} type="button" className={cx('chip-sk', dealsMin === d && 'on')} onClick={() => setDealsMin(d)}>{d}%+ off</button>)}
               </div>
-              {group.caption && <div className="panel p-3 mb-2" style={{ background: 'var(--panel-2)' }}><div className="text-xs" style={{ color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{group.caption}</div></div>}
-              {slides && slides.length > 0 && (
-                <div className="flex gap-2 overflow-x-auto pb-2 mb-2">{slides.map((u, i) => <img key={i} src={u} alt={`slide ${i + 1}`} style={{ height: 220, borderRadius: 10, border: '1px solid var(--border)', flex: 'none' }} />)}</div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <Slider label={`Min rating: ${minRating ? minRating + '★' : 'any'}`} min={0} max={5} step={0.1} value={minRating} onChange={setMinRating} full />
+              <Slider label={`Min reviews: ${minReviews || 'any'}`} min={0} max={2000} step={10} value={minReviews} onChange={setMinReviews} full />
+              <Slider label={`Max price: ${priceMax ? '₹' + Number(priceMax).toLocaleString() : 'any'}`} min={0} max={20000} step={100} value={priceMax} onChange={setPriceMax} full />
+            </div>
+            {mk.engine === 'shopsy' && <div className="text-xs" style={{ color: 'var(--faint)' }}>Shopsy shows no ratings or reviews, so those two filters relax there — price and deals still apply.</div>}
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xs" style={{ color: 'var(--muted)' }}>{jobs.length ? `${jobs.length} post${jobs.length === 1 ? '' : 's'} will be generated from ${mk.name}` : 'Pick product types or a search'}</span>
+            <span className="flex-1" />
+            <button className="btn btn-sm" onClick={gen} disabled={running || !setQueue || !jobs.length}>{running ? <Spinner size={12} /> : <Icon name="bolt" size={12} />} Generate {jobs.length > 1 ? `${jobs.length} posts` : 'post'}</button>
+          </div>
+          {prog.length > 0 && (
+            <div className="flex flex-col gap-1">
+              {prog.map((r) => (
+                <div key={r.id} className="flex items-center gap-2 text-xs">
+                  {r.phase === 'generating' ? <Spinner size={11} /> : <span style={{ width: 11 }}>{{ done: '✓', empty: '–', error: '✕', queued: '·' }[r.phase]}</span>}
+                  <span style={{ color: 'var(--text)' }}>{r.id}</span>
+                  <span style={{ color: 'var(--faint)' }}>{r.phase === 'done' ? `${r.n} products` : r.phase === 'empty' ? (r.why || 'nothing new') : r.phase === 'error' ? 'failed' : r.phase}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {live.map((g) => (
+            <div key={g.id} className="panel p-3" style={{ background: 'var(--panel-2)' }}>
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <b style={{ fontSize: 13 }}>{g.label}</b>
+                <span className="prog-badge">✓ {g.products.length} products → Post to IG</span>
+                {g.pushed && <span className="style-tag" style={{ color: '#3fb950' }}>🏪 in your store</span>}
+                <span className="flex-1" />
+                <button className="btn btn-sm btn-ghost" onClick={() => previewSlides(g)} disabled={!!busy} title="Render the carousel and see the actual slides">{busy === 'prev:' + g.id ? <Spinner size={12} /> : <Icon name="doc" size={12} />} Preview slides</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => pushToStore(g)} disabled={!!busy} title="Create these as products in your Shopify store; the IG post then links to your store">{busy === 'push:' + g.id ? <Spinner size={12} /> : <Icon name="ext" size={12} />} Push to my store</button>
+                <button className="btn btn-sm btn-ghost" onClick={() => discardPost(g.id)} style={{ color: 'var(--danger)' }} title="Remove this post from Post to IG"><Icon name="x" size={12} /> Discard post</button>
+              </div>
+              {g.caption && <div className="text-xs mb-2" style={{ color: 'var(--muted)', whiteSpace: 'pre-wrap' }}>{g.caption}</div>}
+              {(slides[g.id] || []).length > 0 && (
+                <div className="flex gap-2 overflow-x-auto pb-2 mb-2">{slides[g.id].map((u, i) => <img key={i} src={u} alt={`slide ${i + 1}`} style={{ height: 220, borderRadius: 10, border: '1px solid var(--border)', flex: 'none' }} />)}</div>
               )}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-                {group.products.map((it) => (
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+                {g.products.map((it) => (
                   <div key={it.asin} className="panel p-0 overflow-hidden" style={{ display: 'flex', flexDirection: 'column' }}>
                     <div style={{ position: 'relative' }}>
-                      {(it.image_url || it.merchant_logo) ? <img src={it.image_url || it.merchant_logo} alt="" loading="lazy" style={{ width: '100%', height: 130, objectFit: 'contain', background: '#fff' }} /> : <div style={{ height: 130, background: 'var(--panel)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 12 }}>{it.brand || 'Deal'}</div>}
-                      <button className="fav-btn" onClick={() => discard(it.asin)} title="Discard" style={{ color: '#fff' }}><Icon name="x" size={15} /></button>
+                      <img src={it.image_url} alt="" loading="lazy" style={{ width: '100%', height: 130, objectFit: 'contain', background: '#fff' }} />
+                      <button className="fav-btn" onClick={() => discard(g.id, it.asin)} title="Discard this product" style={{ color: '#fff' }}><Icon name="x" size={15} /></button>
                     </div>
-                    <div className="p-3" style={{ display: 'flex', flexDirection: 'column', gap: 5, flex: 1 }}>
+                    <div className="p-2" style={{ display: 'flex', flexDirection: 'column', gap: 4, flex: 1 }}>
                       <div className="text-xs" style={{ fontWeight: 600, lineHeight: 1.3, maxHeight: 34, overflow: 'hidden' }}>{it.product_title}</div>
-                      <div className="flex items-center gap-2 text-xs font-mono">{it.price && <b style={{ fontSize: 14 }}>{it.price}</b>}{it.orig_price && <span style={{ textDecoration: 'line-through', color: 'var(--faint)' }}>{it.orig_price}</span>}{it.discount_pct != null && <span style={{ color: '#3fb950' }}>-{it.discount_pct}%</span>}</div>
+                      <div className="flex items-center gap-2 text-xs font-mono">{it.price && <b style={{ fontSize: 13 }}>{it.price}</b>}{it.orig_price && <span style={{ textDecoration: 'line-through', color: 'var(--faint)' }}>{it.orig_price}</span>}{it.discount_pct != null && <span style={{ color: '#3fb950' }}>-{it.discount_pct}%</span>}</div>
                       {it.affiliate_link && <a className="btn btn-sm" href={it.affiliate_link} target="_blank" rel="noreferrer" style={{ justifyContent: 'center' }}><Icon name="ext" size={12} /> Cuelinks link</a>}
                     </div>
                   </div>
                 ))}
               </div>
             </div>
-          )}
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-function CuelinksPanel({ say, queue, setQueue }) {
+function CuelinksPanel({ say, queue, setQueue, cats: productCats }) {
   const [d, setD] = useState(null);            // catalogue payload {markets, categories, constraints, earnings…}
   const [c, setC] = useState(null);            // local editable constraints
   const [plan, setPlan] = useState(null);      // AI plan result
@@ -2711,7 +2815,7 @@ function CuelinksPanel({ say, queue, setQueue }) {
       </div>
 
       {/* Step 2 · per-store product generator — opened from a planner pick → AI filters → real products */}
-      {setQueue && <StoreGenerate markets={d.markets} say={say} queue={queue} setQueue={setQueue} constraints={d.constraints} plan={plan} pickReq={pickReq} />}
+      {setQueue && <StoreGenerate markets={d.markets} cats={productCats} say={say} queue={queue} setQueue={setQueue} constraints={d.constraints} plan={plan} pickReq={pickReq} />}
 
       {/* markets catalogue */}
       <div>
@@ -2740,11 +2844,11 @@ function CuelinksPanel({ say, queue, setQueue }) {
   );
 }
 
-function AttributionPanel({ active, say, queue, setQueue }) {
+function AttributionPanel({ active, say, queue, setQueue, cats }) {
   return (
     <div className="mb-24 flex flex-col gap-4">
       <MyShopifyPanel say={say} queue={queue} setQueue={setQueue} />
-      <CuelinksPanel say={say} queue={queue} setQueue={setQueue} />
+      <CuelinksPanel say={say} queue={queue} setQueue={setQueue} cats={cats} />
       <NetworksSection say={say} />
     </div>
   );
