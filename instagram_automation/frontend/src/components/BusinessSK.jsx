@@ -766,7 +766,6 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
   const [plan, setPlan] = useState(null);
   const loadPlan = useCallback(() => { api.skPostPlan().then(setPlan).catch(() => {}); }, []);
   useEffect(() => { loadPlan(); const t = setInterval(loadPlan, 60000); return () => clearInterval(t); }, [loadPlan]);
-  const capReached = false;                        // no posting limit — the 2 best times are reminders only
   const inflight = useRef(new Set());              // keys this page is publishing right now
   const queueRef = useRef(queue);
   queueRef.current = queue;
@@ -1106,7 +1105,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       {queue.length > 0 && (
         <div className="flex flex-col gap-4">
           {queue.map((g) => (
-            <IgPostCard key={g.id + ':' + look + ':' + styles} g={g} st={statuses[g.id] || {}} posting={busyId === g.id || statuses[g.id]?.phase === 'posting'} capReached={capReached} styleRev={styleRev}
+            <IgPostCard key={g.id + ':' + look + ':' + styles} g={g} st={statuses[g.id] || {}} posting={busyId === g.id || statuses[g.id]?.phase === 'posting'} styleRev={styleRev}
               busyAll={busyAll} accountLabel={acctHandle} getArt={getArt} artId={artPlans[g.id] ? `${artPlans[g.id].id}:${artPlans[g.id].rev}` : ''}
               onPost={() => postOneReal(g)} onDry={() => publishOne(g, true)} />
           ))}
@@ -1124,7 +1123,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
 }
 
 // ── Instagram-style post preview card — swipe the carousel, read the caption, publish ──
-function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getArt, artId, capReached = false, styleRev = 0 }) {
+function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getArt, artId, styleRev = 0 }) {
   const pins = (g.products || []).slice(0, 10);
   const [idx, setIdx] = useState(0);
   const [showCap, setShowCap] = useState(false);
@@ -1277,9 +1276,8 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
 
       {/* publish — REAL post + dry test */}
       <div className="ig-foot">
-        <button className="btn btn-post" onClick={onPost} disabled={posting || busyAll || done || capReached} style={{ minWidth: 190, justifyContent: 'center' }}
-          title={capReached ? 'Daily limit reached (2 posts a day) — post this tomorrow' : ''}>
-          {posting ? <><Spinner size={14} /> Posting…</> : done ? <><Icon name="check" size={14} /> Posted ✓</> : capReached ? <>Daily limit reached · tomorrow</> : <><Icon name="pin" size={15} /> Post to Instagram</>}
+        <button className="btn btn-post" onClick={onPost} disabled={posting || busyAll || done} style={{ minWidth: 190, justifyContent: 'center' }}>
+          {posting ? <><Spinner size={14} /> Posting…</> : done ? <><Icon name="check" size={14} /> Posted ✓</> : <><Icon name="pin" size={15} /> Post to Instagram</>}
         </button>
         {!done && <button className="btn btn-sm btn-ghost" onClick={onDry} disabled={posting || busyAll} title="Record without posting">dry test</button>}
         {st.permalink && <a className="text-xs" href={st.permalink} target="_blank" rel="noopener" style={{ color: 'var(--accent)' }}>view on Instagram ↗</a>}

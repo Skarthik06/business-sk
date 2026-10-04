@@ -117,8 +117,8 @@ def ack(key: str) -> bool:
 
 
 def in_flight(account_id: int) -> int:
-    """Posts of this account being published right now (counted toward the daily limit, so two
-    posts started together can't slip past it)."""
+    """Posts of this account being published right now (counted in today's posts for the best-time
+    plan while they run)."""
     now = time.time()
     return sum(1 for v in _load().values() if v.get("state") == "posting" and v.get("acct") == account_id
                and now - float(v.get("at", 0)) < STALE_POSTING)

@@ -419,7 +419,7 @@ def sk_post_status(body: SkPostKeysReq):
 
 @app.get("/api/sk/post-plan")
 def sk_post_plan(account_id: int | None = None):
-    """Today's 2 best posting times (+ the next 2 days), posts done today and the daily limit."""
+    """Today's 2 best posting times (+ the next 2 days), posts done today (guidance only — there is no posting limit)."""
     from app.services import post_timing
     return post_timing.plan(account_id)
 

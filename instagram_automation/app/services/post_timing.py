@@ -11,8 +11,8 @@ no AI tokens:
      relative to your median). Blended in as data accumulates (up to 40 % at ~40 posts).
 
   Slots: the best half hour in 10:00–16:00 and the best in 17:00–22:30 → always 2 posts ≥ 4 h apart.
-  Rule: at most SK_MAX_POSTS_PER_DAY (2) carousels per account per local day — enforced by the
-  server on publish; reminders stop once the day's posts are done.
+  No posting limit: SK_MAX_POSTS_PER_DAY (2) is only how many best-time slots/reminders a day gets
+  (reminders stop once that many are posted); you can always post more.
 """
 from __future__ import annotations
 
@@ -206,14 +206,6 @@ def posts_today(account_id: Optional[int]) -> int:
     start = datetime.combine(_today(), datetime.min.time(), tzinfo=TZ)
     n = store.affiliate_posts_since(int(account_id), start)       # one tiny COUNT
     return n + post_ledger.in_flight(int(account_id))
-
-
-def check_cap(account_id: int) -> Optional[str]:
-    """None if another post is allowed today, else the reason (shown in the Studio)."""
-    if posts_today(account_id) < CAP:
-        return None
-    nxt = slots_for(_today() + timedelta(days=1))[0]
-    return f"Daily limit reached — {CAP} posts today. Next best time: tomorrow {nxt['label']}."
 
 
 def plan(account_id: Optional[int] = None) -> Dict[str, Any]:
