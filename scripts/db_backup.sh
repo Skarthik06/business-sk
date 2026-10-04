@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 if [ "${1:-}" = "--install" ]; then
   line="30 21 * * * cd $PWD && bash scripts/db_backup.sh >> $HOME/backups/backup.log 2>&1   # 03:00 IST"
   mkdir -p "$HOME/backups"
-  ( crontab -l 2>/dev/null | grep -v "scripts/db_backup.sh" ; echo "$line" ) | crontab -
+  ( { crontab -l 2>/dev/null || true; } | { grep -v "scripts/db_backup.sh" || true; } ; echo "$line" ) | crontab -
   echo "installed: $line"; exit 0
 fi
 DAY="$(date -u +%Y-%m-%d)"
