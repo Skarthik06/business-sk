@@ -342,6 +342,10 @@ async def compose_pins(
         " ", caption, flags=re.I)
     caption = caption.replace("👆", " ")
     caption = re.sub(r"[ \t]+", " ", caption)
+    # a stripped CTA can leave a separator stranded ("… wear. ·" or a line that is just "·") — drop it
+    caption = "\n".join(re.sub(r"[ \t]*[·•|–—-]+[ \t]*$", "", ln).rstrip()
+                        for ln in caption.split("\n")
+                        if not re.fullmatch(r"[\s·•|–—.,:;-]+", ln))
     caption = re.sub(r"\n{3,}", "\n\n", caption).strip(" .-•\n")
     _cta = "➕ Follow + 💬 comment “LINK” to get the links in your DM 📩 · shop in bio 👆"
     caption = f"{caption}\n\n{_cta}" if caption else _cta
