@@ -28,7 +28,9 @@ def enabled() -> bool:
 
 
 def _env_official_default() -> bool:
-    return os.getenv("FOLLOWGATE_OFFICIAL", "1").strip().lower() not in ("0", "false", "no", "off")
+    # OFF by default (owner's call, 2026-10-07): every commenter gets the product DM — no follow
+    # requirement. Instagram often can't confirm follow status, which silently held real DMs.
+    return os.getenv("FOLLOWGATE_OFFICIAL", "0").strip().lower() not in ("0", "false", "no", "off")
 
 
 def official_enabled() -> bool:
