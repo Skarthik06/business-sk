@@ -72,19 +72,36 @@ def _img(u: str) -> str:
 
 
 def _price(pricing: dict, names: set) -> int | None:
-    prices = (pricing or {}).get("prices", []) or []
-    for p in prices:
+    """The price you PAY (or the MRP when "MRP" in names). Flipkart's own finalPrice / mrp fields
+    first; then the prices list, where STRIKE-OFF is authoritative (struck = MRP). Never trust the
+    labels alone — since 2026-10 Flipkart labels the struck-through MRP "Selling Price"/"FSP" and
+    the real price "Special Price", which made us read every MRP as the selling price."""
+    pr = pricing or {}
+    want_mrp = "MRP" in names
+
+    def _v(x):
+        try:
+            v = x.get("value") if x.get("value") is not None else x.get("decimalValue")
+            return int(round(float(v))) if v is not None else None
+        except Exception:
+            return None
+    top = pr.get("mrp") if want_mrp else pr.get("finalPrice")
+    if isinstance(top, dict) and _v(top):
+        return _v(top)
+    prices = pr.get("prices", []) or []
+    struck = [p for p in prices if "strikeOff" in p]
+    if struck:
+        for p in struck:
+            if bool(p.get("strikeOff")) == want_mrp and _v(p):
+                return _v(p)
+        if not want_mrp:                              # no unstruck entry → the lowest is what you pay
+            vals = [_v(p) for p in struck if _v(p)]
+            return min(vals) if vals else None
+        return None
+    for p in prices:                                  # oldest layout: named, no strike-off flag
         if p.get("name") in names or p.get("priceType") in names:
             try:
                 return int(round(float(p.get("decimalValue"))))
-            except Exception:
-                pass
-    # current layout (2026-09): unnamed [{"strikeOff": true, "value": MRP}, {"strikeOff": false, "value": price}]
-    want_strike = "MRP" in names
-    for p in prices:
-        if "strikeOff" in p and bool(p.get("strikeOff")) == want_strike:
-            try:
-                return int(round(float(p.get("value") if p.get("value") is not None else p.get("decimalValue"))))
             except Exception:
                 pass
     return None
