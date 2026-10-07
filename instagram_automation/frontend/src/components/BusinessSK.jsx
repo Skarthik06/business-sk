@@ -283,7 +283,7 @@ function GenerateTab({ cats, say, queue, setQueue, goPost }) {
     const blocked = errs.some((e) => /blocked|Download is starting|scrape_amazon|bot-wall/i.test(e));
     say(total
       ? `${total} products → ${nonEmpty.length} post${nonEmpty.length === 1 ? '' : 's'} ready in Content Studio`
-      : blocked ? 'Amazon blocked the cloud IP — add a scraping proxy (see Agents/Accounts) to fetch products'
+      : blocked ? (errs.find((e) => /phone\/laptop scraper|no products found/i.test(e)) || 'Amazon returned nothing through your phone/laptop scraper — check SK Helper / the laptop worker is online and tap Find products again').replace(/^\[[^\]]*\]\s*scrape_amazon:\s*/i, '')
       : 'No new products (deduped or filtered out)', total ? 'ok' : 'error');
     setRunning(false);
   };

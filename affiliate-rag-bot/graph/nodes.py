@@ -118,7 +118,12 @@ async def scrape_amazon(state: BotState, config: RunnableConfig) -> dict:
             log_line = f"scraped {len(products)} products for '{_aud(category)}'"
 
         if not products:
-            return {"errors": ["scrape_amazon: no products found — Amazon DOM may have changed"]}
+            import time as _t
+            from tools.amazon import LAST_FETCH_ERROR as _lf
+            if _lf.get("msg") and _t.time() - float(_lf.get("t") or 0) < 300:
+                return {"errors": [f"scrape_amazon: your phone/laptop scraper didn't return Amazon results "
+                                   f"({_lf['msg']}) — check SK Helper / the laptop worker is online and try again"]}
+            return {"errors": ["scrape_amazon: no products found for this search — try another search"]}
 
         return {
             "raw_products": products,

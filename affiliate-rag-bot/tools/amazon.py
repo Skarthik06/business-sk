@@ -7,6 +7,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import time
 from typing import Optional
 from urllib.parse import quote_plus
 
@@ -319,6 +320,9 @@ _SCRAPE_JS = r"""
 """
 
 
+LAST_FETCH_ERROR = {"msg": "", "t": 0.0}       # why the last Amazon page fetch failed (shown in the Studio)
+
+
 async def _scrape_page(page: Page, category: str, marketplace: str,
                        term: str, page_num: int = 1, price_max: Optional[float] = None) -> list[dict]:
     """Scrape ONE search-results page for `term` and return RAW normalized products
@@ -331,12 +335,19 @@ async def _scrape_page(page: Page, category: str, marketplace: str,
 
     # Residential worker path — Amazon blocks this datacenter server, but the user's PC/phone worker
     # (residential IP) isn't blocked. If a worker is online, fetch through it; else fall to Playwright.
+    from config import cfg
     try:
         import asyncio as _aio
-        from tools import scrape_bus, amazon_html
-        if scrape_bus.online():                              # server proxy OR laptop worker
+        from tools import scrape_bus, amazon_html, scraper_client
+        # OUR scraper first, always (not gated on a cached "online" flag), with one retry
+        res = {"ok": False, "error": "our scraper isn't configured"}
+        if scraper_client.available() or scrape_bus.online():
             from config import cfg as _cfg
-            res = await _aio.to_thread(scrape_bus.fetch, url, "amazon")
+            for _try in range(2):
+                res = await _aio.to_thread(scrape_bus.fetch, url, "amazon")
+                if res.get("ok"):
+                    break
+                log.warning(f"Amazon via our scraper failed (try {_try + 1}/2): {str(res.get('error'))[:120]}")
             if res.get("ok"):
                 sc = amazon_html.parse_search(res["html"], count=60,
                                               tag=_cfg.amazon.associate_tag, marketplace=marketplace)
@@ -352,11 +363,16 @@ async def _scrape_page(page: Page, category: str, marketplace: str,
                 log.warning(f"worker returned no Amazon products for '{term}' ({len(_h)} bytes, "
                             f"captcha={'captcha' in _h.lower()}, asins={_h.count('data-asin=')}, "
                             f"parse={sc.get('error', '')}) — trying Playwright")
+        LAST_FETCH_ERROR.update(msg=str(res.get("error") or "no products in the page")[:160], t=time.time())
     except Exception as _e:
         log.warning(f"Amazon worker path error ({str(_e)[:60]}); using Playwright")
+        LAST_FETCH_ERROR.update(msg=str(_e)[:160], t=time.time())
 
-    from config import cfg
     proxied = cfg.scraper_proxy.enabled
+    if not proxied:
+        # the server's own browser is ALWAYS blocked by Amazon (datacenter IP) — don't waste 15 s
+        log.error(f"Amazon: our scraper returned nothing for '{term}' p{page_num} — {LAST_FETCH_ERROR['msg']}")
+        return []
     # A residential proxy / scraping API adds latency and is per-IP flaky, so allow longer
     # per attempt AND retry — each retry rotates to a fresh proxy IP (usually one succeeds).
     # With sub-resources blocked the HTML-only load is quick; fail fast + retry (fresh IP)

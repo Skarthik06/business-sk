@@ -38,12 +38,18 @@ def health(max_age: float = 30.0) -> dict:
     """Cached /v1/health (30 s)."""
     if not available():
         return {}
-    if time.time() - _HEALTH["t"] < max_age:
+    # a FAILED check is remembered for 3 s only (not 30 s): one slow reply right after a restart
+    # must not make every Amazon search skip your phone/laptop for half a minute
+    age = max_age if _HEALTH["data"] else min(max_age, 3.0)
+    if time.time() - _HEALTH["t"] < age:
         return _HEALTH["data"]
-    try:
-        data = _get("/v1/health", 5)
-    except Exception:
-        data = {}
+    data = {}
+    for _ in range(2):                                   # one retry on a transient failure
+        try:
+            data = _get("/v1/health", 5)
+            break
+        except Exception:
+            data = {}
     _HEALTH.update(t=time.time(), data=data)
     return data
 
