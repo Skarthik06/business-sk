@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.26.2** (2026-10-07) — Amazon + Cuelinks: max price never exceeded, full product count guaranteed
 - **v2.26.1** (2026-10-07) — Cuelinks: price is a hard limit, other filters fill with closest matches
 - **v2.26.0** (2026-10-07) — Cuelinks: rating bands, real Flipkart ratings, 13 multi-select goals
 - **v2.25.4** (2026-10-07) — Cuelinks: price/rating/reviews/deals filters are strict and work again
