@@ -1550,43 +1550,81 @@ async def cuelinks_store_generate(
         quality["brands"] = [b.strip() for b in brands.split(",") if b.strip()][:6]
     if attrs and attrs.strip():
         quality["attrs"] = [a.strip() for a in attrs.split(",") if a.strip()][:12]
-    # hard limits mean what they say: no price cap unless you set one (never a hidden config default),
-    # and once the store shows ratings/reviews, an unrated product doesn't pass a rating/reviews floor
-    quality["price_max"] = price_max if price_max else 10 ** 9
-    quality.setdefault("min_rating", 0)
-    quality.setdefault("min_reviews", 0)
-    if max_rating:
-        quality["max_rating"] = max_rating
-    rated_filter = bool(quality["min_rating"] or max_rating or quality["min_reviews"])
-    if rated_filter and engine == "flipkart":
+    # PRICE is a hard limiter: nothing above your max price is ever used (no cap unless you set
+    # one — never a hidden config default). Rating band / reviews / deals are PREFERENCES: exact
+    # matches first; when there are too few, the closest matches fill the post — still under the cap.
+    from tools.amazon import _parse_price as _pp
+    cap_price = price_max if price_max else 10 ** 9
+    quality["price_max"] = cap_price
+    lo_r = float(quality.get("min_rating") or 0)
+    hi_r = float(max_rating or 0)
+    if hi_r:
+        quality["max_rating"] = hi_r
+    min_rev = int(quality.get("min_reviews") or 0)
+    deal_min = int(quality.get("deals_min") or 10) if quality.get("deals") else 0
+    price_ok = [p for p in raw if 0 < (_pp(p.get("price")) or 0) <= cap_price]      # HARD
+    if (lo_r or hi_r or min_rev) and engine == "flipkart":
         # Flipkart's grid rates only a few products → read the rest from their product pages,
         # only for candidates already inside the price cap (keeps it to a few seconds)
         from tools import flipkart_scrape as _fk
-        from tools.amazon import _parse_price as _pp
-        in_price = [p for p in raw if 0 < (_pp(p.get("price")) or 0) <= quality["price_max"]]
-        await asyncio.to_thread(_fk.enrich_ratings, in_price[:24],
+        await asyncio.to_thread(_fk.enrich_ratings, price_ok[:24],
                                 lambda u: scrape_via_worker(u, "flipkart").get("html", ""))
-    cands = raw
-    if (quality["min_rating"] or max_rating) and any(p.get("rating") is not None for p in cands):
-        cands = [p for p in cands if p.get("rating") is not None]
-    if max_rating:                                   # the band's top: 4.5★ → 4.0–4.5 only
-        cands = [p for p in cands if p.get("rating") is None or p["rating"] <= max_rating]
-    if quality["min_reviews"] and any(p.get("reviews") for p in cands):
-        cands = [p for p in cands if p.get("reviews") is not None]
-    pool = _finalize_pool(cands, quality, cap=40, need=products_per_run, strict=True)   # filters = hard limits
+    has_ratings = any(p.get("rating") is not None for p in price_ok)
+    has_reviews = any(p.get("reviews") for p in price_ok)
+
+    def _meets(p) -> bool:
+        if (lo_r or hi_r) and has_ratings:
+            r = p.get("rating")
+            if r is None or r < lo_r or (hi_r and r > hi_r):
+                return False
+        if min_rev and has_reviews and int(p.get("reviews") or 0) < min_rev:
+            return False
+        if deal_min and int(p.get("discount_pct") or 0) < deal_min:
+            return False
+        return True
+
+    def _miss(p) -> float:
+        """How far a product is from your preferences (0 = exact) — the closest fill first."""
+        d = 0.0
+        if (lo_r or hi_r) and has_ratings:
+            r = p.get("rating")
+            d += 2.0 if r is None else (max(0.0, lo_r - r) + (max(0.0, r - hi_r) if hi_r else 0.0))
+        if min_rev and has_reviews:
+            d += max(0.0, 1 - int(p.get("reviews") or 0) / float(min_rev))
+        if deal_min:
+            d += max(0.0, deal_min - int(p.get("discount_pct") or 0)) / 100.0
+        return d
+
+    # brand (hard) + your AI-filter picks (ranking) + dedup — price already enforced, prefs below
+    base_q = {k: quality[k] for k in ("brands", "attrs") if k in quality}
+    base_q.update({"price_max": cap_price, "price_min": 0, "min_rating": 0, "min_reviews": 0})
+    ranked = _finalize_pool(price_ok, base_q, cap=200, need=0, strict=True)
+    exact = [p for p in ranked if _meets(p)]
+    close = sorted([p for p in ranked if not _meets(p)], key=_miss)
     try:
-        new, dups = dedup_store.filter_unseen(pool)
+        exact_new, dups = dedup_store.filter_unseen(exact)
+        close_new, dups2 = dedup_store.filter_unseen(close)
+        dups = list(dups) + list(dups2)
     except Exception:
-        new, dups = pool, []
-    picks = _goal_rank(new, goal)[:products_per_run]
+        exact_new, close_new, dups = exact, close, []
+    # your goals rank within each group; exact matches always come before the closest fill
+    picks = (_goal_rank(exact_new, goal) + close_new)[:products_per_run]
     why = _filter_report(raw, quality, name)
     if not picks:
-        msg = (f"Nothing on {name} matched your filters — {why}. Loosen one and try again."
-               if not pool else f"No fresh {name} products — all matches were posted recently. Try another search.")
+        msg = (f"Nothing on {name} under ₹{int(price_max):,} — {why}. Raise the max price or try another search."
+               if price_max and not price_ok else
+               f"No fresh {name} products — all matches were posted recently. Try another search."
+               if (exact or close) else f"Nothing on {name} for this search — {why}. Try another search.")
         return JSONResponse(status_code=200, content={"ok": True, "status": "empty", "engine": engine,
                             "market": mk.get("id"), "store": name, "items": [], "note": msg})
+    n_exact = min(len(exact_new), len(picks))
+    if n_exact < len(picks):
+        notes.append(f"{n_exact} of {len(picks)} {name} products match your rating/reviews/deals exactly; "
+                     f"the other {len(picks) - n_exact} are the closest matches"
+                     + (f" — all still under ₹{int(price_max):,}." if price_max else "."))
     if len(picks) < products_per_run:
-        notes.append(f"Only {len(picks)} {name} products matched your filters ({why}) — the post has {len(picks)}.")
+        notes.append(f"Only {len(picks)} {name} products"
+                     + (f" under ₹{int(price_max):,}" if price_max else "") + f" for this search ({why}).")
     cat_guess = _infer_category(query)
     for p in picks:                                  # store pages carry no category → from the search
         if not p.get("category"):

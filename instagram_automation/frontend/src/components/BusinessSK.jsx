@@ -2645,7 +2645,7 @@ function StoreGenerate({ markets, cats = DEFAULT_CATS, say, queue, setQueue, con
               <Slider label={`Min reviews: ${minReviews || 'any'}`} min={0} max={2000} step={10} value={minReviews} onChange={setMinReviews} full />
               <Slider label={`Max price: ${priceMax ? '₹' + Number(priceMax).toLocaleString() : 'any'}`} min={0} max={20000} step={100} value={priceMax} onChange={setPriceMax} full />
             </div>
-            <div className="text-xs" style={{ color: 'var(--faint)' }}>{mk.engine === 'shopsy' ? 'Shopsy shows no ratings or reviews, so those filters can’t apply there — price and deals still do.' : 'Price, rating, reviews and deals are hard limits — nothing outside them is ever added. Ratings missing from Flipkart’s search page are read from each product page (a few extra seconds).'}</div>
+            <div className="text-xs" style={{ color: 'var(--faint)' }}>{mk.engine === 'shopsy' ? 'Shopsy shows no ratings or reviews, so those filters can’t apply there — price and deals still do.' : 'Max price is a hard limit — nothing above it is ever used. Rating, reviews and deals are preferences: exact matches first, then the closest matches fill the post (still under your max price). Ratings missing from Flipkart’s search page are read from each product page (a few extra seconds).'}</div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
