@@ -90,7 +90,7 @@ def scrape_products(query: str, count: int = 8, max_pages: int = 2, fetch=None) 
                 out.append({
                     "asin": f"sy_{pid}", "category": "", "title": _title_from_slug(href),
                     "price": (f"₹{sell:,}" if sell else ""), "orig_price": "", "discount_pct": None,
-                    "rating": None, "reviews": 0, "bought_past_month": "", "badge": "",
+                    "rating": None, "reviews": None, "bought_past_month": "", "badge": "",
                     "image": _img_hd(img_m.group(0)),
                     "url": _BASE + clean_href if clean_href.startswith("/") else clean_href,
                     "brand": "", "source": "shopsy",

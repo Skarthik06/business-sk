@@ -453,7 +453,8 @@ def _soft_score(p: dict, quality: Optional[dict] = None) -> float:
     return score
 
 
-def _finalize_pool(raw: list[dict], quality: Optional[dict], cap: int, need: int = 0) -> list[dict]:
+def _finalize_pool(raw: list[dict], quality: Optional[dict], cap: int, need: int = 0,
+                   strict: bool = False) -> list[dict]:
     """Apply the quality thresholds like a REAL threshold, with a guaranteed count.
 
     The rating / reviews / price / deals filters are ENFORCED (a true gate): products that meet
@@ -477,8 +478,9 @@ def _finalize_pool(raw: list[dict], quality: Optional[dict], cap: int, need: int
     _rank = (lambda p: _soft_score(p, quality)) if _prefs else _attractiveness
     passed = _dedup_products(sorted([p for p in renderable if _passes_quality(p, quality)],
                                     key=_rank, reverse=True))
-    # Threshold FULLY enforced when enough products meet it (or no count target given).
-    if not need or len(passed) >= need:
+    # Threshold FULLY enforced when enough products meet it (or no count target given). In STRICT
+    # mode (the Cuelinks store generator) the filters are hard limits: never backfilled.
+    if strict or not need or len(passed) >= need:
         return _interleave_brands(passed, brands)[:cap]
     # Short of the count: keep everything that passed, then backfill with the closest-to-threshold
     # products (soft-ranked) so the count is guaranteed. Passing products always rank first.

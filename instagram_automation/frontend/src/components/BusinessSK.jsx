@@ -2440,7 +2440,8 @@ function StoreGenerate({ markets, cats = DEFAULT_CATS, say, queue, setQueue, con
     const n = Math.max(2, counts[c] || 3);            // the store generator needs ≥ 2 per post
     return chosen.length ? chosen.map((s) => ({ label: s, q: s, count: n })) : [{ label: c, q: c, count: n }];
   });
-  const searchJob = q.trim().length >= 2 ? [{ label: q.trim().slice(0, 28), q: q.trim(), count, brands: brandSel, attrs: attrSel, picks: [...brandSel, ...attrSel] }] : [];
+  // like Amazon: the base search + a few picked filter words (breadth); brands go separately (hard)
+  const searchJob = q.trim().length >= 2 ? [{ label: q.trim().slice(0, 28), q: (q.trim() + ' ' + attrSel.slice(0, 3).join(' ')).trim(), count, brands: brandSel, attrs: attrSel, picks: [...brandSel, ...attrSel] }] : [];
   const jobs = [...catJobs, ...searchJob];
 
   const [running, setRunning] = useState(false);

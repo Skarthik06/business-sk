@@ -1387,6 +1387,27 @@ def _infer_category(text: str) -> str:
     return best
 
 
+def _filter_report(raw: list, quality: dict, store: str) -> str:
+    """Which filter cut what — e.g. '0 of 40 under ₹800 (cheapest ₹999) · 3 rated 4.5★+'."""
+    from tools.amazon import _parse_price
+    q = quality or {}
+    prices = [_parse_price(p.get("price")) or 0 for p in raw]
+    bits = [f"{len(raw)} found"]
+    if q.get("price_max") and q["price_max"] < 10 ** 8:
+        n = sum(1 for x in prices if 0 < x <= q["price_max"])
+        cheap = min([x for x in prices if x > 0], default=0)
+        bits.append(f"{n} under ₹{int(q['price_max']):,}" + (f" (cheapest ₹{cheap:,})" if cheap and not n else ""))
+    if q.get("min_rating"):
+        rated = [p for p in raw if p.get("rating") is not None]
+        bits.append(f"{sum(1 for p in rated if p['rating'] >= q['min_rating'])} rated {q['min_rating']}★+"
+                    + ("" if rated else f" ({store} shows no ratings here)"))
+    if q.get("min_reviews"):
+        bits.append(f"{sum(1 for p in raw if (p.get('reviews') or 0) >= q['min_reviews'])} with {q['min_reviews']}+ reviews")
+    if q.get("deals"):
+        bits.append(f"{sum(1 for p in raw if int(p.get('discount_pct') or 0) >= int(q.get('deals_min') or 10))} at {int(q.get('deals_min') or 10)}%+ off")
+    return " · ".join(bits)
+
+
 def _goal_rank(items: list, goal: Optional[str]) -> list:
     """The generator's Goal: 'commission' → pricier items first (same store %, bigger payout per sale);
     'volume' → most-reviewed first (proven sellers); 'balanced' → keep the quality ranking."""
@@ -1471,7 +1492,8 @@ async def cuelinks_store_generate(
         from tools import flipkart_scrape
         # our own scraper only (phone/laptop on a home IP) — no paid scraping API
         sc = await asyncio.to_thread(flipkart_scrape.scrape_products, query, products_per_run * 4, 2,
-                                     lambda u: scrape_via_worker(u, "flipkart").get("html", ""))
+                                     lambda u: scrape_via_worker(u, "flipkart").get("html", ""),
+                                     price_max or None)
     elif engine == "shopsy":
         from tools import shopsy_scrape
         sc = await asyncio.to_thread(shopsy_scrape.scrape_products, query, products_per_run, 2,
@@ -1506,16 +1528,30 @@ async def cuelinks_store_generate(
         quality["brands"] = [b.strip() for b in brands.split(",") if b.strip()][:6]
     if attrs and attrs.strip():
         quality["attrs"] = [a.strip() for a in attrs.split(",") if a.strip()][:12]
-    pool = _finalize_pool(raw, quality, cap=40, need=products_per_run)
+    # hard limits mean what they say: no price cap unless you set one (never a hidden config default),
+    # and once the store shows ratings/reviews, an unrated product doesn't pass a rating/reviews floor
+    quality["price_max"] = price_max if price_max else 10 ** 9
+    quality.setdefault("min_rating", 0)
+    quality.setdefault("min_reviews", 0)
+    cands = raw
+    if quality["min_rating"] and any(p.get("rating") is not None for p in cands):
+        cands = [p for p in cands if p.get("rating") is not None]
+    if quality["min_reviews"] and any(p.get("reviews") for p in cands):
+        cands = [p for p in cands if p.get("reviews") is not None]
+    pool = _finalize_pool(cands, quality, cap=40, need=products_per_run, strict=True)   # filters = hard limits
     try:
         new, dups = dedup_store.filter_unseen(pool)
     except Exception:
         new, dups = pool, []
     picks = _goal_rank(new, goal)[:products_per_run]
+    why = _filter_report(raw, quality, name)
     if not picks:
+        msg = (f"Nothing on {name} matched your filters — {why}. Loosen one and try again."
+               if not pool else f"No fresh {name} products — all matches were posted recently. Try another search.")
         return JSONResponse(status_code=200, content={"ok": True, "status": "empty", "engine": engine,
-                            "market": mk.get("id"), "store": name, "items": [],
-                            "note": f"No fresh {name} products (all recently posted, or nothing matched) — try another search."})
+                            "market": mk.get("id"), "store": name, "items": [], "note": msg})
+    if len(picks) < products_per_run:
+        notes.append(f"Only {len(picks)} {name} products matched your filters ({why}) — the post has {len(picks)}.")
     cat_guess = _infer_category(query)
     for p in picks:                                  # store pages carry no category → from the search
         if not p.get("category"):

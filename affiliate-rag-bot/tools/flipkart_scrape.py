@@ -30,18 +30,20 @@ def configured() -> bool:
     return scrape_bus.online()
 
 
-def search_url(query: str, page: int = 1) -> str:
+def search_url(query: str, page: int = 1, sort: str = "") -> str:
     url = f"https://www.flipkart.com/search?q={quote_plus(query)}"
+    if sort:                                          # e.g. price_asc (Flipkart's own sort)
+        url += f"&sort={sort}"
     if page > 1:
         url += f"&page={page}"
     return url
 
 
-def _fetch(query: str, page: int = 1) -> str:
+def _fetch(query: str, page: int = 1, sort: str = "") -> str:
     """Fetch a Flipkart search page through OUR scraper service (tools/scrape_bus → the scraper
     container → your phone/laptop on a home IP). No paid scraping API. "" when it can't."""
     from tools import scrape_bus
-    r = scrape_bus.fetch(search_url(query, page), "flipkart", _TIMEOUT)
+    r = scrape_bus.fetch(search_url(query, page, sort), "flipkart", _TIMEOUT)
     if r.get("ok") and "__INITIAL_STATE__" in (r.get("html") or ""):
         return r["html"]
     log.warning(f"[flipkart] own scraper: {str(r.get('error') or 'no product JSON')[:90]}")
@@ -104,14 +106,19 @@ def _parse(html: str) -> list[dict]:
     except Exception:
         return []
     nodes: list[dict] = []
+    stars: dict = {}                                  # productId → (average rating, rating count)
 
     def walk(o):
         if isinstance(o, dict):
             if o.get("titles") and o.get("pricing") and o.get("baseUrl"):
                 nodes.append(o)                       # a product-summary node (don't recurse in)
-            else:
-                for v in o.values():
-                    walk(v)
+                return
+            if o.get("productId") and o.get("averageRating") is not None:
+                # Flipkart keeps ratings in a separate node, linked by productId (= the pid)
+                stars[str(o["productId"])] = (o.get("averageRating"),
+                                              o.get("totalRatingCount") or o.get("totalReviewCount"))
+            for v in o.values():
+                walk(v)
         elif isinstance(o, list):
             for v in o:
                 walk(v)
@@ -146,6 +153,12 @@ def _parse(html: str) -> list[dict]:
             except Exception:
                 rating = None
             reviews = rt.get("count") or rt.get("reviewCount") or rt.get("ratingCount")
+        if rating is None and pid in stars:
+            try:
+                rating = round(float(stars[pid][0]), 1)
+                reviews = int(stars[pid][1] or 0)
+            except Exception:
+                pass
         clean_url = base.split("&")[0]
         out.append({
             "asin": str(pid), "category": "", "title": title,
@@ -168,13 +181,15 @@ def parse_products(html: str, count: int = 8) -> dict:
         for p in _parse(html or ""):
             if p["asin"] not in seen and p.get("image"):
                 seen.add(p["asin"]); items.append(p)
-        return {"ok": True, "count": len(items), "items": items[:count]}
+        items = items if price_max else items[:count]
+        return {"ok": True, "count": len(items), "items": items}
     except Exception as e:
         log.warning(f"[flipkart_scrape] parse failed: {e}")
         return {"ok": False, "error": str(e)[:160], "items": items[:count]}
 
 
-def scrape_products(query: str, count: int = 8, max_pages: int = 2, fetch=None) -> dict:
+def scrape_products(query: str, count: int = 8, max_pages: int = 2, fetch=None,
+                    price_max: int | None = None) -> dict:
     """Search Flipkart → normalised products (same shape as the Amazon scrape). Never raises.
     `fetch(url)->html` optionally overrides the fetch (e.g. the residential worker); default uses
     ScraperAPI. Returns {ok, count, items:[...]}. Paginates until it has `count` products."""
@@ -186,15 +201,19 @@ def scrape_products(query: str, count: int = 8, max_pages: int = 2, fetch=None) 
     items: list[dict] = []
     seen: set = set()
     try:
-        for pg in range(1, max(1, min(max_pages, 4)) + 1):
-            html = fetch(search_url(q, pg)) if fetch else _fetch(q, pg)
+        pages = [(pg, "") for pg in range(1, max(1, min(max_pages, 4)) + 1)]
+        if price_max:                                 # a price cap → also Flipkart's cheapest-first
+            pages = [(1, ""), (1, "price_asc"), (2, "price_asc")]   # pages (relevance alone rarely fits)
+        for pg, sort in pages:
+            html = fetch(search_url(q, pg, sort)) if fetch else _fetch(q, pg, sort)
             for p in _parse(html or ""):
                 if p["asin"] not in seen and p.get("image"):
                     seen.add(p["asin"]); items.append(p)
-            if len(items) >= count:
+            if not price_max and len(items) >= count:
                 break
         log.success(f"[flipkart] scraped {len(items)} products for '{q}'")
-        return {"ok": True, "count": len(items), "items": items[:count]}
+        items = items if price_max else items[:count]
+        return {"ok": True, "count": len(items), "items": items}
     except Exception as e:
         log.warning(f"[flipkart_scrape] failed: {e}")
         return {"ok": False, "error": str(e)[:160], "items": items[:count]}
