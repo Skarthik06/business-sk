@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.25.4** (2026-10-07) — Cuelinks: price/rating/reviews/deals filters are strict and work again
 - **v2.25.3** (2026-10-07) — Auto-DM: no follow requirement — every commenter gets the product links
 - **v2.25.2** (2026-10-04) — Captions: no stray separator line
 - **v2.25.1** (2026-10-04) — Flipkart/Shopsy posts: store-correct hashtags + captions; Go to Post to IG button; storefront names the real stores
