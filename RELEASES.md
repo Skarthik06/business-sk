@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.26.1** (2026-10-07) — Cuelinks: price is a hard limit, other filters fill with closest matches
 - **v2.26.0** (2026-10-07) — Cuelinks: rating bands, real Flipkart ratings, 13 multi-select goals
 - **v2.25.4** (2026-10-07) — Cuelinks: price/rating/reviews/deals filters are strict and work again
 - **v2.25.3** (2026-10-07) — Auto-DM: no follow requirement — every commenter gets the product links
