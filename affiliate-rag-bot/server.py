@@ -1397,9 +1397,10 @@ def _filter_report(raw: list, quality: dict, store: str) -> str:
         n = sum(1 for x in prices if 0 < x <= q["price_max"])
         cheap = min([x for x in prices if x > 0], default=0)
         bits.append(f"{n} under ₹{int(q['price_max']):,}" + (f" (cheapest ₹{cheap:,})" if cheap and not n else ""))
-    if q.get("min_rating"):
+    if q.get("min_rating") or q.get("max_rating"):
+        lo, hi = float(q.get("min_rating") or 0), float(q.get("max_rating") or 5)
         rated = [p for p in raw if p.get("rating") is not None]
-        bits.append(f"{sum(1 for p in rated if p['rating'] >= q['min_rating'])} rated {q['min_rating']}★+"
+        bits.append(f"{sum(1 for p in rated if lo <= p['rating'] <= hi)} rated {lo:g}–{hi:g}★"
                     + ("" if rated else f" ({store} shows no ratings here)"))
     if q.get("min_reviews"):
         bits.append(f"{sum(1 for p in raw if (p.get('reviews') or 0) >= q['min_reviews'])} with {q['min_reviews']}+ reviews")
@@ -1419,16 +1420,36 @@ def _goal_rank(items: list, goal: Optional[str]) -> list:
             return float(m) if m else 0.0
         except ValueError:
             return 0.0
-    g = (goal or "").strip().lower()
-    if g == "commission":                                   # same store %, bigger payout per sale
-        return sorted(items, key=lambda p: _num(p.get("price")), reverse=True)
-    if g in ("volume", "viral", "trending"):                # proven, much-bought sellers
-        return sorted(items, key=lambda p: (_num(p.get("reviews")), float(p.get("rating") or 0)), reverse=True)
-    if g == "intent":                                       # best-rated first (people trust + buy)
-        return sorted(items, key=lambda p: (float(p.get("rating") or 0), _num(p.get("reviews"))), reverse=True)
-    if g == "value":                                        # biggest real discount first
-        return sorted(items, key=lambda p: (_num(p.get("discount_pct")), float(p.get("rating") or 0)), reverse=True)
-    return items                                            # balanced / fresh → the quality ranking
+    import math as _m
+    rt = lambda p: float(p.get("rating") or 0)
+    rv = lambda p: _num(p.get("reviews"))
+    pr = lambda p: _num(p.get("price"))
+    keys = {                                                # higher = better for that goal
+        "commission": lambda p: pr(p),                      # same store %, bigger payout per sale
+        "premium":    lambda p: pr(p),
+        "budget":     lambda p: -pr(p),
+        "volume":     lambda p: (rv(p), rt(p)),             # proven, much-bought sellers
+        "bestseller": lambda p: (rv(p), rt(p)),
+        "viral":      lambda p: (rv(p), _num(p.get("discount_pct"))),
+        "trending":   lambda p: (rv(p), rt(p)),
+        "intent":     lambda p: (rt(p), rv(p)),             # best-rated first (people trust + buy)
+        "top_rated":  lambda p: (rt(p), rv(p)),
+        "loved":      lambda p: rt(p) * _m.log10(1 + rv(p)),   # high rating AND many ratings
+        "value":      lambda p: (_num(p.get("discount_pct")), rt(p)),   # biggest real discount
+        "smart":      lambda p: rt(p) / (1 + _m.log10(1 + pr(p))),    # rating for the price
+        "fresh":      lambda p: -rv(p),                     # newer launches (fewest ratings yet)
+    }
+    goals = [g.strip().lower() for g in (goal or "").split(",") if g.strip().lower() in keys]
+    if not goals:
+        return items                                        # balanced → the quality ranking
+    # several goals → each ranks the products; the best combined rank wins (Borda count),
+    # the quality ranking breaks ties
+    score = {id(p): 0.0 for p in items}
+    for g in goals:
+        for pos, p in enumerate(sorted(items, key=keys[g], reverse=True)):
+            score[id(p)] += pos
+    base = {id(p): i for i, p in enumerate(items)}
+    return sorted(items, key=lambda p: (score[id(p)], base[id(p)]))
 
 
 @app.get("/api/cuelinks/store-generate")
@@ -1446,6 +1467,7 @@ async def cuelinks_store_generate(
     goal: Optional[str] = Query(default=None, description="balanced | viral | intent | value | trending | fresh | commission | volume"),
     angle: Optional[str] = Query(default=None, max_length=120, description="The AI planner's content angle for this store."),
     min_reviews: Optional[int] = Query(default=None, ge=0, le=100000),
+    max_rating: Optional[float] = Query(default=None, ge=0, le=5, description="Rating band top (5★ = 4–5, 4.5★ = 4–4.5, …)."),
     deals: int = Query(default=0, ge=0, le=1, description="Deals mode: only products with a real current offer."),
     deals_min: Optional[int] = Query(default=None, ge=0, le=90, description="Deals mode: minimum discount %."),
 ) -> JSONResponse:
@@ -1533,9 +1555,22 @@ async def cuelinks_store_generate(
     quality["price_max"] = price_max if price_max else 10 ** 9
     quality.setdefault("min_rating", 0)
     quality.setdefault("min_reviews", 0)
+    if max_rating:
+        quality["max_rating"] = max_rating
+    rated_filter = bool(quality["min_rating"] or max_rating or quality["min_reviews"])
+    if rated_filter and engine == "flipkart":
+        # Flipkart's grid rates only a few products → read the rest from their product pages,
+        # only for candidates already inside the price cap (keeps it to a few seconds)
+        from tools import flipkart_scrape as _fk
+        from tools.amazon import _parse_price as _pp
+        in_price = [p for p in raw if 0 < (_pp(p.get("price")) or 0) <= quality["price_max"]]
+        await asyncio.to_thread(_fk.enrich_ratings, in_price[:24],
+                                lambda u: scrape_via_worker(u, "flipkart").get("html", ""))
     cands = raw
-    if quality["min_rating"] and any(p.get("rating") is not None for p in cands):
+    if (quality["min_rating"] or max_rating) and any(p.get("rating") is not None for p in cands):
         cands = [p for p in cands if p.get("rating") is not None]
+    if max_rating:                                   # the band's top: 4.5★ → 4.0–4.5 only
+        cands = [p for p in cands if p.get("rating") is None or p["rating"] <= max_rating]
     if quality["min_reviews"] and any(p.get("reviews") for p in cands):
         cands = [p for p in cands if p.get("reviews") is not None]
     pool = _finalize_pool(cands, quality, cap=40, need=products_per_run, strict=True)   # filters = hard limits

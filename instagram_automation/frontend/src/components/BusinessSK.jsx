@@ -2349,6 +2349,24 @@ function FlipkartGenerate({ say, setQueue }) {
 // post), and the same Goal / Caption style / Audience / Deals / rating / reviews / price options.
 // Every post is generated from the chosen store via our own scraper, Cuelinks-monetised, deduped,
 // and lands in Post to IG.
+// Rating BANDS (owner's rule): 5★ = 4–5, 4.5★ = 4–4.5, 4★ = 3.5–4, 3.5★ = 3–3.5
+const RATING_BANDS = [
+  { k: '', label: 'Any rating', min: 0, max: null },
+  { k: '5', label: '5★ · 4–5', min: 4, max: 5 },
+  { k: '4.5', label: '4.5★ · 4–4.5', min: 4, max: 4.5 },
+  { k: '4', label: '4★ · 3.5–4', min: 3.5, max: 4 },
+  { k: '3.5', label: '3.5★ · 3–3.5', min: 3, max: 3.5 },
+];
+// Goals — pick several; each ranks the products and the best combined rank wins
+const STEP2_GOALS = [
+  { k: 'balanced', label: 'Balanced' }, { k: 'top_rated', label: '⭐ Top rated' },
+  { k: 'bestseller', label: '🔥 Bestsellers' }, { k: 'loved', label: '💛 Loved by many' },
+  { k: 'value', label: '💸 Biggest discount' }, { k: 'smart', label: '🧠 Smart buy (rating for the price)' },
+  { k: 'budget', label: '🪙 Budget picks' }, { k: 'premium', label: '💎 Premium picks' },
+  { k: 'commission', label: '💰 High commission' }, { k: 'viral', label: '🚀 Viral potential' },
+  { k: 'intent', label: '🛒 High purchase intent' }, { k: 'trending', label: '📈 Trending' },
+  { k: 'fresh', label: '✨ Fresh / new' },
+];
 const NICHE_TO_CAT = { Fashion: 'fashion', Beauty: 'beauty', Grooming: 'beauty', Electronics: 'electronics', Home: 'home' };
 const slugId = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40) || 'post';
 
@@ -2417,19 +2435,27 @@ function StoreGenerate({ markets, cats = DEFAULT_CATS, say, queue, setQueue, con
   const attrSel = Object.entries(picks).filter(([k]) => !isBrand(k)).flatMap(([, v]) => v).filter(Boolean);
 
   // ── the Amazon options (your saved constraints are the starting point) ──
-  const [goal, setGoal] = useState('balanced');
+  const [goals, setGoals] = useState(['balanced']);
+  const toggleGoal = (k) => setGoals((cur) => {
+    if (k === 'balanced') return ['balanced'];
+    let next = cur.filter((x) => x !== 'balanced');
+    next = next.includes(k) ? next.filter((x) => x !== k) : [...next.filter((x) => !(k === 'budget' && x === 'premium') && !(k === 'premium' && x === 'budget')), k];
+    return next.length ? next : ['balanced'];
+  });
+  const goal = goals.join(',');
+  const [band, setBand] = useState('');
+  const bandObj = RATING_BANDS.find((b) => b.k === band) || RATING_BANDS[0];
   const [style, setStyle] = useState('auto');
   const [aud, setAud] = useState('');
   const [dealsOn, setDealsOn] = useState(false);
   const [dealsMin, setDealsMin] = useState(25);
-  const [minRating, setMinRating] = useState(3.8);
-  const [minReviews, setMinReviews] = useState(50);
+  const [minReviews, setMinReviews] = useState(0);
   const [priceMax, setPriceMax] = useState(5000);
   const seeded = useRef(false);
   useEffect(() => {
     if (seeded.current || !constraints) return;
     seeded.current = true;
-    if (constraints.goal && GOALS.some((g) => g.k === constraints.goal)) setGoal(constraints.goal);
+    if (constraints.goal && STEP2_GOALS.some((g) => g.k === constraints.goal)) setGoals([constraints.goal]);
     if (constraints.audience != null) setAud(constraints.audience);
     if (constraints.content_style) setStyle(constraints.content_style);
   }, [constraints]);
@@ -2459,11 +2485,11 @@ function StoreGenerate({ markets, cats = DEFAULT_CATS, say, queue, setQueue, con
     const _aud = { men: '👨 Men', women: '👩 Women', kids: '🧒 Kids' };
     const tags = [];
     if (aud && _aud[aud]) tags.push(_aud[aud]);
-    if (goal !== 'balanced') tags.push((GOALS.find((g) => g.k === goal) || {}).label || goal);
+    goals.filter((k) => k !== 'balanced').slice(0, 2).forEach((k) => tags.push(((STEP2_GOALS.find((g) => g.k === k) || {}).label || k).replace(/^\S+\s/, '')));
     if (dealsOn) tags.push(`🔥 ${dealsMin}%+ off`);
     if (priceMax) tags.push(`Under ₹${Number(priceMax).toLocaleString()}`);
-    if (minRating) tags.push(`${minRating}★+`);
-    const base = { content: style, goal, audience: aud, min_rating: minRating, min_reviews: minReviews,
+    if (bandObj.max) tags.push(`${bandObj.min}–${bandObj.max}★`);
+    const base = { content: style, goal, audience: aud, min_rating: bandObj.min, max_rating: bandObj.max || undefined, min_reviews: minReviews,
                    price_max: priceMax || undefined, ...(dealsOn ? { deals: 1, deals_min: dealsMin } : {}),
                    ...(useAngle && planPick?.angle ? { angle: planPick.angle } : {}) };
     const out = [];
@@ -2592,8 +2618,8 @@ function StoreGenerate({ markets, cats = DEFAULT_CATS, say, queue, setQueue, con
           <div className="flex flex-col gap-3">
             <div className="step-head"><span className="step-n">C</span> Options</div>
             <div>
-              <div className="ctrl-card-label" style={{ marginBottom: 5 }}>Goal</div>
-              <div className="ctrl-chips">{GOALS.map((o) => <button key={o.k} type="button" className={cx('opt-card', goal === o.k && 'on')} onClick={() => setGoal(o.k)}>{o.label}</button>)}</div>
+              <div className="ctrl-card-label" style={{ marginBottom: 5 }}>Goals <span style={{ textTransform: 'none', letterSpacing: 0, color: 'var(--faint)' }}>· pick several — each ranks the products, the best combined rank wins</span></div>
+              <div className="ctrl-chips">{STEP2_GOALS.map((o) => <button key={o.k} type="button" className={cx('opt-card', goals.includes(o.k) && 'on')} onClick={() => toggleGoal(o.k)}>{o.label}</button>)}</div>
             </div>
             <div>
               <div className="ctrl-card-label" style={{ marginBottom: 5 }}>Caption style</div>
@@ -2611,12 +2637,15 @@ function StoreGenerate({ markets, cats = DEFAULT_CATS, say, queue, setQueue, con
                 {dealsOn && [10, 25, 40, 60].map((d) => <button key={d} type="button" className={cx('chip-sk', dealsMin === d && 'on')} onClick={() => setDealsMin(d)}>{d}%+ off</button>)}
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <Slider label={`Min rating: ${minRating ? minRating + '★' : 'any'}`} min={0} max={5} step={0.1} value={minRating} onChange={setMinRating} full />
+            <div>
+              <div className="ctrl-card-label" style={{ marginBottom: 5 }}>Rating</div>
+              <div className="ctrl-chips">{RATING_BANDS.map((b) => <button key={b.k || 'any'} type="button" className={cx('opt-card', band === b.k && 'on')} onClick={() => setBand(b.k)}>{b.label}</button>)}</div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Slider label={`Min reviews: ${minReviews || 'any'}`} min={0} max={2000} step={10} value={minReviews} onChange={setMinReviews} full />
               <Slider label={`Max price: ${priceMax ? '₹' + Number(priceMax).toLocaleString() : 'any'}`} min={0} max={20000} step={100} value={priceMax} onChange={setPriceMax} full />
             </div>
-            {mk.engine === 'shopsy' && <div className="text-xs" style={{ color: 'var(--faint)' }}>Shopsy shows no ratings or reviews, so those two filters relax there — price and deals still apply.</div>}
+            <div className="text-xs" style={{ color: 'var(--faint)' }}>{mk.engine === 'shopsy' ? 'Shopsy shows no ratings or reviews, so those filters can’t apply there — price and deals still do.' : 'Price, rating, reviews and deals are hard limits — nothing outside them is ever added. Ratings missing from Flipkart’s search page are read from each product page (a few extra seconds).'}</div>
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">

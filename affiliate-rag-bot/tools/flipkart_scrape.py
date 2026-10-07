@@ -172,6 +172,43 @@ def _parse(html: str) -> list[dict]:
     return out
 
 
+def rating_from_page(html: str) -> tuple:
+    """(average rating, rating count) from a product page's star histogram
+    ("individualRatingsCount": [{ratingValue, ratingCount}, …]) — exact, e.g. (4.2, 97)."""
+    m = re.search(r'"individualRatingsCount":(\[[^\]]*\])', html or "")
+    if not m:
+        return None, None
+    try:
+        hist = json.loads(m.group(1))
+        n = sum(int(x.get("ratingCount") or 0) for x in hist)
+        if not n:
+            return None, 0
+        return round(sum(float(x["ratingValue"]) * int(x.get("ratingCount") or 0) for x in hist) / n, 1), n
+    except Exception:
+        return None, None
+
+
+def enrich_ratings(items: list[dict], fetch, workers: int = 4) -> int:
+    """Flipkart's fashion grid shows ratings for only a few products — fill the rest in place from
+    each product's own page (our scraper, ~2 s a page, `workers` at a time). Returns how many."""
+    from concurrent.futures import ThreadPoolExecutor
+    todo = [p for p in items if p.get("rating") is None and p.get("url")]
+
+    def one(p):
+        try:
+            avg, n = rating_from_page(fetch(p["url"]) or "")
+            if avg is not None:
+                p["rating"], p["reviews"] = avg, n
+                return 1
+        except Exception:
+            pass
+        return 0
+    if not todo:
+        return 0
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as ex:
+        return sum(ex.map(one, todo))
+
+
 def parse_products(html: str, count: int = 8) -> dict:
     """Parse already-fetched Flipkart search HTML → products. Used with the residential worker
     (server fetches the HTML from a residential IP, then hands it here). Never raises."""
