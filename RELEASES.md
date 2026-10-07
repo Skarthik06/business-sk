@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.26.4** (2026-10-07) — Amazon Affiliate: products fetched reliably through your phone/laptop scraper
 - **v2.26.3** (2026-10-07) — Flipkart prices: the real selling price (was reading the MRP)
 - **v2.26.2** (2026-10-07) — Amazon + Cuelinks: max price never exceeded, full product count guaranteed
 - **v2.26.1** (2026-10-07) — Cuelinks: price is a hard limit, other filters fill with closest matches
