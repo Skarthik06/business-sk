@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.25.3** (2026-10-07) — Auto-DM: no follow requirement — every commenter gets the product links
 - **v2.25.2** (2026-10-04) — Captions: no stray separator line
 - **v2.25.1** (2026-10-04) — Flipkart/Shopsy posts: store-correct hashtags + captions; Go to Post to IG button; storefront names the real stores
 - **v2.25.0** (2026-10-04) — Cuelinks Step 2 has the full Amazon Affiliate controls (categories, product types, goals, deals, filters, multi-post)
