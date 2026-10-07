@@ -30,6 +30,13 @@ def configured() -> bool:
     return scrape_bus.online()
 
 
+def _num_price(v) -> int:
+    try:
+        return int(re.sub(r"[^0-9]", "", str(v or "")) or 0)
+    except Exception:
+        return 0
+
+
 def search_url(query: str, page: int = 1, sort: str = "") -> str:
     url = f"https://www.flipkart.com/search?q={quote_plus(query)}"
     if sort:                                          # e.g. price_asc (Flipkart's own sort)
@@ -240,13 +247,17 @@ def scrape_products(query: str, count: int = 8, max_pages: int = 2, fetch=None,
     try:
         pages = [(pg, "") for pg in range(1, max(1, min(max_pages, 4)) + 1)]
         if price_max:                                 # a price cap → also Flipkart's cheapest-first
-            pages = [(1, ""), (1, "price_asc"), (2, "price_asc")]   # pages (relevance alone rarely fits)
+            # pages, going deeper until there are enough products UNDER the cap (count guarantee)
+            pages = [(1, ""), (1, "price_asc"), (2, "price_asc"), (3, "price_asc"), (2, ""), (4, "price_asc")]
+        under = 0
         for pg, sort in pages:
             html = fetch(search_url(q, pg, sort)) if fetch else _fetch(q, pg, sort)
             for p in _parse(html or ""):
                 if p["asin"] not in seen and p.get("image"):
                     seen.add(p["asin"]); items.append(p)
-            if not price_max and len(items) >= count:
+                    if price_max and 0 < _num_price(p.get("price")) <= price_max:
+                        under += 1
+            if (len(items) if not price_max else under) >= count:
                 break
         log.success(f"[flipkart] scraped {len(items)} products for '{q}'")
         items = items if price_max else items[:count]

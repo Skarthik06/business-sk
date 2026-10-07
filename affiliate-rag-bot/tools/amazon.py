@@ -320,10 +320,12 @@ _SCRAPE_JS = r"""
 
 
 async def _scrape_page(page: Page, category: str, marketplace: str,
-                       term: str, page_num: int = 1) -> list[dict]:
+                       term: str, page_num: int = 1, price_max: Optional[float] = None) -> list[dict]:
     """Scrape ONE search-results page for `term` and return RAW normalized products
     (no quality filter / dedup yet — the caller pools + filters across pages)."""
     url = f"https://www.{marketplace}/s?k={quote_plus(term)}&ref=nb_sb_noss"
+    if price_max and price_max < 10 ** 8:            # Amazon's own price facet (p_36, in paise):
+        url += f"&rh=p_36%3A-{int(price_max * 100)}"  # every result is already under your max price
     if page_num > 1:
         url += f"&page={page_num}"
 
@@ -453,6 +455,16 @@ def _soft_score(p: dict, quality: Optional[dict] = None) -> float:
     return score
 
 
+def _price_bounds(quality: Optional[dict] = None) -> tuple:
+    """(price_min, price_max) exactly as _passes_quality resolves them (request → runtime → config)."""
+    from config import cfg
+    import runtime
+    o = quality or {}
+    price_min = o.get("price_min") if o.get("price_min") is not None else cfg.bot.price_min
+    price_max = o.get("price_max") if o.get("price_max") is not None else runtime.get("QUALITY_PRICE_MAX", cfg.bot.price_max, "int")
+    return float(price_min or 0), float(price_max or 10 ** 9)
+
+
 def _finalize_pool(raw: list[dict], quality: Optional[dict], cap: int, need: int = 0,
                    strict: bool = False) -> list[dict]:
     """Apply the quality thresholds like a REAL threshold, with a guaranteed count.
@@ -484,8 +496,12 @@ def _finalize_pool(raw: list[dict], quality: Optional[dict], cap: int, need: int
         return _interleave_brands(passed, brands)[:cap]
     # Short of the count: keep everything that passed, then backfill with the closest-to-threshold
     # products (soft-ranked) so the count is guaranteed. Passing products always rank first.
+    # PRICE is the one hard limiter (owner's rule): the backfill never goes outside your price
+    # range — rating / reviews / deals relax, price never does.
     have = {p.get("asin") for p in passed if p.get("asin")}
-    rest = _dedup_products(sorted([p for p in renderable if p.get("asin") not in have],
+    lo, hi = _price_bounds(quality)
+    rest = _dedup_products(sorted([p for p in renderable if p.get("asin") not in have
+                                   and lo <= (_parse_price(p.get("price")) or 0) <= hi],
                                   key=lambda p: _soft_score(p, quality), reverse=True))
     return _interleave_brands(passed + rest, brands)[:cap]
 
@@ -530,7 +546,7 @@ async def scrape_products(page: Page, category: str, marketplace: str,
     are matched by construction (the affiliate URL is built from the exact ASIN).
     """
     term = (query or CATEGORY_SEARCH.get(category, category) or category).strip()
-    raw = await _scrape_page(page, category, marketplace, term, 1)
+    raw = await _scrape_page(page, category, marketplace, term, 1, (quality or {}).get("price_max"))
     result = _finalize_pool(raw, quality, cap=40, need=need)
     log.success(f"Scraped {len(raw)} → top {len(result)} unique quality products ('{term}')")
     return result
@@ -567,7 +583,7 @@ async def scrape_products_multi(page: Page, category: str, marketplace: str,
             if cfg.scraper_proxy.enabled:
                 await _apply_proxy_block(p)
             try:
-                return term, await _scrape_page(p, category, marketplace, term, pg)
+                return term, await _scrape_page(p, category, marketplace, term, pg, (quality or {}).get("price_max"))
             except Exception as e:                        # a bad tab must not kill the batch
                 log.warning(f"[discovery] tab failed '{term}' p{pg}: {str(e)[:50]}")
                 return term, []

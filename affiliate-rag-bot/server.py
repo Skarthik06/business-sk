@@ -1518,7 +1518,8 @@ async def cuelinks_store_generate(
                                      price_max or None)
     elif engine == "shopsy":
         from tools import shopsy_scrape
-        sc = await asyncio.to_thread(shopsy_scrape.scrape_products, query, products_per_run, 2,
+        sc = await asyncio.to_thread(shopsy_scrape.scrape_products, query, products_per_run * 4,
+                                     4 if price_max else 2,
                                      (lambda u: scrape_via_worker(u, "shopsy").get("html", "")) if _worker_online() else None)
         if not sc.get("items") and _worker_online():                # residential fetch failed → direct
             sc = await asyncio.to_thread(shopsy_scrape.scrape_products, query, products_per_run, 2)
@@ -1609,6 +1610,15 @@ async def cuelinks_store_generate(
         exact_new, close_new, dups = exact, close, []
     # your goals rank within each group; exact matches always come before the closest fill
     picks = (_goal_rank(exact_new, goal) + close_new)[:products_per_run]
+    reused = 0
+    if len(picks) < products_per_run:
+        # COUNT GUARANTEE: still short → re-use in-price products you posted before (exact first)
+        # rather than make a short post. Never anything above your max price.
+        have = {p.get("asin") for p in picks}
+        again = [p for p in exact + close if p.get("asin") not in have]
+        add = again[:products_per_run - len(picks)]
+        reused = len(add)
+        picks += add
     why = _filter_report(raw, quality, name)
     if not picks:
         msg = (f"Nothing on {name} under ₹{int(price_max):,} — {why}. Raise the max price or try another search."
@@ -1617,6 +1627,9 @@ async def cuelinks_store_generate(
                if (exact or close) else f"Nothing on {name} for this search — {why}. Try another search.")
         return JSONResponse(status_code=200, content={"ok": True, "status": "empty", "engine": engine,
                             "market": mk.get("id"), "store": name, "items": [], "note": msg})
+    if reused:
+        notes.append(f"{reused} of the {len(picks)} were posted before — re-used so the post has its full "
+                     f"{len(picks)} (nothing new under the price was left for this search).")
     n_exact = min(len(exact_new), len(picks))
     if n_exact < len(picks):
         notes.append(f"{n_exact} of {len(picks)} {name} products match your rating/reviews/deals exactly; "
