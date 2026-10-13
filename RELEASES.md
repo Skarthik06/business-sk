@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.28.0** (2026-10-13) — Old AI direction process removed; Style with AI is the render; server no longer jams while waiting
 - **v2.27.5** (2026-10-13) — Content Studio: old AI direction section removed; Style with AI is the render
 - **v2.27.4** (2026-10-13) — Style with AI no longer queues an unused studio scene
 - **v2.27.3** (2026-10-13) — Colab progress is reported to the Studio
