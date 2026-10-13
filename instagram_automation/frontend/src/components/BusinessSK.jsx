@@ -1225,34 +1225,7 @@ function IgPostCard({ g, st, posting, busyAll, accountLabel, onPost, onDry, getA
           : <button className="btn btn-sm btn-ghost" onClick={() => { setDesign(null); setIdx(0); }}>Show products</button>}
         {slides && <span className="text-xs" style={{ color: 'var(--faint)' }}>Preview = exactly what posts · {total} slides</span>}
         {designErr && <span className="text-xs" style={{ color: '#f85149' }}>{designErr}</span>}
-        {artInfo && <button className="btn btn-sm btn-ghost" onClick={() => setShowArt((v) => !v)}>✨ AI direction</button>}
-        {cost && cost.lines?.length > 0 && (
-          <span className="text-xs" style={{ color: 'var(--faint)' }} title="LLM tokens this post used, priced at the model's list rates">
-            {cost.tokens.toLocaleString()} tokens · ${cost.usd.toFixed(4)} · ₹{cost.inr.toFixed(3)}
-          </span>
-        )}
       </div>
-      {artInfo && showArt && (
-        <div className="text-xs" style={{ padding: '8px 14px', color: 'var(--muted)', lineHeight: 1.5 }}>
-          <div><b style={{ color: 'var(--accent)' }}>{artInfo.concept || 'AI art direction'}</b> · scene <b>{artInfo.scene}</b>{artInfo.own_scene ? ' (painted for this post)' : ' (library)'} · {artInfo.cutouts_ready} cut-outs</div>
-          {(artInfo.analysis || []).map((a, i) => (
-            <div key={i}>{String((a.i ?? i) + 1).padStart(2, '0')} · {a.type}{a.colors?.length ? ` · ${a.colors.join('/')}` : ''}{a.material ? ` · ${a.material}` : ''}{a.style ? ` · ${a.style}` : ''}{a.vibe ? ` — ${a.vibe}` : ''}</div>
-          ))}
-          {artInfo.presets?.length > 0 && <div style={{ marginTop: 4 }}>⚡ Style presets: <b>{artInfo.presets.join(' ')}</b></div>}
-          {artInfo.scene_prompt && <div style={{ marginTop: 4 }}>🎨 Scene prompt: <i>{artInfo.scene_prompt}</i></div>}
-          {cost && cost.lines?.length > 0 && (
-            <div style={{ marginTop: 6 }}>
-              <b>Tokens &amp; cost</b>{cost.model ? ` · ${cost.model}` : ''}
-              {cost.lines.map((x) => (
-                <div key={x.step}>
-                  {x.step}: {Number(x.input).toLocaleString()} in{x.cached ? ` (${Number(x.cached).toLocaleString()} cached)` : ''} · {Number(x.output).toLocaleString()} out{x.reasoning ? ` (${x.reasoning} reasoning)` : ''} — ${Number(x.usd).toFixed(5)} · ₹{Number(x.inr).toFixed(3)}
-                </div>
-              ))}
-              <div><b>Total: {cost.tokens.toLocaleString()} tokens — ${cost.usd.toFixed(5)} · ₹{cost.inr.toFixed(3)}</b></div>
-            </div>
-          )}
-        </div>
-      )}
 
       {/* current product line (raw view only — designed slides already show the details) */}
       {!slides && <div className="ig-info">
