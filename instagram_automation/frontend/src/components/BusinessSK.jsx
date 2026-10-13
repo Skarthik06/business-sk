@@ -38,15 +38,16 @@ const TAB_KICKER = {
   history: 'Every carousel you have published.',
 };
 const COLAB_NOTEBOOK = 'https://colab.research.google.com/github/Skarthik06/business-sk/blob/main/colab/sk_gpu_worker.ipynb';
-// Open the Colab notebook — on Android in the CHROME APP (your Google profile), not the Business-SK
-// app's in-app tab; elsewhere a new tab. Every open also arms the no-code pairing, so ▶ in Colab
-// connects by itself. Call it straight from a tap (browsers only allow app switches on a tap).
-// Returns true when it handled the open (an <a> then skips its own navigation).
+// Open the Colab notebook in a real BROWSER, not stuck inside the app. In the Business-SK Android app
+// (1.8.0+) the app hands it to the separate Chrome app (your Google profile, its own screen in recent
+// apps); elsewhere a new browser tab. Every open also arms the no-code pairing, so ▶ in Colab connects
+// by itself. Call it straight from a tap (browsers only allow app switches on a tap).
 function openColab(url = COLAB_NOTEBOOK) {
   api.skGpuColab(true).catch(() => {});
-  if (/Android/i.test(navigator.userAgent || '')) {
-    const bare = url.replace(/^https?:\/\//, '');
-    window.location.href = `intent://${bare}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(url)};end`;
+  let app = null;
+  try { app = JSON.parse(localStorage.getItem('sk_android_app') || 'null'); } catch { /* no storage */ }
+  if (/Android/i.test(navigator.userAgent || '') && app && Number(app.code) >= 10) {
+    window.location.href = `intent://open?url=${encodeURIComponent(url)}#Intent;scheme=skhelper;package=com.businesssk.helper;end`;
     return true;
   }
   window.open(url, '_blank', 'noopener');

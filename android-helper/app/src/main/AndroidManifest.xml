@@ -67,6 +67,24 @@
             </intent-filter>
         </activity>
 
+        <!-- Invisible link trampoline: skhelper://open?url=… opens a link in the separate Chrome app
+             (Google Colab from the Studio); skhelper://studio brings the Studio back to the front. -->
+        <activity
+            android:name=".LinkActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="skhelper" android:host="open" />
+                <data android:scheme="skhelper" android:host="studio" />
+            </intent-filter>
+        </activity>
+
         <!-- SK Studio: the whole Studio website as a full-screen app (Trusted Web Activity). It runs in
              Chrome's engine, so Google sign-in works and the Chrome login is shared. -->
         <activity
