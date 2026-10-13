@@ -122,6 +122,39 @@ def new_colab_code() -> Dict[str, Any]:
     return {"code": f"{raw[:4]}-{raw[4:]}", "expires_in": _CODE_TTL}
 
 
+_COLAB_LOG = ROOT / "colab_log.json"
+_LOG_RATE: List[float] = []
+
+
+def colab_log(stage: str, msg: str = "") -> bool:
+    """The Colab notebook reports each step (started / gpu / connected / libraries / rendering / error)
+    so a failure on a phone is visible in the Studio without screenshots. Public but tiny: text only,
+    capped, rate-limited, last 40 lines kept."""
+    now = time.time()
+    _LOG_RATE[:] = [t for t in _LOG_RATE if now - t < 60]
+    if len(_LOG_RATE) >= 30:
+        return False
+    _LOG_RATE.append(now)
+    import re as _re
+    line = {"t": now, "stage": _re.sub(r"[^a-z_]", "", (stage or "").lower())[:20],
+            "msg": _re.sub(r"(skg_[A-Za-z0-9_-]+)", "skg_…", str(msg or ""))[:400]}
+    with _LOCK:
+        try:
+            items = json.loads(_COLAB_LOG.read_text("utf-8"))
+        except Exception:
+            items = []
+        items = (items + [line])[-40:]
+        _COLAB_LOG.write_text(json.dumps(items), "utf-8")
+    return True
+
+
+def colab_log_tail(n: int = 12) -> List[Dict[str, Any]]:
+    try:
+        return json.loads(_COLAB_LOG.read_text("utf-8"))[-n:]
+    except Exception:
+        return []
+
+
 _AUTO_TTL = 10 * 60                      # an armed pairing waits this long for the notebook
 
 

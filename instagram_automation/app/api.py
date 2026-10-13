@@ -109,7 +109,7 @@ async def admin_gate(request, call_next):
     if (request.method == "OPTIONS" or not path.startswith("/api/")
             or path in _OPEN_PATHS or path.startswith("/api/webhooks/")
             or path.startswith("/api/gpu/worker/") or path.startswith("/api/gpu/device/")
-            or path == "/api/gpu/colab/claim"):
+            or path in ("/api/gpu/colab/claim", "/api/gpu/colab/log")):
         return await call_next(request)
     if not _auth.verify(_auth.token_from_header(request.headers.get("authorization"))):
         return JSONResponse(status_code=401,
@@ -825,6 +825,25 @@ def sk_gpu_colab_key_revoke():
 
 class ColabClaimReq(BaseModel):
     code: str
+
+
+class ColabLogReq(BaseModel):
+    stage: str
+    msg: str = ""
+
+
+@app.post("/api/gpu/colab/log")
+def gpu_colab_log(body: ColabLogReq):
+    """PUBLIC: the Colab notebook reports its progress / errors (text only, rate-limited)."""
+    from app.services import scene_store
+    return {"ok": scene_store.colab_log(body.stage, body.msg)}
+
+
+@app.get("/api/sk/gpu/colab-log")
+def sk_gpu_colab_log():
+    """The notebook's last steps — shown in the Studio while it waits for Colab."""
+    from app.services import scene_store
+    return {"lines": scene_store.colab_log_tail()}
 
 
 @app.post("/api/gpu/colab/claim")
