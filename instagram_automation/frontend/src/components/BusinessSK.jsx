@@ -620,11 +620,11 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
     const t = setInterval(tick, 20000);
     return () => clearInterval(t);
   }, []);
-  const getArt = async (g, fresh = false) => {
+  const getArt = async (g, fresh = false, paint = true) => {
     if (!fresh && artPlans[g.id]) return artPlans[g.id];
     setArtBusy(g.id);
     try {
-      const res = await api.skArtDirect((g.products || []).slice(0, 10), g.category || '', look, styles, fresh);
+      const res = await api.skArtDirect((g.products || []).slice(0, 10), g.category || '', look, styles, fresh, paint);
       setArtPlans((m) => ({ ...m, [g.id]: res.art }));
       return res.art;
     } catch (e) {
@@ -736,7 +736,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
       const jobs = [];
       let todo = 0, usd = 0, med = 0, low = 0, est = null;
       for (const g of posts) {
-        const art = await getArt(g);
+        const art = await getArt(g, false, false);          // plan only — the styled post never uses a studio scene
         if (!art?.id) { setStyleAllMsg(`Could not plan “${g.label}” — try Preview & layout first`); return; }
         const dark = ['noir', 'mono'].includes(art.palette || '');        // dark looks → the stone surface
         const pins = (g.products || []).slice(0, 10);

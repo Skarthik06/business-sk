@@ -690,6 +690,7 @@ class ArtDirectReq(BaseModel):
     look: str = ""                     # ai (default) | premium | a palette | <scene key>
     styles: str = ""                   # slash-command presets, e.g. "/premium /cinematic"
     fresh: bool = False                # explicit re-roll → a NEW plan (+ one new paint) for this post
+    paint: bool = True                 # False (Style with AI): plan only — no studio-scene GPU job
 
 
 @app.post("/api/sk/art-direct")
@@ -700,8 +701,15 @@ def sk_art_direct(body: ArtDirectReq):
     from app.services import art_director
     if not body.products:
         raise HTTPException(400, "No products")
-    return {"success": True, "art": art_director.direct(body.products, body.category, body.look, body.styles,
-                                                        fresh=body.fresh)}
+    art = art_director.direct(body.products, body.category, body.look, body.styles, fresh=body.fresh)
+    if not body.paint:
+        # Style with AI replaces the scene design with styled flat-lays → don't paint a studio scene
+        # that nothing will use (it only competed with the styling background for the GPU)
+        from app.services import scene_store
+        new = ((art or {}).get("scene") or {}).get("new") or {}
+        if new.get("key"):
+            scene_store.cancel_scene(new["key"])
+    return {"success": True, "art": art}
 
 
 @app.get("/api/sk/scenes")

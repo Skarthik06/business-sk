@@ -75,7 +75,7 @@ export default {
   // AI Art Director (agent post-art-director): plans the scene + per-slide layouts from the product
   // photos + details and queues the laptop-GPU cut-outs. Pass the returned `art` to preview/post.
   // One plan per post (server-cached); fresh=true only for an explicit "new design" re-roll.
-  skArtDirect: (products, category = '', look = '', styles = '', fresh = false) => http.post('/sk/art-direct', { products, category, look, styles, fresh }, { timeout: 90000 }).then(data),
+  skArtDirect: (products, category = '', look = '', styles = '', fresh = false, paint = true) => http.post('/sk/art-direct', { products, category, look, styles, fresh, paint }, { timeout: 90000 }).then(data),   // paint=false: plan only, no studio-scene GPU job (Style with AI)
   // Backdrop library (thumbnails) + laptop GPU worker status.
   skScenes: () => http.get('/sk/scenes').then(data),
   // AI Stylist — styled flat-lays (paid per image, only on click; estimate first, nothing spent)
