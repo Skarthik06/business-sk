@@ -38,6 +38,20 @@ const TAB_KICKER = {
   history: 'Every carousel you have published.',
 };
 const COLAB_NOTEBOOK = 'https://colab.research.google.com/github/Skarthik06/business-sk/blob/main/colab/sk_gpu_worker.ipynb';
+// Open the Colab notebook — on Android in the CHROME APP (your Google profile), not the Business-SK
+// app's in-app tab; elsewhere a new tab. Every open also arms the no-code pairing, so ▶ in Colab
+// connects by itself. Call it straight from a tap (browsers only allow app switches on a tap).
+// Returns true when it handled the open (an <a> then skips its own navigation).
+function openColab(url = COLAB_NOTEBOOK) {
+  api.skGpuColab(true).catch(() => {});
+  if (/Android/i.test(navigator.userAgent || '')) {
+    const bare = url.replace(/^https?:\/\//, '');
+    window.location.href = `intent://${bare}#Intent;scheme=https;package=com.android.chrome;S.browser_fallback_url=${encodeURIComponent(url)};end`;
+    return true;
+  }
+  window.open(url, '_blank', 'noopener');
+  return true;
+}
 const LS_FAV = 'sk_favorites';
 const LS_QUEUE = 'sk_queue';
 const OTHER_PANEL_POST = /^(clstore-|mystore|flipkart-)/;   // queue ids staged by the store panels, not Find products
@@ -737,9 +751,8 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                 `Estimated cost ≈$${usd.toFixed(3)} (max) · today $${est.today_usd.toFixed(3)} of $${est.daily_cap_usd.toFixed(2)} cap${left}`,
                 needColab && '☁️ Colab isn’t running — the button opens it in your browser: tap ▶ there, then come back here. Styling waits for it (up to ~8 min) and runs by itself.',
                 capWarn].filter(Boolean), ok: needColab ? '☁️ Open Colab & style' : 'Style now', gold: true, sticky: true,
-        onOk: needColab ? () => window.open(COLAB_NOTEBOOK, '_blank', 'noopener') : null });
+        onOk: needColab ? () => openColab() : null });
       if (!ok) { setStyleAllMsg('Cancelled — nothing was spent.'); return; }
-      if (needColab) api.skGpuColab().catch(() => {});   // arms the no-code pairing: just press ▶ in Colab
       let styled = 0, spent = 0, fixed = 0, kept = 0, why = '', r = null;
       for (const [i, j] of jobs.entries()) {
         setStyleAllMsg(needColab && i === 0
@@ -961,7 +974,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                   <div className="text-xs mb-2" style={{ color: 'var(--faint)' }}>One-time code · valid {Math.round((colab.expires_in || 1800) / 60)} min · Colab then renders for up to 12 h</div>
                   <div className="flex flex-wrap gap-2">
                     <button className="btn btn-sm" onClick={() => navigator.clipboard?.writeText(colab.code).then(() => say('Code copied'))}>Copy code</button>
-                    <a className="btn btn-sm btn-accent" href={colab.notebook} target="_blank" rel="noreferrer">Open Colab ↗</a>
+                    <a className="btn btn-sm btn-accent" href={colab.notebook} target="_blank" rel="noreferrer" onClick={(e) => { e.preventDefault(); openColab(colab.notebook); }}>Open Colab ↗</a>
                     <button className="btn btn-sm btn-ghost" onClick={() => setColab(null)}>Close</button>
                   </div>
                   <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>In Colab (phone or laptop): put the code in SESSION_CODE and tap ▶. Keep the tab open.</div>
@@ -1768,7 +1781,7 @@ function RenderGpuPanel({ active }) {
       <div className="flex items-center mb-3 gap-2">
         <div className="eyebrow">Render GPUs</div>
         <span className="flex-1" />
-        <a className="btn btn-sm btn-ghost" href="https://colab.research.google.com/github/Skarthik06/business-sk/blob/main/colab/sk_gpu_worker.ipynb" target="_blank" rel="noreferrer">Open Colab ↗</a>
+        <a className="btn btn-sm btn-ghost" href={COLAB_NOTEBOOK} target="_blank" rel="noreferrer" onClick={(e) => { e.preventDefault(); openColab(); }}>Open Colab ↗</a>
         <button className="btn btn-sm" onClick={getCode} disabled={busy} title="A one-time code for the Colab notebook (valid 30 min, single use)">
           {busy ? <Spinner size={12} /> : '☁️'} Get Colab code
         </button>
@@ -1801,7 +1814,7 @@ function RenderGpuPanel({ active }) {
           <div className="font-mono text-xs" style={{ wordBreak: 'break-all', padding: '8px 10px', background: 'var(--bg)', borderRadius: 8 }}>{key.key}</div>
           <div className="flex flex-wrap gap-2 mt-2">
             <button className="btn btn-sm" onClick={() => navigator.clipboard?.writeText(key.key)}>Copy key</button>
-            <a className="btn btn-sm btn-accent" href="https://colab.research.google.com/github/Skarthik06/business-sk/blob/main/colab/sk_gpu_worker.ipynb" target="_blank" rel="noreferrer">Open Colab ↗</a>
+            <a className="btn btn-sm btn-accent" href={COLAB_NOTEBOOK} target="_blank" rel="noreferrer" onClick={(e) => { e.preventDefault(); openColab(); }}>Open Colab ↗</a>
             <button className="btn btn-sm btn-ghost" onClick={() => setKey(null)}>Done</button>
           </div>
           <ol className="text-xs mt-2" style={{ color: 'var(--faint)', paddingLeft: 18, listStyle: 'decimal' }}>
@@ -1818,7 +1831,7 @@ function RenderGpuPanel({ active }) {
           <div className="text-xs mb-2" style={{ color: 'var(--faint)' }}>One-time code · valid {Math.round((colab.expires_in || 1800) / 60)} min · Colab then renders for up to 12 h</div>
           <div className="flex flex-wrap gap-2">
             <button className="btn btn-sm" onClick={() => navigator.clipboard?.writeText(colab.code)}>Copy code</button>
-            <a className="btn btn-sm btn-accent" href={colab.notebook} target="_blank" rel="noreferrer">Open Colab ↗</a>
+            <a className="btn btn-sm btn-accent" href={colab.notebook} target="_blank" rel="noreferrer" onClick={(e) => { e.preventDefault(); openColab(colab.notebook); }}>Open Colab ↗</a>
             <button className="btn btn-sm btn-ghost" onClick={() => setColab(null)}>Close</button>
           </div>
           <div className="text-xs mt-2" style={{ color: 'var(--faint)' }}>In Colab (phone or laptop): paste the code into <b>SESSION_CODE</b> and tap ▶. Keep the tab open.</div>
