@@ -122,6 +122,35 @@ def new_colab_code() -> Dict[str, Any]:
     return {"code": f"{raw[:4]}-{raw[4:]}", "expires_in": _CODE_TTL}
 
 
+_AUTO_TTL = 10 * 60                      # an armed pairing waits this long for the notebook
+
+
+def arm_auto_claim() -> int:
+    """The Studio (logged in as you) opened Colab → arm ONE pairing for 10 minutes. The notebook
+    then connects by itself (no code to type). Single use; a new arm replaces the old one."""
+    with _LOCK:
+        items = [s for s in _sessions() if s.get("kind") != "auto"]
+        items.append({"kind": "auto", "exp": time.time() + _AUTO_TTL})
+        _save_sessions(items)
+    return _AUTO_TTL
+
+
+def claim_auto() -> Optional[str]:
+    """The notebook's no-code connect: consume the armed pairing → a 12 h worker token."""
+    import secrets
+    now = time.time()
+    with _LOCK:
+        items = _sessions()
+        hit = next((s for s in items if s.get("kind") == "auto"), None)
+        if not hit:
+            return None
+        items.remove(hit)                             # single use
+        token = "skg_" + secrets.token_urlsafe(32)
+        items.append({"token": _sha(token), "exp": now + _SESSION_TTL})
+        _save_sessions(items)
+    return token
+
+
 def claim_colab_code(code: str) -> Optional[str]:
     """One-time code → temporary worker token (only its hash is stored). None = wrong/expired."""
     import secrets

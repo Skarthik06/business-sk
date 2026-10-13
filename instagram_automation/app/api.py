@@ -804,6 +804,7 @@ def sk_gpu_colab(force: bool = False):
     laptop_renders = scene_store.render_target() != "colab" and scene_store.laptop_online()
     if not force and laptop_renders:
         return {"success": True, "laptop_online": True}
+    scene_store.arm_auto_claim()                     # the notebook connects by itself — no code to type
     return {"success": True, "laptop_online": laptop_renders, "colab_online": scene_store.colab_online(),
             "notebook": COLAB_NOTEBOOK, **scene_store.new_colab_code()}
 
@@ -830,7 +831,14 @@ class ColabClaimReq(BaseModel):
 def gpu_colab_claim(body: ColabClaimReq):
     """PUBLIC: the Colab notebook swaps its one-time code for a temporary GPU worker token."""
     from app.services import scene_store
-    tok = scene_store.claim_colab_code(body.code)
+    if (body.code or "").strip().upper() in ("", "AUTO"):
+        # no code typed → the pairing the Studio armed when you opened Colab (10 min, single use)
+        tok = scene_store.claim_auto()
+        if not tok:
+            raise HTTPException(400, "no pairing waiting — open Colab from the Studio (✨ Style with AI or "
+                                     "☁️ Render with Colab), then press ▶ within 10 minutes")
+    else:
+        tok = scene_store.claim_colab_code(body.code)
     if not tok:
         raise HTTPException(400, "code is wrong or expired — press Render with Colab again in the Studio")
     return {"ok": True, "token": tok, "hours": 12}

@@ -739,6 +739,7 @@ function PostTab({ accounts, say, queue = [], setQueue, goAffiliate }) {
                 capWarn].filter(Boolean), ok: needColab ? '☁️ Open Colab & style' : 'Style now', gold: true, sticky: true,
         onOk: needColab ? () => window.open(COLAB_NOTEBOOK, '_blank', 'noopener') : null });
       if (!ok) { setStyleAllMsg('Cancelled — nothing was spent.'); return; }
+      if (needColab) api.skGpuColab().catch(() => {});   // arms the no-code pairing: just press ▶ in Colab
       let styled = 0, spent = 0, fixed = 0, kept = 0, why = '', r = null;
       for (const [i, j] of jobs.entries()) {
         setStyleAllMsg(needColab && i === 0
