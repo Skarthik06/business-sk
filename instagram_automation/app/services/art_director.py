@@ -457,12 +457,39 @@ def plan_id(products: List[Dict[str, Any]], category: str = "", look: str = "", 
     return _h.sha1(sig.encode("utf-8")).hexdigest()[:24]
 
 
+def enabled() -> bool:
+    """The AI Art Director (scene design: LLM analysis + studio-scene paints + product cut-outs) is
+    OFF by default — the owner made ✨ Style with AI THE render (2026-10-13). ART_DIRECTOR=on restores it."""
+    return _knob("ART_DIRECTOR", "off").lower() in ("1", "on", "true", "yes")
+
+
+_DARK_WORDS = ("black", "navy", "charcoal", "dark", "maroon", "olive", "coffee", "brown")
+
+
+def _lite_plan(products: List[Dict[str, Any]], category: str = "") -> Dict[str, Any]:
+    """The plain post plan used while the Art Director is off: an id for Style with AI to file its
+    results under, a dark/light hint for the flat-lay surface, the comment chip. No AI call, no GPU."""
+    titles = [str(p.get("product_title") or p.get("title") or "").lower() for p in (products or []) if isinstance(p, dict)]
+    darkish = sum(1 for t in titles if any(w in t for w in _DARK_WORDS))
+    return {"source": "lite", "palette": "noir" if titles and darkish * 2 > len(titles) else "",
+            "chip": "Comment “LINK” for this look", "concept": "", "scene": {}, "analysis": [],
+            "presets": [], "usage": {}}
+
+
 def direct(products: List[Dict[str, Any]], category: str = "", look: str = "", styles: Any = None,
            fresh: bool = False) -> Dict[str, Any]:
     """ONE plan per post. The first call art-directs (LLM) and queues the GPU work; every later
     call for the same post (reloads, card + big preview, publish) returns that SAME plan — no new
     LLM call and no new GPU paint. `fresh=True` (an explicit re-roll) makes a new plan."""
     pid = plan_id(products, category, look, styles)
+    if not enabled():                                     # Style with AI is the render: plain plan only
+        with scene_store.plan_lock(pid):
+            cached = scene_store.plan_get(pid) or {}
+            plan = cached.get("plan") if (cached.get("plan") and not fresh) else None
+            if not plan:
+                plan = {**_lite_plan(products, category), "id": pid, "rev": int(time.time())}
+                scene_store.plan_put(pid, {**cached, "t": time.time(), "plan": plan})
+            return plan
     with scene_store.plan_lock(pid):
         cached = None if fresh else scene_store.plan_get(pid)
         if cached and cached.get("plan") and time.time() - float(cached.get("t") or 0) < 7 * 86400:

@@ -1891,7 +1891,12 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
     # AI Art Director (agent post-art-director) — THE format for product posts: an AI scene
     # backdrop from the library + the real product cut-out. The laptop GPU's BiRefNet cut-outs are
     # used when ready; otherwise the server cuts the product out itself (never old templates).
-    if art:
+    scene = None                                          # no Art Director scene unless it's on
+    try:
+        from app.services.art_director import enabled as _art_director_on
+    except Exception:
+        _art_director_on = lambda: False                  # noqa: E731
+    if art and _art_director_on():                        # OFF by default — Style with AI is the render
         scene = _scene_ctx(products, art)
         if scene:
             for p in products:
@@ -1902,6 +1907,8 @@ def render_carousel(products: List[Dict[str, Any]], *, category: str = "", out_d
         if art.get("palette") in _PALETTES:
             P = _palette(art["palette"], category)
         _apply_art(specs, products, art, scene, templates)
+    elif art and art.get("palette") in _PALETTES:
+        P = _palette(art["palette"], category)
     chip = str((art or {}).get("chip") or "Comment “LINK” for this look")
     dark = bool(art and art.get("palette") == "noir")
     # AI Stylist: styled flat-lays exist for this post → those product slides use them

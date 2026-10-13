@@ -43,6 +43,14 @@ from pydantic import BaseModel
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Sync endpoints run in a thread pool (default 40). Styling waits minutes for a GPU background;
+    # a few of those must never block everything else (laptop/phone check-ins, the Studio itself).
+    try:
+        import os as _o
+        import anyio.to_thread
+        anyio.to_thread.current_default_thread_limiter().total_tokens = int(_o.getenv("SK_THREADS", "200"))
+    except Exception:
+        pass
     db.init_db()
     rags.seed_from_env()
     from app.business import store as business_store
