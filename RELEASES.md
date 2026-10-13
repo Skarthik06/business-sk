@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.27.2** (2026-10-13) — Colab opens in your Chrome browser from the app (app 1.8.0); one-tap back to the Studio
 - **v2.27.1** (2026-10-13) — Colab opens in the Chrome app on Android
 - **v2.27.0** (2026-10-13) — Colab: no session code — opening it from the Studio pairs it automatically
 - **v2.26.5** (2026-10-13) — Render queue: stale jobs expire after 6 h
