@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.27.4** (2026-10-13) — Style with AI no longer queues an unused studio scene
 - **v2.27.3** (2026-10-13) — Colab progress is reported to the Studio
 - **v2.27.2** (2026-10-13) — Colab opens in your Chrome browser from the app (app 1.8.0); one-tap back to the Studio
 - **v2.27.1** (2026-10-13) — Colab opens in the Chrome app on Android
