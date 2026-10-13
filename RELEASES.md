@@ -38,6 +38,7 @@ cat ~/business-sk/.deployed_version
 ```
 
 ## Release history
+- **v2.27.0** (2026-10-13) — Colab: no session code — opening it from the Studio pairs it automatically
 - **v2.26.5** (2026-10-13) — Render queue: stale jobs expire after 6 h
 - **v2.26.4** (2026-10-07) — Amazon Affiliate: products fetched reliably through your phone/laptop scraper
 - **v2.26.3** (2026-10-07) — Flipkart prices: the real selling price (was reading the MRP)
