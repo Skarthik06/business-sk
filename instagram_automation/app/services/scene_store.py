@@ -291,8 +291,23 @@ def _write_job(job: Dict[str, Any]) -> None:
         tmp.replace(path)
 
 
+JOB_TTL = float(os.getenv("SK_JOB_TTL_HOURS", "6")) * 3600   # a job nobody picked up for this long is stale
+
+
 def _jobs() -> List[Dict[str, Any]]:
-    return [j for j in (_read_job(f) for f in QDIR.glob("*.json")) if j]
+    """The live queue. A job that no GPU picked up within JOB_TTL (e.g. phone work waiting for a
+    Colab that never came) is dropped — a stale job otherwise sits in the queue forever and keeps
+    the Studio 'waiting for Colab'. If a post still needs it, it is simply queued again fresh."""
+    out, now = [], time.time()
+    for f in QDIR.glob("*.json"):
+        j = _read_job(f)
+        if not j:
+            continue
+        if not j.get("lease") and now - float(j.get("queued") or now) > JOB_TTL:
+            f.unlink(missing_ok=True)
+            continue
+        out.append(j)
+    return out
 
 
 def enqueue_cutout(url: str) -> Optional[str]:
